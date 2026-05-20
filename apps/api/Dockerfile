@@ -1,6 +1,9 @@
 FROM node:20-alpine
 WORKDIR /app
 
+# OpenSSL necessário para o Prisma (engine linux-musl-openssl-3.0.x)
+RUN apk add --no-cache openssl
+
 RUN npm install -g pnpm
 
 # Copy package files for dependency installation
