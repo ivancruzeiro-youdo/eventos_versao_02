@@ -2,7 +2,7 @@ services:
   # PostgreSQL Database
   postgres:
     image: postgres:16-alpine
-    container_name: youdo-v2-postgres
+    container_name: EVENTOS_V2-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-youdo}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-youdo123}
@@ -22,7 +22,7 @@ services:
   # Redis Cache & Queue
   redis:
     image: redis:7-alpine
-    container_name: youdo-v2-redis
+    container_name: EVENTOS_V2-redis
     ports:
       - "6379:6379"
     volumes:
@@ -40,7 +40,7 @@ services:
     build:
       context: ..
       dockerfile: apps/api/Dockerfile
-    container_name: youdo-v2-api
+    container_name: EVENTOS_V2-api
     environment:
       NODE_ENV: production
       PORT: 3001
@@ -69,7 +69,7 @@ services:
     build:
       context: ..
       dockerfile: apps/web/Dockerfile
-    container_name: youdo-v2-web
+    container_name: EVENTOS_V2-web
     environment:
       NODE_ENV: production
       NEXT_PUBLIC_API_URL: http://api:3001
@@ -85,7 +85,7 @@ services:
   # Nginx Reverse Proxy
   nginx:
     image: nginx:alpine
-    container_name: youdo-v2-nginx
+    container_name: EVENTOS_V2-nginx
     ports:
       - "80:80"
       - "443:443"
