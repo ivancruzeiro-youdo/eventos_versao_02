@@ -20,6 +20,9 @@ RUN pnpm install --frozen-lockfile
 COPY apps/api ./apps/api
 COPY packages ./packages
 
+# Generate Prisma client
+RUN pnpm --filter @youdo/db db:generate
+
 # Build
 RUN pnpm --filter @youdo/api build
 
