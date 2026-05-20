@@ -41,8 +41,8 @@ RUN pnpm install --frozen-lockfile --prod
 
 # Copy built files
 COPY --from=builder /app/apps/web/.next ./apps/web/.next
-COPY --from=builder /app/apps/web/public ./apps/web/public
-COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
+COPY --from=builder /app/apps/web ./apps/web
+COPY --from=builder /app/packages ./packages
 
 WORKDIR /app/apps/web
 
