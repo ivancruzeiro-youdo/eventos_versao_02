@@ -23,10 +23,6 @@ COPY packages ./packages
 # Generate Prisma client
 RUN pnpm --filter @youdo/db db:generate
 
-# Build packages
-RUN pnpm --filter @youdo/db build
-RUN pnpm --filter @youdo/shared build
-
 # Build
 RUN pnpm --filter @youdo/api build
 
@@ -50,11 +46,9 @@ RUN pnpm install --frozen-lockfile --prod
 
 # Copy built files
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
-COPY --from=builder /app/packages/db/dist ./packages/db/dist
-COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 
-# Copy Prisma files
-COPY packages/db/prisma ./packages/db/prisma
+# Copy packages source and Prisma files
+COPY --from=builder /app/packages ./packages
 
 # Generate Prisma client
 RUN cd packages/db && npx prisma generate
