@@ -1,33 +1,33 @@
 # Build stage
 FROM node:20-alpine AS builder
-
 WORKDIR /app
 
-# Install pnpm
 RUN npm install -g pnpm
 
-# Copy package files
+# NEXT_PUBLIC_API_URL is baked into the client bundle at build time
+# Set to the public-facing URL so the browser can reach the API via nginx
+ARG NEXT_PUBLIC_API_URL=http://localhost:3001
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+
+# Copy package files for dependency installation
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY apps/web/package.json ./apps/web/
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/config/package.json ./packages/config/
 
-# Install dependencies
 RUN pnpm install --frozen-lockfile
 
-# Copy source code
+# Copy source files (node_modules excluded via .dockerignore)
 COPY apps/web ./apps/web
-COPY packages ./packages
+COPY packages/shared ./packages/shared
+COPY packages/config ./packages/config
 
-# Build
 RUN pnpm --filter @youdo/web build
 
 # Production stage
 FROM node:20-alpine AS production
-
 WORKDIR /app
 
-# Install pnpm
 RUN npm install -g pnpm
 
 # Copy package files
@@ -36,18 +36,15 @@ COPY apps/web/package.json ./apps/web/
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/config/package.json ./packages/config/
 
-# Install production dependencies only
+# Install production dependencies (next binary needed for `next start`)
 RUN pnpm install --frozen-lockfile --prod
 
-# Copy built files
+# Copy compiled output from builder (no node_modules — pnpm installed fresh above)
 COPY --from=builder /app/apps/web/.next ./apps/web/.next
-COPY --from=builder /app/apps/web ./apps/web
-COPY --from=builder /app/packages ./packages
+COPY --from=builder /app/apps/web/next.config.mjs ./apps/web/next.config.mjs
 
 WORKDIR /app/apps/web
 
-# Expose port
 EXPOSE 3000
 
-# Start the app
 CMD ["pnpm", "start"]
