@@ -1,0 +1,21 @@
+# Override for development - adds hot reload volumes
+services:
+  api:
+    build:
+      target: builder
+    command: pnpm --filter @youdo/api dev
+    volumes:
+      - ../apps/api/src:/app/apps/api/src
+      - ../packages:/app/packages
+    environment:
+      NODE_ENV: development
+
+  web:
+    build:
+      target: builder
+    command: pnpm --filter @youdo/web dev
+    volumes:
+      - ../apps/web/src:/app/apps/web/src
+      - ../packages:/app/packages
+    environment:
+      NODE_ENV: development

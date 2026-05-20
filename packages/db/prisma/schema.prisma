@@ -1,0 +1,882 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// Entidades de Usuários e Autenticação
+// ============================================
+
+enum UserRole {
+  admin
+  event_owner
+  operator
+}
+
+model User {
+  id          String   @id @default(uuid())
+  email       String   @unique
+  name        String
+  role        UserRole
+  employerId  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  employer    Employer?   @relation(fields: [employerId], references: [id])
+  auditLogs     AuditLog[]
+  checkins      Guest[]     @relation("CheckedInBy")
+  penaltiesApplied FreelancerPenalty[] @relation("AppliedBy")
+  checklistItems ChecklistItem[] @relation("DoneBy")
+  comments      EventComment[]
+  uploadedFiles File[] @relation("uploadedBy")
+  choiceConfirmed       EventItemChoice[]         @relation("ChoiceConfirmedBy")
+  choiceHistories       EventItemChoiceHistory[]   @relation("ChoiceHistoryUser")
+  itemAnswers           EventItemAnswer[]          @relation("AnswerUpdatedBy")
+  itemAnswerHistories   EventItemAnswerHistory[]   @relation("AnswerHistoryUser")
+  venueAnswers         EventVenueAnswer[]         @relation("VenueAnswerUpdatedBy")
+  venueAnswerHistories EventVenueAnswerHistory[]  @relation("VenueAnswerHistoryUser")
+
+  @@index([email])
+  @@index([employerId])
+}
+
+model Freelancer {
+  id           String           @id @default(uuid())
+  name         String
+  email        String           @unique
+  cpf          String           @unique
+  phone        String?
+  birthDate    DateTime?
+  passwordHash String?
+  status       FreelancerStatus @default(active)
+  strikeCount  Int              @default(0)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  applications FreelancerApplication[]
+  penalties    FreelancerPenalty[]
+  services     FreelancerServiceLink[]
+
+  @@index([email])
+  @@index([cpf])
+}
+
+model FreelancerService {
+  id                  String   @id @default(uuid())
+  name                String
+  hourlyRate          Float    @default(0)
+  description         String?
+  startOffsetMinutes  Int      @default(-60)
+  endOffsetMinutes    Int      @default(60)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  freelancers    FreelancerServiceLink[]
+  products       ProductServiceLink[]
+  eventServices  EventService[]
+}
+
+model FreelancerServiceLink {
+  id           String   @id @default(uuid())
+  freelancerId String
+  serviceId    String
+  createdAt    DateTime @default(now())
+
+  freelancer Freelancer        @relation(fields: [freelancerId], references: [id], onDelete: Cascade)
+  service    FreelancerService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([freelancerId, serviceId])
+  @@index([freelancerId])
+  @@index([serviceId])
+}
+
+model ProductServiceLink {
+  id        String   @id @default(uuid())
+  productId String
+  serviceId String
+  createdAt DateTime @default(now())
+
+  product Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  service FreelancerService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, serviceId])
+  @@index([productId])
+  @@index([serviceId])
+}
+
+enum FreelancerStatus {
+  active
+  suspended
+}
+
+model Employer {
+  id           String   @id @default(uuid())
+  name         String
+  cnpj         String?  @unique
+  contactEmail String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  users   User[]
+  events  Event[]
+  venues  Venue[]
+  services Service[]
+
+  @@index([cnpj])
+}
+
+// ============================================
+// Entidades de Eventos
+// ============================================
+
+enum EventStatus {
+  draft
+  confirmed
+  in_progress
+  completed
+  cancelled
+}
+
+model Event {
+  id          String      @id @default(uuid())
+  name        String
+  clientName  String
+  employerId  String
+  status      EventStatus @default(draft)
+  setupAt     DateTime?
+  startAt     DateTime?
+  teardownAt  DateTime?
+  notes       String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  employer     Employer     @relation(fields: [employerId], references: [id])
+  venues       EventVenue[]
+  guests       Guest[]
+  services     EventService[]
+  plan         EventPlan?
+  briefing     Briefing?
+  checklists   EventChecklist[]
+  applications FreelancerApplication[]
+  nps          EventNPS[]
+  files        File[]
+  comments     EventComment[]
+  schedules    EventSchedule[]
+  contracts    EventContract[]
+  items        EventItem[]
+  syncLogs     EventSyncLog[]  @relation("EventToSyncLog")
+  venueAnswers EventVenueAnswer[]
+
+  @@index([employerId])
+  @@index([status])
+  @@index([startAt])
+}
+
+model EventVenue {
+  id       String @id @default(uuid())
+  eventId  String
+  venueId  String
+  notes    String?
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  venue Venue @relation(fields: [venueId], references: [id])
+
+  @@index([eventId])
+  @@index([venueId])
+}
+
+model Venue {
+  id            String   @id @default(uuid())
+  externalId    String?  @unique
+  name          String
+  address       String?
+  city          String?
+  state         String?
+  capacity      Int?
+  contactName   String?
+  contactPhone  String?
+  employerId    String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  employer  Employer        @relation(fields: [employerId], references: [id])
+  events    EventVenue[]
+  questions VenueQuestion[]
+
+  @@index([employerId])
+}
+
+model VenueQuestion {
+  id        String       @id @default(uuid())
+  venueId   String
+  text      String
+  type      QuestionType
+  required  Boolean      @default(false)
+  options   Json?
+  order     Int          @default(0)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  venue   Venue                @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  answers EventVenueAnswer[]
+
+  @@index([venueId])
+}
+
+model EventVenueAnswer {
+  id         String    @id @default(uuid())
+  eventId    String
+  questionId String
+  answer     Json
+  updatedAt  DateTime  @updatedAt
+  updatedById String?
+
+  event      Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  question   VenueQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  updatedBy  User?         @relation("VenueAnswerUpdatedBy", fields: [updatedById], references: [id])
+  history    EventVenueAnswerHistory[]
+
+  @@unique([eventId, questionId])
+  @@index([eventId])
+}
+
+model EventVenueAnswerHistory {
+  id        String   @id @default(uuid())
+  answerId  String
+  before    Json?
+  after     Json
+  userId    String?
+  createdAt DateTime @default(now())
+
+  answer EventVenueAnswer @relation(fields: [answerId], references: [id], onDelete: Cascade)
+  user   User?            @relation("VenueAnswerHistoryUser", fields: [userId], references: [id])
+
+  @@index([answerId])
+}
+
+// ============================================
+// Entidades de Convidados
+// ============================================
+
+enum GuestStatus {
+  pending
+  confirmed
+  declined
+  waitlisted
+  checked_in
+}
+
+model Guest {
+  id               String      @id @default(uuid())
+  eventId          String
+  name             String
+  phone            String?
+  cpf              String?
+  email            String?
+  status           GuestStatus @default(pending)
+  rsvpToken        String?     @unique
+  rsvpRespondedAt  DateTime?
+  checkedInAt      DateTime?
+  checkedInByUserId String?
+  isMinor          Boolean     @default(false)
+  responsibleName  String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  event     Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  checkedInBy User?   @relation("CheckedInBy", fields: [checkedInByUserId], references: [id])
+  nps       EventNPS?
+
+  @@index([eventId])
+  @@index([status])
+  @@index([cpf])
+  @@index([rsvpToken])
+}
+
+// ============================================
+// Entidades de Freelancers
+// ============================================
+
+model FreelancerApplication {
+  id           String                   @id @default(uuid())
+  freelancerId String
+  eventId      String
+  role         String
+  status       ApplicationStatus      @default(pending)
+  appliedAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  freelancer Freelancer @relation(fields: [freelancerId], references: [id])
+  event      Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([freelancerId])
+  @@index([eventId])
+  @@index([status])
+}
+
+enum ApplicationStatus {
+  pending
+  approved
+  rejected
+  cancelled
+}
+
+model FreelancerPenalty {
+  id            String   @id @default(uuid())
+  freelancerId  String
+  eventId       String?
+  reason        String
+  severity      PenaltySeverity
+  appliedByUserId String
+  createdAt     DateTime @default(now())
+
+  freelancer Freelancer @relation(fields: [freelancerId], references: [id])
+  appliedBy  User       @relation("AppliedBy", fields: [appliedByUserId], references: [id])
+
+  @@index([freelancerId])
+}
+
+enum PenaltySeverity {
+  light
+  medium
+  grave
+}
+
+// ============================================
+// Entidades de Planos
+// ============================================
+
+model EventPlan {
+  id        String     @id @default(uuid())
+  eventId   String     @unique
+  title     String
+  status    PlanStatus @default(draft)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  event     Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  questions PlanQuestion[]
+}
+
+enum PlanStatus {
+  draft
+  completed
+}
+
+model PlanQuestion {
+  id        String           @id @default(uuid())
+  planId    String
+  text      String
+  type      QuestionType
+  required  Boolean          @default(false)
+  order     Int
+  productId String?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  plan    EventPlan    @relation(fields: [planId], references: [id], onDelete: Cascade)
+  answers PlanAnswer[]
+
+  @@index([planId])
+}
+
+enum QuestionType {
+  text
+  textarea
+  select
+  multiselect
+  checkbox
+  date
+  number
+}
+
+model PlanAnswer {
+  id              String   @id @default(uuid())
+  questionId      String
+  textValue       String?
+  selectedOptions Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  question PlanQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([questionId])
+}
+
+// ============================================
+// Entidades de Briefing
+// ============================================
+
+model Briefing {
+  id         String          @id @default(uuid())
+  eventId    String          @unique
+  templateId String?
+  status     BriefingStatus  @default(draft)
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  event     Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  questions BriefingQuestion[]
+}
+
+enum BriefingStatus {
+  draft
+  completed
+}
+
+model BriefingQuestion {
+  id         String           @id @default(uuid())
+  briefingId String
+  text       String
+  type       QuestionType
+  required   Boolean          @default(false)
+  order      Int
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  briefing Briefing        @relation(fields: [briefingId], references: [id], onDelete: Cascade)
+  answers  BriefingAnswer[]
+
+  @@index([briefingId])
+}
+
+model BriefingAnswer {
+  id         String   @id @default(uuid())
+  questionId String
+  value      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  question BriefingQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([questionId])
+}
+
+// ============================================
+// Entidades de Serviços
+// ============================================
+
+model Service {
+  id          String   @id @default(uuid())
+  name        String
+  category    String?
+  description String?
+  employerId  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  employer Employer? @relation(fields: [employerId], references: [id])
+}
+
+model EventService {
+  id           String    @id @default(uuid())
+  eventId      String
+  serviceId    String
+  productName  String?
+  notes        String?
+  status       String    @default("active")
+  startAt      DateTime?
+  endAt        DateTime?
+  valuePerHour Float     @default(0)
+  maxSlots     Int       @default(1)
+  createdAt    DateTime  @default(now())
+
+  event   Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  service FreelancerService @relation(fields: [serviceId], references: [id])
+
+  @@index([eventId])
+  @@index([serviceId])
+}
+
+// ============================================
+// Entidades de Checklists
+// ============================================
+
+model EventChecklist {
+  id         String   @id @default(uuid())
+  eventId    String
+  title      String
+  templateId String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  event Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  items ChecklistItem[]
+
+  @@index([eventId])
+}
+
+model ChecklistItem {
+  id            String    @id @default(uuid())
+  checklistId   String
+  text          String
+  done          Boolean   @default(false)
+  doneAt        DateTime?
+  doneByUserId  String?
+  order         Int
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  checklist EventChecklist? @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+  doneBy    User?      @relation("DoneBy", fields: [doneByUserId], references: [id])
+
+  @@index([checklistId])
+}
+
+model ChecklistTemplate {
+  id          String                  @id @default(uuid())
+  title       String
+  employerId  String?
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+
+  items ChecklistTemplateItem[]
+}
+
+model ChecklistTemplateItem {
+  id          String            @id @default(uuid())
+  templateId  String
+  text        String
+  order       Int
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  template ChecklistTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+}
+
+// ============================================
+// Entidades de NPS
+// ============================================
+
+model EventNPS {
+  id          String   @id @default(uuid())
+  eventId     String
+  guestId     String   @unique
+  score       Int?
+  comment     String?
+  submittedAt DateTime?
+  createdAt   DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  guest Guest @relation(fields: [guestId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+}
+
+// ============================================
+// Entidades de Cronograma
+// ============================================
+
+model EventSchedule {
+  id          String   @id @default(uuid())
+  eventId     String
+  name        String
+  scheduledAt DateTime
+  description String?
+  fileId      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  file  File? @relation("ScheduleFile", fields: [fileId], references: [id])
+
+  @@index([eventId])
+  @@index([scheduledAt])
+}
+
+// ============================================
+// Entidades de Arquivos e Logs
+// ============================================
+
+model File {
+  id              String   @id @default(uuid())
+  eventId         String
+  uploadedByUserId String?
+  name            String
+  mimeType        String
+  sizeBytes       Int
+  s3Key           String
+  comment         String?
+  createdAt       DateTime @default(now())
+
+  event       Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  uploadedBy  User? @relation("uploadedBy", fields: [uploadedByUserId], references: [id])
+  schedules   EventSchedule[] @relation("ScheduleFile")
+
+  @@index([eventId])
+}
+
+// ============================================
+// Entidades de Comentários
+// ============================================
+
+model EventComment {
+  id        String   @id @default(uuid())
+  eventId   String
+  userId    String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id])
+
+  @@index([eventId])
+  @@index([userId])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String?
+  action      String
+  entityType  String
+  entityId    String
+  before      Json?
+  after       Json?
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([entityType])
+  @@index([entityId])
+  @@index([createdAt])
+}
+
+// ============================================
+// Entidades de Templates
+// ============================================
+
+model TemplateQuestion {
+  id          String       @id @default(uuid())
+  text        String
+  type        QuestionType
+  required    Boolean      @default(false)
+  productId   String?
+  categoryId  String?
+  employerId  String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model BriefingTemplate {
+  id         String   @id @default(uuid())
+  title      String
+  employerId String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  questions BriefingTemplateQuestion[]
+}
+
+model BriefingTemplateQuestion {
+  id         String   @id @default(uuid())
+  templateId String
+  text       String
+  type       QuestionType
+  required   Boolean  @default(false)
+  order      Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  template BriefingTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+}
+
+// ============================================
+// Produtos (importados do Userp-Satélite)
+// ============================================
+
+model Product {
+  id              String   @id @default(uuid())
+  externalId      String   @unique
+  name            String
+  descriptionLong String?
+  subitems        Json?
+  price           Float?
+  categoryId      String?
+  categoryName    String?
+  unitId          String?
+  unitName        String?
+  unitAbbr        String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  questions  ProductQuestion[]
+  services   ProductServiceLink[]
+  eventItems EventItem[]
+
+  @@index([categoryName])
+}
+
+model ProductQuestion {
+  id        String       @id @default(uuid())
+  productId String
+  text      String
+  type      QuestionType
+  required  Boolean      @default(false)
+  options   Json?
+  order     Int
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  answers EventItemAnswer[]
+
+  @@index([productId])
+}
+
+// ============================================
+// Importação de Contratos Userp
+// ============================================
+
+model EventContract {
+  id              String   @id @default(uuid())
+  eventId         String
+  externalId      String   // contrato_id from Userp
+  clientCode      String   // cliente_codigo
+  startDate       String   // data_inicio (YYYY-MM-DD) — matches events
+  rawJson         Json     // full contract payload snapshot
+  createdAt       DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+  @@index([clientCode, startDate])
+}
+
+// Item contratado dentro de um evento (A&B, Infraestrutura, Equipe, Locação)
+model EventItem {
+  id          String   @id @default(uuid())
+  eventId     String
+  productId   String?  // linked Product (null for venue items)
+  venueId     String?  // linked Venue (for locação)
+  category    String   // "ab" | "infra" | "staff" | "venue"
+  name        String
+  quantity    Float    @default(1)
+  unit        String?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  event   Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  product Product?      @relation(fields: [productId], references: [id])
+  choices EventItemChoice[]
+  slots   EventStaffSlot[]
+  answers EventItemAnswer[]
+
+  @@index([eventId])
+  @@index([productId])
+}
+
+// Escolhas feitas pelo cliente dentro de um item (ex: pratos selecionados)
+model EventItemChoice {
+  id            String    @id @default(uuid())
+  eventItemId   String
+  label         String    // subitem group label
+  chosen        String[]  // chosen options from subitems
+  maxChoices    Int?
+  confirmedAt   DateTime?
+  confirmedById String?
+
+  eventItem   EventItem               @relation(fields: [eventItemId], references: [id], onDelete: Cascade)
+  confirmedBy User?                   @relation("ChoiceConfirmedBy", fields: [confirmedById], references: [id])
+  history     EventItemChoiceHistory[]
+
+  @@index([eventItemId])
+}
+
+// Histórico de alterações em escolhas
+model EventItemChoiceHistory {
+  id        String   @id @default(uuid())
+  choiceId  String
+  before    String[] // previous chosen values
+  after     String[] // new chosen values
+  userId    String?
+  createdAt DateTime @default(now())
+
+  choice EventItemChoice @relation(fields: [choiceId], references: [id], onDelete: Cascade)
+  user   User?           @relation("ChoiceHistoryUser", fields: [userId], references: [id])
+
+  @@index([choiceId])
+  @@index([createdAt])
+}
+
+// Respostas às perguntas de configuração de um item
+model EventItemAnswer {
+  id          String   @id @default(uuid())
+  eventItemId String
+  questionId  String
+  answer      Json     // string | string[]
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+
+  eventItem   EventItem       @relation(fields: [eventItemId], references: [id], onDelete: Cascade)
+  question    ProductQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  updatedBy   User?           @relation("AnswerUpdatedBy", fields: [updatedById], references: [id])
+  history     EventItemAnswerHistory[]
+
+  @@unique([eventItemId, questionId])
+  @@index([eventItemId])
+}
+
+// Histórico de alterações em respostas
+model EventItemAnswerHistory {
+  id        String   @id @default(uuid())
+  answerId  String
+  before    Json?
+  after     Json
+  userId    String?
+  createdAt DateTime @default(now())
+
+  answer EventItemAnswer @relation(fields: [answerId], references: [id], onDelete: Cascade)
+  user   User?           @relation("AnswerHistoryUser", fields: [userId], references: [id])
+
+  @@index([answerId])
+  @@index([createdAt])
+}
+
+// Vaga de freelancer criada a partir de item do tipo "staff"
+model EventStaffSlot {
+  id            String   @id @default(uuid())
+  eventItemId   String
+  serviceId     String   // FreelancerService
+  quantity      Int      @default(1)
+  filledCount   Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  eventItem EventItem @relation(fields: [eventItemId], references: [id], onDelete: Cascade)
+
+  @@index([eventItemId])
+}
+
+// Log de versão: toda sync gera um registro
+model EventSyncLog {
+  id          String   @id @default(uuid())
+  eventId     String?
+  action      String
+  diff        Json?
+  syncedAt    DateTime @default(now())
+  triggeredBy String?
+
+  event Event? @relation("EventToSyncLog", fields: [eventId], references: [id], onDelete: SetNull)
+
+  @@index([eventId])
+}
+
+// ============================================
+// Configurações de Integração
+// ============================================
+
+model UerpConfig {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     String
+  expiresAt DateTime?
+  updatedAt DateTime @updatedAt
+}

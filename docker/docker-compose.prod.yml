@@ -1,0 +1,108 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: youdo-v2-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-youdo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-youdo123}
+      POSTGRES_DB: ${POSTGRES_DB:-youdo_v2}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-youdo} -d ${POSTGRES_DB:-youdo_v2}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - youdo-network
+
+  # Redis Cache & Queue
+  redis:
+    image: redis:7-alpine
+    container_name: youdo-v2-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - youdo-network
+
+  # API Backend (Fastify)
+  api:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    container_name: youdo-v2-api
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: postgresql://${POSTGRES_USER:-youdo}:${POSTGRES_PASSWORD:-youdo123}@postgres:5432/${POSTGRES_DB:-youdo_v2}
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      WEB_URL: http://web:3000
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - youdo-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  # Web Frontend (Next.js)
+  web:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    container_name: youdo-v2-web
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: http://api:3001
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - youdo-network
+    restart: unless-stopped
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: youdo-v2-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - web
+      - api
+    networks:
+      - youdo-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  youdo-network:
+    driver: bridge

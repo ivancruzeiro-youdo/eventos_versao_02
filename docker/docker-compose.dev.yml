@@ -1,0 +1,71 @@
+# Full development stack with hot reload
+services:
+  postgres:
+    extends:
+      file: docker-compose.yml
+      service: postgres
+
+  redis:
+    extends:
+      file: docker-compose.yml
+      service: redis
+
+  pgadmin:
+    extends:
+      file: docker-compose.yml
+      service: pgadmin
+
+  api:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+      target: builder
+    container_name: youdo-v2-api-dev
+    command: pnpm --filter @youdo/api dev
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: postgresql://youdo:youdo123@postgres:5432/youdo_v2
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: dev-secret-key-change-in-production
+      WEB_URL: http://localhost:3000
+    ports:
+      - "3001:3001"
+    volumes:
+      - ../apps/api/src:/app/apps/api/src
+      - ../packages:/app/packages
+      - /app/node_modules
+      - /app/apps/api/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - youdo-network
+
+  web:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+      target: builder
+    container_name: youdo-v2-web-dev
+    command: pnpm --filter @youdo/web dev
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../apps/web/src:/app/apps/web/src
+      - ../packages:/app/packages
+      - /app/node_modules
+      - /app/apps/web/node_modules
+    depends_on:
+      - api
+    networks:
+      - youdo-network
+
+networks:
+  youdo-network:
+    driver: bridge

@@ -1,0 +1,8 @@
+-- AlterTable
+ALTER TABLE "EventNPS" ADD COLUMN     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ALTER COLUMN "score" DROP NOT NULL,
+ALTER COLUMN "submittedAt" DROP NOT NULL,
+ALTER COLUMN "submittedAt" DROP DEFAULT;
+
+-- AlterTable
+ALTER TABLE "Freelancer" ADD COLUMN     "passwordHash" TEXT;

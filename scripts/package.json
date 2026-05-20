@@ -1,0 +1,18 @@
+{
+  "name": "@youdo/scripts",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "migrate": "tsx migrate-from-mysql.ts",
+    "seed": "tsx seed-dev.ts"
+  },
+  "dependencies": {
+    "@youdo/db": "workspace:*",
+    "mysql2": "^3.9.0",
+    "date-fns": "^3.6.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0"
+  }
+}
