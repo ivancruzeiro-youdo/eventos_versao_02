@@ -149,52 +149,103 @@ export async function planRoutes(app: FastifyInstance) {
     return { success: true, item };
   });
 
-  // Apply plan template to event
+  // Apply a template to an event plan (creates plan if not exists; adds questions if already exists)
   app.post('/events/:id/plan/apply-template', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId } = request.params as { id: string };
     const { templateId } = request.body as { templateId: string };
 
-    // Check if plan already exists
-    const existing = await prisma.eventPlan.findUnique({
-      where: { eventId },
-    });
-
-    if (existing) {
-      return reply.status(400).send({ error: 'Event already has a plan' });
+    if (!templateId) {
+      return reply.status(400).send({ error: 'templateId é obrigatório' });
     }
 
-    // Get template with questions
-    const template = await prisma.briefingTemplate.findUnique({
+    // Get PlanTemplate with questions
+    const template = await prisma.planTemplate.findUnique({
       where: { id: templateId },
       include: { questions: { orderBy: { order: 'asc' } } },
     });
-
     if (!template) {
-      return reply.status(404).send({ error: 'Template not found' });
+      return reply.status(404).send({ error: 'Template não encontrado' });
     }
 
-    // Create plan from template
-    const plan = await prisma.eventPlan.create({
-      data: {
-        eventId,
-        title: template.title,
-        questions: {
-          create: template.questions.map((q: any) => ({
-            text: q.text,
-            type: q.type,
-            required: q.required,
-            order: q.order,
-          })),
+    // Find or create the plan
+    let plan = await prisma.eventPlan.findUnique({ where: { eventId } });
+
+    if (plan) {
+      // Check if this template was already applied
+      const alreadyApplied = await prisma.planQuestion.findFirst({
+        where: { planId: plan.id, sourceTemplateId: templateId },
+      });
+      if (alreadyApplied) {
+        return reply.status(400).send({ error: 'Este template já foi aplicado a este plano' });
+      }
+
+      // Get current max order to append after existing questions
+      const maxOrderResult = await prisma.planQuestion.aggregate({
+        where: { planId: plan.id },
+        _max: { order: true },
+      });
+      const startOrder = (maxOrderResult._max.order ?? -1) + 1;
+
+      // Add questions from template to existing plan
+      await prisma.planQuestion.createMany({
+        data: template.questions.map((q: any, i: number) => ({
+          planId: plan!.id,
+          text: q.text,
+          type: q.type,
+          required: q.required,
+          options: q.options ?? null,
+          order: startOrder + i,
+          sourceTemplateId: templateId,
+        })),
+      });
+    } else {
+      // Create plan and questions in one go
+      plan = await prisma.eventPlan.create({
+        data: {
+          eventId,
+          title: template.title,
+          questions: {
+            create: template.questions.map((q: any, i: number) => ({
+              text: q.text,
+              type: q.type,
+              required: q.required,
+              options: q.options ?? null,
+              order: i,
+              sourceTemplateId: templateId,
+            })),
+          },
         },
-      },
+      });
+    }
+
+    // Return updated plan overview
+    const updatedPlan = await prisma.eventPlan.findUnique({
+      where: { id: plan.id },
       include: {
         questions: {
+          include: { answers: { take: 1, orderBy: { createdAt: 'desc' } } },
           orderBy: { order: 'asc' },
         },
       },
     });
 
-    return reply.status(201).send({ success: true, plan });
+    return reply.status(201).send({ success: true, plan: updatedPlan });
+  });
+
+  // Remove a template from an event plan (deletes its questions)
+  app.delete('/events/:id/plan/templates/:templateId', { preHandler: requireAuth }, async (request, reply) => {
+    const { id: eventId, templateId } = request.params as { id: string; templateId: string };
+
+    const plan = await prisma.eventPlan.findUnique({ where: { eventId } });
+    if (!plan) {
+      return reply.status(404).send({ error: 'Plano não encontrado' });
+    }
+
+    const deleted = await prisma.planQuestion.deleteMany({
+      where: { planId: plan.id, sourceTemplateId: templateId },
+    });
+
+    return { success: true, deletedCount: deleted.count };
   });
 
   // Update plan answers

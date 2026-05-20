@@ -92,13 +92,43 @@ export const reportsApi = {
 // Admin API
 export const adminApi = {
   users: () => fetchApi('/api/v2/admin/users'),
+  getUser: (id: string) => fetchApi(`/api/v2/admin/users/${id}`),
   createUser: (data: any) => fetchApi('/api/v2/admin/users', { method: 'POST', body: JSON.stringify(data) }),
+  updateUserRole: (id: string, role: string) =>
+    fetchApi(`/api/v2/admin/users/${id}/role`, { method: 'PATCH', body: JSON.stringify({ role }) }),
+  updateUserPassword: (id: string, password: string) =>
+    fetchApi(`/api/v2/admin/users/${id}/password`, { method: 'PATCH', body: JSON.stringify({ password }) }),
   deleteUser: (id: string) => fetchApi(`/api/v2/admin/users/${id}`, { method: 'DELETE' }),
   employers: () => fetchApi('/api/v2/admin/employers'),
+  getEmployer: (id: string) => fetchApi(`/api/v2/admin/employers/${id}`),
   createEmployer: (data: any) => fetchApi('/api/v2/admin/employers', { method: 'POST', body: JSON.stringify(data) }),
+  updateEmployer: (id: string, data: any) =>
+    fetchApi(`/api/v2/admin/employers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteEmployer: (id: string) => fetchApi(`/api/v2/admin/employers/${id}`, { method: 'DELETE' }),
   auditLog: () => fetchApi('/api/v2/admin/audit-log'),
   penalties: () => fetchApi('/api/v2/admin/penalties'),
+  // Plan templates
+  planTemplates: () => fetchApi('/api/v2/admin/plan-templates'),
+  getPlanTemplate: (id: string) => fetchApi(`/api/v2/admin/plan-templates/${id}`),
+  createPlanTemplate: (data: any) =>
+    fetchApi('/api/v2/admin/plan-templates', { method: 'POST', body: JSON.stringify(data) }),
+  updatePlanTemplate: (id: string, data: any) =>
+    fetchApi(`/api/v2/admin/plan-templates/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deletePlanTemplate: (id: string) =>
+    fetchApi(`/api/v2/admin/plan-templates/${id}`, { method: 'DELETE' }),
+  addPlanTemplateQuestion: (templateId: string, data: any) =>
+    fetchApi(`/api/v2/admin/plan-templates/${templateId}/questions`, { method: 'POST', body: JSON.stringify(data) }),
+  updatePlanTemplateQuestion: (questionId: string, data: any) =>
+    fetchApi(`/api/v2/admin/plan-template-questions/${questionId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deletePlanTemplateQuestion: (questionId: string) =>
+    fetchApi(`/api/v2/admin/plan-template-questions/${questionId}`, { method: 'DELETE' }),
+};
+
+// Plan Templates (public, for event plan creation)
+export const planTemplatesApi = {
+  list: () => fetchApi('/api/v2/plan-templates'),
+  applyToEvent: (eventId: string, templateId: string) =>
+    fetchApi(`/api/v2/events/${eventId}/plan/apply-template`, { method: 'POST', body: JSON.stringify({ templateId }) }),
 };
 
 // Venues API (extended)

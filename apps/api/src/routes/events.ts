@@ -299,9 +299,44 @@ export async function eventRoutes(app: FastifyInstance) {
 
   // ─── Plano do Evento ──────────────────────────────────────────────────────
 
-  // GET /events/:id/plan-overview — all product questions + venue questions with current answers
+  // GET /events/:id/plan-overview — plan template + product questions + venue questions with answers
   app.get('/:id/plan-overview', { preHandler: requireAuth }, async (request) => {
     const { id: eventId } = request.params as { id: string };
+
+    // Load EventPlan with questions+answers
+    const planRaw = await prisma.eventPlan.findUnique({
+      where: { eventId },
+      include: {
+        questions: {
+          include: {
+            answers: {
+              take: 1,
+              orderBy: { createdAt: 'desc' },
+            },
+          },
+          orderBy: { order: 'asc' },
+        },
+      },
+    });
+
+    // Derive applied templates from sourceTemplateId on questions
+    let plan: any = planRaw;
+    if (planRaw) {
+      const templateIds = [
+        ...new Set(
+          planRaw.questions
+            .map((q: any) => q.sourceTemplateId)
+            .filter(Boolean) as string[]
+        ),
+      ];
+      const appliedTemplates = templateIds.length > 0
+        ? await prisma.planTemplate.findMany({
+            where: { id: { in: templateIds } },
+            select: { id: true, title: true },
+          })
+        : [];
+      plan = { ...planRaw, appliedTemplates };
+    }
 
     // Load items with product questions + existing item answers
     const items = await (prisma as any).eventItem.findMany({
@@ -335,7 +370,7 @@ export async function eventRoutes(app: FastifyInstance) {
       },
     });
 
-    return { success: true, items, eventVenues, venueAnswers };
+    return { success: true, plan, items, eventVenues, venueAnswers };
   });
 
   // PUT /events/:id/venue-answers/:questionId — upsert venue question answer

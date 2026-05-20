@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import bcrypt from 'bcryptjs';
 import { prisma } from '../server.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 
@@ -239,6 +240,26 @@ export async function adminRoutes(app: FastifyInstance) {
     await prisma.employer.delete({ where: { id } });
 
     return { success: true };
+  });
+
+  // Change user password (admin sets password for any user)
+  app.patch('/users/:id/password', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { password } = request.body as { password: string };
+
+    if (!password || password.length < 6) {
+      return reply.status(400).send({ error: 'Senha deve ter pelo menos 6 caracteres' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const user = await prisma.user.update({
+      where: { id },
+      data: { passwordHash },
+      select: { id: true, name: true, email: true, role: true },
+    });
+
+    return { success: true, user };
   });
 
   // List all penalties

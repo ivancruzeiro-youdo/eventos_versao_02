@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import bcrypt from 'bcryptjs';
 import { prisma } from '../server.js';
 
 const loginSchema = z.object({
@@ -119,24 +120,26 @@ export async function authRoutes(app: FastifyInstance) {
     };
   });
 
-  // Dev login (Employer/Admin/Operator) - for development only
+  // Login (Employer/Admin/Operator) - email + password
   app.post('/dev-login', async (request, reply) => {
-    const { email } = request.body as { email: string };
-    
+    const { email, password } = request.body as { email: string; password?: string };
+
+    if (!email) {
+      return reply.status(400).send({ error: 'E-mail obrigatório' });
+    }
+
     // Find or create user based on email
-    let user = await prisma.user.findFirst({
-      where: { email },
-    });
+    let user = await prisma.user.findFirst({ where: { email } });
 
     if (!user) {
-      // Create a mock user for development
+      // First-time: auto-create user based on email prefix (bootstrap only)
       const employer = await prisma.employer.findFirst();
       if (!employer) {
-        return reply.status(500).send({ error: 'No employer found. Run db:seed first.' });
+        return reply.status(500).send({ error: 'Nenhum employer encontrado. Execute db:seed primeiro.' });
       }
 
-      const role = email.includes('admin') ? 'admin' 
-        : email.includes('owner') ? 'event_owner' 
+      const role = email.includes('admin') ? 'admin'
+        : email.includes('owner') ? 'event_owner'
         : 'operator';
 
       user = await prisma.user.create({
@@ -148,6 +151,18 @@ export async function authRoutes(app: FastifyInstance) {
         },
       });
     }
+
+    // If user has a password set, validate it
+    if (user.passwordHash) {
+      if (!password) {
+        return reply.status(401).send({ error: 'Senha obrigatória' });
+      }
+      const valid = await bcrypt.compare(password, user.passwordHash);
+      if (!valid) {
+        return reply.status(401).send({ error: 'Senha incorreta' });
+      }
+    }
+    // If no passwordHash yet: allow login without password (until admin sets one)
 
     const token = app.jwt.sign({
       sub: user.id,

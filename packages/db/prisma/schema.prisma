@@ -19,13 +19,14 @@ enum UserRole {
 }
 
 model User {
-  id          String   @id @default(uuid())
-  email       String   @unique
-  name        String
-  role        UserRole
-  employerId  String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String   @id @default(uuid())
+  email        String   @unique
+  name         String
+  role         UserRole
+  employerId   String?
+  passwordHash String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   employer    Employer?   @relation(fields: [employerId], references: [id])
   auditLogs     AuditLog[]
@@ -352,14 +353,16 @@ enum PenaltySeverity {
 // ============================================
 
 model EventPlan {
-  id        String     @id @default(uuid())
-  eventId   String     @unique
-  title     String
-  status    PlanStatus @default(draft)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id         String     @id @default(uuid())
+  eventId    String     @unique
+  title      String
+  templateId String?
+  status     PlanStatus @default(draft)
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
 
   event     Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  template  PlanTemplate?  @relation(fields: [templateId], references: [id])
   questions PlanQuestion[]
 }
 
@@ -368,21 +371,55 @@ enum PlanStatus {
   completed
 }
 
+// Template de plano: conjunto de perguntas padrão reutilizáveis (ex: "15 anos", "Casamento")
+model PlanTemplate {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  employerId  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  questions PlanTemplateQuestion[]
+  plans     EventPlan[]
+
+  @@index([employerId])
+}
+
+model PlanTemplateQuestion {
+  id         String       @id @default(uuid())
+  templateId String
+  text       String
+  type       QuestionType
+  required   Boolean      @default(false)
+  options    Json?
+  order      Int          @default(0)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  template PlanTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId])
+}
+
 model PlanQuestion {
-  id        String           @id @default(uuid())
-  planId    String
-  text      String
-  type      QuestionType
-  required  Boolean          @default(false)
-  order     Int
-  productId String?
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
+  id               String       @id @default(uuid())
+  planId           String
+  text             String
+  type             QuestionType
+  required         Boolean      @default(false)
+  options          Json?
+  order            Int
+  productId        String?
+  sourceTemplateId String?      // which PlanTemplate this question came from
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
   plan    EventPlan    @relation(fields: [planId], references: [id], onDelete: Cascade)
   answers PlanAnswer[]
 
   @@index([planId])
+  @@index([sourceTemplateId])
 }
 
 enum QuestionType {

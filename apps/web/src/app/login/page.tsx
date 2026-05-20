@@ -7,6 +7,7 @@ import Link from 'next/link';
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -16,11 +17,10 @@ export default function LoginPage() {
     setError('');
 
     try {
-      // Para dev: mock login que cria um JWT válido
       const res = await fetch('/api/v2/auth/dev-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, password }),
         credentials: 'include',
       });
 
@@ -75,10 +75,12 @@ export default function LoginPage() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Senha (dev: qualquer)
+              Senha
             </label>
             <input
               type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••"
               className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
             />

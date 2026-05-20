@@ -14,6 +14,7 @@ import { eventRoutes } from './routes/events.js';
 import { guestRoutes } from './routes/guests.js';
 import { freelancerRoutes } from './routes/freelancers.js';
 import { planRoutes } from './routes/plans.js';
+import { planTemplateRoutes } from './routes/plan-templates.js';
 import { fileRoutes } from './routes/files.js';
 import { npsRoutes } from './routes/nps.js';
 import { adminRoutes } from './routes/admin.js';
@@ -126,6 +127,7 @@ const start = async () => {
     await app.register(guestRoutes, { prefix: '/api/v2' });
     await app.register(freelancerRoutes, { prefix: '/api/v2' });
     await app.register(planRoutes, { prefix: '/api/v2' });
+    await app.register(planTemplateRoutes, { prefix: '/api/v2' });
     await app.register(fileRoutes, { prefix: '/api/v2' });
     await app.register(npsRoutes, { prefix: '/api/v2' });
     await app.register(adminRoutes, { prefix: '/api/v2/admin' });
