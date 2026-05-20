@@ -23,6 +23,10 @@ COPY packages ./packages
 # Generate Prisma client
 RUN pnpm --filter @youdo/db db:generate
 
+# Build packages
+RUN pnpm --filter @youdo/db build
+RUN pnpm --filter @youdo/shared build
+
 # Build
 RUN pnpm --filter @youdo/api build
 
