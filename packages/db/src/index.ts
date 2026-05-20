@@ -1,15 +1,14 @@
 import { PrismaClient } from '@prisma/client';
 import { config } from 'dotenv';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+import path from 'path';
 
 // Load .env file from workspace root
-config({ path: join(__dirname, '../../../.env') });
+config({ path: path.join(__dirname, '../../../.env') });
 
 export * from '@prisma/client';
+
+// Re-export Prisma enums explicitly
+export type { EventStatus, GuestStatus, UserRole } from '@prisma/client';
 
 // Create a singleton Prisma client
 const globalForPrisma = globalThis as unknown as {
