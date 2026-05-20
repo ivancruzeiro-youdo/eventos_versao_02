@@ -15,7 +15,8 @@ const updateRoleSchema = z.object({
 });
 
 export async function adminRoutes(app: FastifyInstance) {
-  // All routes require admin role
+  // requireAuth seta request.user; requireRole verifica o papel
+  app.addHook('preHandler', requireAuth);
   app.addHook('preHandler', requireRole(['admin']));
 
   // List users
