@@ -37,7 +37,7 @@ export default function EventPlanPage() {
 
   async function loadPlan() {
     try {
-      const response = await fetch(`http://localhost:3001/api/v2/events/${eventId}/plan`, {
+      const response = await fetch(`/api/v2/events/${eventId}/plan`, {
         credentials: 'include',
       });
       if (response.ok) {
@@ -60,7 +60,7 @@ export default function EventPlanPage() {
   async function handleSave() {
     setSaving(true);
     try {
-      await fetch(`http://localhost:3001/api/v2/events/${eventId}/plan/answers`, {
+      await fetch(`/api/v2/events/${eventId}/plan/answers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

@@ -17,7 +17,7 @@ export default function LoginPage() {
 
     try {
       // Para dev: mock login que cria um JWT válido
-      const res = await fetch('http://localhost:3001/api/v2/auth/dev-login', {
+      const res = await fetch('/api/v2/auth/dev-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),

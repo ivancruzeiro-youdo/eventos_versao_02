@@ -158,8 +158,8 @@ export async function authRoutes(app: FastifyInstance) {
 
     reply.setCookie('token', token, {
       httpOnly: true,
-      secure: false, // Allow HTTP in dev
-      sameSite: 'lax', // Better for localhost
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
       path: '/',
     });

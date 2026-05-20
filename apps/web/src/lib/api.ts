@@ -1,4 +1,7 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+// Em produção NEXT_PUBLIC_API_URL é a URL pública (baked no bundle).
+// Em dev sem a var, usa string vazia → URL relativa → rewrite do next.config.mjs
+// proxia para localhost:3001. Nunca hardcoda localhost no bundle de produção.
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 async function fetchApi(endpoint: string, options: RequestInit = {}) {
   const url = `${API_URL}${endpoint}`;

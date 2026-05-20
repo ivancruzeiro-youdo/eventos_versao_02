@@ -37,7 +37,7 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
 
   const fetchSchedules = async () => {
     try {
-      const res = await fetch(`http://localhost:3001/api/v2/events/${eventId}/schedules`, {
+      const res = await fetch(`/api/v2/events/${eventId}/schedules`, {
         credentials: 'include',
       });
       if (res.ok) {
@@ -65,8 +65,8 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
       };
 
       const url = editingId
-        ? `http://localhost:3001/api/v2/schedules/${editingId}`
-        : `http://localhost:3001/api/v2/events/${eventId}/schedules`;
+        ? `/api/v2/schedules/${editingId}`
+        : `/api/v2/events/${eventId}/schedules`;
 
       const res = await fetch(url, {
         method: editingId ? 'PATCH' : 'POST',
@@ -108,7 +108,7 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
     if (!confirm('Tem certeza que deseja excluir esta atividade?')) return;
 
     try {
-      const res = await fetch(`http://localhost:3001/api/v2/schedules/${scheduleId}`, {
+      const res = await fetch(`/api/v2/schedules/${scheduleId}`, {
         method: 'DELETE',
         credentials: 'include',
       });
