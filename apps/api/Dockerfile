@@ -23,9 +23,6 @@ COPY packages ./packages
 # Generate Prisma client
 RUN pnpm --filter @youdo/db db:generate
 
-# Build
-RUN pnpm --filter @youdo/api build
-
 # Production stage
 FROM node:20-alpine AS production
 
@@ -44,10 +41,8 @@ COPY packages/config/package.json ./packages/config/
 # Install production dependencies only
 RUN pnpm install --frozen-lockfile --prod
 
-# Copy built files
-COPY --from=builder /app/apps/api/dist ./apps/api/dist
-
-# Copy packages source and Prisma files
+# Copy source code
+COPY --from=builder /app/apps/api ./apps/api
 COPY --from=builder /app/packages ./packages
 
 # Generate Prisma client
@@ -61,4 +56,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:3001/health || exit 1
 
 # Start the server
-CMD ["node", "apps/api/dist/server.js"]
+CMD ["pnpm", "--filter", "@youdo/api", "start"]
