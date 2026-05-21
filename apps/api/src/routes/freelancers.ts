@@ -161,6 +161,11 @@ export async function freelancerRoutes(app: FastifyInstance) {
     const freelancer = await prisma.freelancer.findUnique({
       where: { id: user.id },
       include: {
+        services: {
+          include: {
+            service: true,
+          },
+        },
         penalties: {
           orderBy: { createdAt: 'desc' },
           take: 5,
@@ -195,7 +200,49 @@ export async function freelancerRoutes(app: FastifyInstance) {
       city?: string;
     };
 
+    // Get freelancer's services
+    const freelancer = await prisma.freelancer.findUnique({
+      where: { id: user.id },
+      include: {
+        services: {
+          include: {
+            service: true,
+          },
+        },
+      },
+    });
+
+    if (!freelancer) {
+      return reply.status(404).send({ error: 'Freelancer not found' });
+    }
+
+    // Get service IDs that the freelancer is authorized to perform
+    const serviceIds = freelancer.services.map(s => s.serviceId);
+
+    // Get EventStaffSlots for events that match the freelancer's services
+    const staffSlots = await prisma.eventStaffSlot.findMany({
+      where: {
+        serviceId: { in: serviceIds },
+      },
+      include: {
+        eventItem: {
+          include: {
+            event: {
+              include: {
+                venues: { include: { venue: true } },
+                employer: { select: { name: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Filter events based on staff slots
+    const eventIds = new Set(staffSlots.map(s => s.eventItem.eventId));
+
     const where: any = {
+      id: { in: Array.from(eventIds) },
       status: { in: ['confirmed', 'in_progress'] },
     };
 
@@ -211,6 +258,18 @@ export async function freelancerRoutes(app: FastifyInstance) {
       include: {
         venues: { include: { venue: true } },
         employer: { select: { name: true } },
+        items: {
+          include: {
+            slots: {
+              where: {
+                serviceId: { in: serviceIds },
+              },
+              include: {
+                eventItem: true,
+              },
+            },
+          },
+        },
         _count: { select: { 
           applications: { where: { status: 'approved' } },
           guests: { where: { status: 'confirmed' } },
@@ -227,7 +286,32 @@ export async function freelancerRoutes(app: FastifyInstance) {
       );
     }
 
-    return { success: true, jobs: filteredEvents };
+    // Transform events to job format with slot details
+    const jobs = filteredEvents.map(event => {
+      const slots = event.items
+        .flatMap(item => item.slots)
+        .filter(slot => serviceIds.includes(slot.serviceId));
+
+      return {
+        id: event.id,
+        event: {
+          id: event.id,
+          name: event.name,
+          startAt: event.startAt,
+          venues: event.venues,
+          employer: event.employer,
+        },
+        slots: slots.map(slot => ({
+          id: slot.id,
+          serviceId: slot.serviceId,
+          quantity: slot.quantity,
+          filledCount: slot.filledCount,
+          eventName: slot.eventItem.name,
+        })),
+      };
+    });
+
+    return { success: true, jobs };
   });
 
   // Apply for a job

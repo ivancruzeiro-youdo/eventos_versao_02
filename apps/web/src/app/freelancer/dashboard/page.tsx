@@ -6,21 +6,34 @@ import { authApi, freelancerApi } from '@/lib/api';
 
 interface Job {
   id: string;
-  role: string;
-  shift: string;
-  compensation: number;
   event: {
     id: string;
     name: string;
     startAt: string;
     venues: { venue: { name: string } }[];
+    employer: { name: string };
   };
+  slots: {
+    id: string;
+    serviceId: string;
+    quantity: number;
+    filledCount: number;
+    eventName: string;
+  }[];
+}
+
+interface Service {
+  id: string;
+  name: string;
+  hourlyRate: number;
+  description?: string;
 }
 
 export default function FreelancerDashboardPage() {
   const [user, setUser] = useState<any>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [applications, setApplications] = useState<any[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -37,6 +50,11 @@ export default function FreelancerDashboardPage() {
       setUser(userRes.user);
       setJobs(jobsRes.jobs || []);
       setApplications(appsRes.applications || []);
+      
+      // Get freelancer services
+      if (userRes.user?.freelancer?.services) {
+        setServices(userRes.user.freelancer.services.map((s: any) => s.service));
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -44,9 +62,9 @@ export default function FreelancerDashboardPage() {
     }
   }
 
-  async function handleApply(jobId: string, role: string) {
+  async function handleApply(jobId: string, serviceId: string) {
     try {
-      await freelancerApi.apply(jobId, role);
+      await freelancerApi.apply(jobId, serviceId);
       alert('Candidatura enviada com sucesso!');
       loadData();
     } catch (err: any) {
@@ -105,6 +123,29 @@ export default function FreelancerDashboardPage() {
           </div>
         </div>
 
+        {/* My Services */}
+        <div className="bg-white rounded-lg shadow mb-8">
+          <div className="px-6 py-4 border-b">
+            <h2 className="text-lg font-medium text-gray-900">Meus Serviços Autorizados</h2>
+          </div>
+          <div className="p-6">
+            {services.length === 0 ? (
+              <p className="text-gray-500 text-center py-8">
+                Nenhum serviço autorizado. Entre em contato com o administrador.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {services.map((service) => (
+                  <span key={service.id} className="px-3 py-2 bg-primary-100 text-primary-800 rounded-lg text-sm font-medium">
+                    {service.name}
+                    {service.hourlyRate > 0 && ` (R$ ${service.hourlyRate}/h)`}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Available Jobs */}
         <div className="bg-white rounded-lg shadow mb-8">
           <div className="px-6 py-4 border-b">
@@ -113,40 +154,45 @@ export default function FreelancerDashboardPage() {
           <div className="p-6">
             {jobs.length === 0 ? (
               <p className="text-gray-500 text-center py-8">
-                Nenhuma vaga disponível no momento.
+                Nenhuma vaga disponível no momento para os seus serviços.
               </p>
             ) : (
               <div className="space-y-4">
                 {jobs.map((job) => (
                   <div key={job.id} className="border rounded-lg p-4 hover:shadow-md transition">
                     <div className="flex flex-col md:flex-row justify-between gap-4">
-                      <div>
+                      <div className="flex-1">
                         <h3 className="font-medium text-gray-900">{job.event.name}</h3>
                         <p className="text-sm text-gray-500">
                           📍 {job.event.venues[0]?.venue.name || 'Local a definir'}
                         </p>
                         <p className="text-sm text-gray-500">
-                          📅 {new Date(job.event.startAt).toLocaleDateString('pt-BR')}
+                          📅 {new Date(job.event.startAt).toLocaleDateString('pt-BR')} às {new Date(job.event.startAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                         </p>
-                        <div className="mt-2 flex gap-2">
-                          <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">
-                            {job.role}
-                          </span>
-                          <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs">
-                            {job.shift}
-                          </span>
+                        <p className="text-sm text-gray-500">
+                          🏢 {job.event.employer?.name}
+                        </p>
+                        <div className="mt-3 space-y-2">
+                          <p className="text-sm font-medium text-gray-700">Vagas disponíveis:</p>
+                          {job.slots.map((slot) => (
+                            <div key={slot.id} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                              <div>
+                                <span className="text-sm font-medium">{slot.eventName}</span>
+                                <span className="text-xs text-gray-500 ml-2">
+                                  ({slot.filledCount}/{slot.quantity} preenchidas)
+                                </span>
+                              </div>
+                              {slot.filledCount < slot.quantity && (
+                                <button
+                                  onClick={() => handleApply(job.event.id, slot.serviceId)}
+                                  className="px-3 py-1 bg-primary-600 text-white rounded hover:bg-primary-700 text-xs"
+                                >
+                                  Candidatar
+                                </button>
+                              )}
+                            </div>
+                          ))}
                         </div>
-                      </div>
-                      <div className="flex flex-col items-end gap-2">
-                        <p className="font-bold text-green-600">
-                          R$ {job.compensation}
-                        </p>
-                        <button
-                          onClick={() => handleApply(job.id, job.role)}
-                          className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm"
-                        >
-                          Candidatar-se
-                        </button>
                       </div>
                     </div>
                   </div>
@@ -171,7 +217,7 @@ export default function FreelancerDashboardPage() {
                 {applications.map((app) => (
                   <div key={app.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                     <div>
-                      <p className="font-medium">{app.job?.event?.name || 'Evento'}</p>
+                      <p className="font-medium">{app.event?.name || 'Evento'}</p>
                       <p className="text-sm text-gray-500">{app.role}</p>
                     </div>
                     <span className={`px-2 py-1 rounded text-xs ${
