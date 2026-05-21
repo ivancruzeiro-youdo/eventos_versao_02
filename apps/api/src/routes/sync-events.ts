@@ -123,7 +123,19 @@ function buildItemsSnapshot(contracts: any[]): { name: string; qty: number; unit
     const produtos: any[] = c.produtos || [];
     // Also include secondary contracts' products
     const secondary: any[] = c._secondary || [];
-    const allProdutos = [...produtos, ...secondary.flatMap((s: any) => s.produtos || [])];
+    
+    // Deduplicate secondary contracts by sim_id to avoid counting same items multiple times
+    const uniqueSimIds = new Set<string>();
+    const deduplicatedSecondary: any[] = [];
+    for (const s of secondary) {
+      const simId = String(s.sim_id || '');
+      if (!uniqueSimIds.has(simId)) {
+        uniqueSimIds.add(simId);
+        deduplicatedSecondary.push(s);
+      }
+    }
+    
+    const allProdutos = [...produtos, ...deduplicatedSecondary.flatMap((s: any) => s.produtos || [])];
     for (const p of allProdutos) {
       const extId = String(p['prodct-id'] || p.id || '');
       const key = extId || p.name || '';

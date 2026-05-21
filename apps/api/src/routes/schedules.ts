@@ -40,6 +40,20 @@ export async function scheduleRoutes(app: FastifyInstance) {
     const user = (request as any).user;
     const data = createScheduleSchema.parse(request.body);
 
+    // Check if event exists and user has permission
+    const event = await prisma.event.findUnique({
+      where: { id: eventId },
+      select: { employerId: true },
+    });
+
+    if (!event) {
+      return reply.status(404).send({ error: 'Event not found' });
+    }
+
+    if (user.role !== 'admin' && event.employerId !== user.employerId) {
+      return reply.status(403).send({ error: 'Access denied' });
+    }
+
     const schedule = await prisma.eventSchedule.create({
       data: {
         eventId,
