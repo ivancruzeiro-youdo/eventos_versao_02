@@ -42,17 +42,23 @@ export default function FreelancerDashboardPage() {
 
   async function loadData() {
     try {
-      const [userRes, jobsRes, appsRes] = await Promise.all([
-        authApi.me(),
+      // Load user first to get identity, then load jobs/apps in parallel
+      const userRes = await authApi.me();
+      setUser(userRes.user);
+
+      const [jobsRes, appsRes, profileRes] = await Promise.all([
         freelancerApi.jobs(),
         freelancerApi.applications(),
+        freelancerApi.profile(),
       ]);
-      setUser(userRes.user);
       setJobs(jobsRes.jobs || []);
       setApplications(appsRes.applications || []);
-      
-      // Get freelancer services
-      if (userRes.user?.freelancer?.services) {
+
+      // Get freelancer services from profile
+      const freelancerData = profileRes?.profile || profileRes?.freelancer;
+      if (freelancerData?.services) {
+        setServices(freelancerData.services.map((s: any) => s.service));
+      } else if (userRes.user?.freelancer?.services) {
         setServices(userRes.user.freelancer.services.map((s: any) => s.service));
       }
     } catch (err) {
