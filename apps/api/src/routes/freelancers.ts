@@ -217,29 +217,30 @@ export async function freelancerRoutes(app: FastifyInstance) {
     }
 
     // Get service IDs that the freelancer is authorized to perform
-    const serviceIds = freelancer.services.map(s => s.serviceId);
+    const serviceIds = freelancer.services.map((s: any) => s.serviceId);
 
-    // Get EventStaffSlots for events that match the freelancer's services
-    const staffSlots = await prisma.eventStaffSlot.findMany({
+    // Find product IDs linked to the freelancer's services via ProductServiceLink
+    const productLinks = await (prisma as any).productServiceLink.findMany({
+      where: { serviceId: { in: serviceIds } },
+      select: { productId: true, serviceId: true },
+    });
+    const linkedProductIds = productLinks.map((pl: any) => pl.productId);
+
+    // Find EventItems matching the freelancer's services (by productId or by name match)
+    const matchingItems = await (prisma as any).eventItem.findMany({
       where: {
-        serviceId: { in: serviceIds },
+        category: 'staff',
+        OR: [
+          { productId: { in: linkedProductIds } },
+          // fallback: name match for items not linked via Product
+          { name: { in: freelancer.services.map((s: any) => s.service?.name).filter(Boolean) } },
+        ],
+        event: { status: { in: ['confirmed', 'in_progress'] } },
       },
-      include: {
-        eventItem: {
-          include: {
-            event: {
-              include: {
-                venues: { include: { venue: true } },
-                employer: { select: { name: true } },
-              },
-            },
-          },
-        },
-      },
+      select: { eventId: true, name: true, quantity: true, productId: true },
     });
 
-    // Filter events based on staff slots
-    const eventIds = new Set(staffSlots.map(s => s.eventItem.eventId));
+    const eventIds = new Set(matchingItems.map((i: any) => i.eventId));
 
     const where: any = {
       id: { in: Array.from(eventIds) },
@@ -259,18 +260,15 @@ export async function freelancerRoutes(app: FastifyInstance) {
         venues: { include: { venue: true } },
         employer: { select: { name: true } },
         items: {
-          include: {
-            slots: {
-              where: {
-                serviceId: { in: serviceIds },
-              },
-              include: {
-                eventItem: true,
-              },
-            },
+          where: {
+            category: 'staff',
+            OR: [
+              { productId: { in: linkedProductIds } },
+              { name: { in: freelancer.services.map((s: any) => s.service?.name).filter(Boolean) } },
+            ],
           },
         },
-        _count: { select: { 
+        _count: { select: {
           applications: { where: { status: 'approved' } },
           guests: { where: { status: 'confirmed' } },
         }},
@@ -281,16 +279,25 @@ export async function freelancerRoutes(app: FastifyInstance) {
     // Filter by city if requested
     let filteredEvents = events;
     if (query.city) {
-      filteredEvents = events.filter(e => 
-        e.venues.some(v => v.venue.city?.toLowerCase().includes(query.city!.toLowerCase()))
+      filteredEvents = events.filter((e: any) =>
+        e.venues.some((v: any) => v.venue.city?.toLowerCase().includes(query.city!.toLowerCase()))
       );
     }
 
-    // Transform events to job format with slot details
-    const jobs = filteredEvents.map(event => {
-      const slots = event.items
-        .flatMap(item => item.slots)
-        .filter(slot => serviceIds.includes(slot.serviceId));
+    // Build service name→id map for slot details
+    const serviceNameMap = new Map(
+      freelancer.services.map((s: any) => [s.service?.name?.toLowerCase(), s.serviceId])
+    );
+
+    // Transform events to job format
+    const jobs = filteredEvents.map((event: any) => {
+      const slots = event.items.map((item: any) => ({
+        id: item.id,
+        serviceId: serviceNameMap.get(item.name?.toLowerCase()) || item.productId,
+        quantity: Math.round(item.quantity),
+        filledCount: 0,
+        eventName: item.name,
+      }));
 
       return {
         id: event.id,
@@ -301,13 +308,7 @@ export async function freelancerRoutes(app: FastifyInstance) {
           venues: event.venues,
           employer: event.employer,
         },
-        slots: slots.map(slot => ({
-          id: slot.id,
-          serviceId: slot.serviceId,
-          quantity: slot.quantity,
-          filledCount: slot.filledCount,
-          eventName: slot.eventItem.name,
-        })),
+        slots,
       };
     });
 
