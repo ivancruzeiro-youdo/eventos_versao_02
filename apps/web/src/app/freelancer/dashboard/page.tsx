@@ -42,8 +42,12 @@ export default function FreelancerDashboardPage() {
 
   async function loadData() {
     try {
-      // Load user first to get identity, then load jobs/apps in parallel
-      const userRes = await authApi.me();
+      // Load user first — redirect to login if not authenticated as freelancer
+      const userRes = await authApi.me().catch(() => null);
+      if (!userRes?.user || userRes.user.role !== 'freelancer') {
+        window.location.href = '/freelancer/login';
+        return;
+      }
       setUser(userRes.user);
 
       const [jobsRes, appsRes, profileRes] = await Promise.all([
@@ -58,11 +62,10 @@ export default function FreelancerDashboardPage() {
       const freelancerData = profileRes?.profile || profileRes?.freelancer;
       if (freelancerData?.services) {
         setServices(freelancerData.services.map((s: any) => s.service));
-      } else if (userRes.user?.freelancer?.services) {
-        setServices(userRes.user.freelancer.services.map((s: any) => s.service));
       }
     } catch (err) {
       console.error(err);
+      window.location.href = '/freelancer/login';
     } finally {
       setLoading(false);
     }

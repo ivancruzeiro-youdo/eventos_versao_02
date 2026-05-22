@@ -19,13 +19,14 @@ export default function FreelancerLoginPage() {
       const response = await fetch('/api/v2/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, cpf }),
+        credentials: 'include',
+        body: JSON.stringify({ email, cpf: cpf.replace(/\D/g, '') }),
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Erro ao fazer login');
+        throw new Error(data.error || 'Credenciais inválidas');
       }
 
       router.push('/freelancer/dashboard');
@@ -40,25 +41,17 @@ export default function FreelancerLoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="max-w-md w-full">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">
-            Portal do Freelancer
-          </h1>
-          <p className="text-gray-600 mt-2">
-            Entre com seu email e CPF
-          </p>
+          <h1 className="text-3xl font-bold text-gray-900">Portal do Freelancer</h1>
+          <p className="text-gray-600 mt-2">Entre com seu email e CPF</p>
         </div>
 
         <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow p-6 space-y-4">
           {error && (
-            <div className="p-3 bg-red-50 text-red-700 rounded text-sm">
-              {error}
-            </div>
+            <div className="p-3 bg-red-50 text-red-700 rounded text-sm">{error}</div>
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Email
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
             <input
               type="email"
               value={email}
@@ -69,9 +62,7 @@ export default function FreelancerLoginPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              CPF
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">CPF</label>
             <input
               type="text"
               value={cpf}
@@ -92,9 +83,7 @@ export default function FreelancerLoginPage() {
         </form>
 
         <p className="text-center mt-4 text-sm text-gray-600">
-          <a href="/" className="text-primary-600 hover:text-primary-700">
-            Voltar para início
-          </a>
+          <a href="/" className="text-primary-600 hover:text-primary-700">Voltar para início</a>
         </p>
       </div>
     </div>
