@@ -338,16 +338,17 @@ export async function freelancerRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Event not accepting applications' });
     }
 
-    // Check if already applied
+    // Check if already applied for this role/service
     const existing = await prisma.freelancerApplication.findFirst({
       where: {
         freelancerId: user.id,
         eventId,
+        role,
       },
     });
 
     if (existing) {
-      return reply.status(400).send({ error: 'Already applied to this event' });
+      return reply.status(400).send({ error: 'Você já se candidatou para esta vaga' });
     }
 
     const application = await prisma.freelancerApplication.create({

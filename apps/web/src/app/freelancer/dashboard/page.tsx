@@ -35,6 +35,7 @@ export default function FreelancerDashboardPage() {
   const [applications, setApplications] = useState<any[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
+  const [applying, setApplying] = useState<string | null>(null); // slotId being applied
 
   useEffect(() => {
     loadData();
@@ -71,13 +72,15 @@ export default function FreelancerDashboardPage() {
     }
   }
 
-  async function handleApply(jobId: string, serviceId: string) {
+  async function handleApply(eventId: string, slotId: string, serviceName: string) {
+    setApplying(slotId);
     try {
-      await freelancerApi.apply(jobId, serviceId);
-      alert('Candidatura enviada com sucesso!');
-      loadData();
+      await freelancerApi.apply(eventId, serviceName);
+      await loadData();
     } catch (err: any) {
       alert('Erro: ' + err.message);
+    } finally {
+      setApplying(null);
     }
   }
 
@@ -183,24 +186,38 @@ export default function FreelancerDashboardPage() {
                         </p>
                         <div className="mt-3 space-y-2">
                           <p className="text-sm font-medium text-gray-700">Vagas disponíveis:</p>
-                          {job.slots.map((slot) => (
-                            <div key={slot.id} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                              <div>
-                                <span className="text-sm font-medium">{slot.eventName}</span>
-                                <span className="text-xs text-gray-500 ml-2">
-                                  ({slot.filledCount}/{slot.quantity} preenchidas)
-                                </span>
+                          {job.slots.map((slot) => {
+                            const alreadyApplied = applications.some(
+                              a => a.eventId === job.event.id && a.role === slot.eventName
+                            );
+                            return (
+                              <div key={slot.id} className="flex items-center justify-between p-2 bg-gray-50 rounded border">
+                                <div>
+                                  <span className="text-sm font-medium">{slot.eventName}</span>
+                                  <span className="text-xs text-gray-500 ml-2">
+                                    ({slot.filledCount}/{slot.quantity} preenchidas)
+                                  </span>
+                                </div>
+                                {alreadyApplied ? (
+                                  <span className="px-3 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">
+                                    ✓ Candidatado
+                                  </span>
+                                ) : slot.filledCount < slot.quantity ? (
+                                  <button
+                                    onClick={() => handleApply(job.event.id, slot.id, slot.eventName)}
+                                    disabled={applying === slot.id}
+                                    className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium disabled:opacity-50 transition-colors"
+                                  >
+                                    {applying === slot.id ? 'Enviando...' : 'Candidatar-se'}
+                                  </button>
+                                ) : (
+                                  <span className="px-3 py-1 bg-gray-200 text-gray-500 rounded text-xs">
+                                    Vagas esgotadas
+                                  </span>
+                                )}
                               </div>
-                              {slot.filledCount < slot.quantity && (
-                                <button
-                                  onClick={() => handleApply(job.event.id, slot.serviceId)}
-                                  className="px-3 py-1 bg-primary-600 text-white rounded hover:bg-primary-700 text-xs"
-                                >
-                                  Candidatar
-                                </button>
-                              )}
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     </div>
