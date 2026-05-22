@@ -34,8 +34,10 @@ export async function authRoutes(app: FastifyInstance) {
       return reply.status(401).send({ error: 'Invalid credentials' });
     }
 
-    // CPF is identifier, not password - just validate it matches
-    if (freelancer.cpf !== body.cpf) {
+    // CPF is identifier, not password - validate it matches (normalize both sides)
+    const cleanInput = body.cpf.replace(/\D/g, '');
+    const cleanStored = freelancer.cpf.replace(/\D/g, '');
+    if (cleanInput !== cleanStored) {
       return reply.status(401).send({ error: 'Invalid credentials' });
     }
 
@@ -70,9 +72,10 @@ export async function authRoutes(app: FastifyInstance) {
   // Receptionist login (CPF only)
   app.post('/receptionist-login', async (request, reply) => {
     const { cpf } = receptionistLoginSchema.parse(request.body);
-    
-    const freelancer = await prisma.freelancer.findUnique({
-      where: { cpf },
+    const cleanCpf = cpf.replace(/\D/g, '');
+
+    const freelancer = await prisma.freelancer.findFirst({
+      where: { cpf: { contains: cleanCpf } },
       include: {
         services: {
           include: { service: true },
