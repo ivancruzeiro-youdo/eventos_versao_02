@@ -289,28 +289,50 @@ export async function freelancerRoutes(app: FastifyInstance) {
       freelancer.services.map((s: any) => [s.service?.name?.toLowerCase(), s.serviceId])
     );
 
-    // Transform events to job format
-    const jobs = filteredEvents.map((event: any) => {
-      const slots = event.items.map((item: any) => ({
-        id: item.id,
-        serviceId: serviceNameMap.get(item.name?.toLowerCase()) || item.productId,
-        quantity: Math.round(item.quantity),
-        filledCount: 0,
-        eventName: item.name,
-      }));
-
-      return {
-        id: event.id,
-        event: {
-          id: event.id,
-          name: event.name,
-          startAt: event.startAt,
-          venues: event.venues,
-          employer: event.employer,
-        },
-        slots,
-      };
+    // Count approved applications per (eventId, role) for real filledCount
+    const allEventIds = filteredEvents.map((e: any) => e.id);
+    const approvedApps = await prisma.freelancerApplication.findMany({
+      where: { eventId: { in: allEventIds }, status: 'approved' },
+      select: { eventId: true, role: true },
     });
+    const approvedCountMap = new Map<string, number>();
+    for (const app of approvedApps) {
+      const key = `${app.eventId}::${app.role}`;
+      approvedCountMap.set(key, (approvedCountMap.get(key) ?? 0) + 1);
+    }
+
+    // Transform events to job format — skip slots that are already full
+    const jobs = filteredEvents
+      .map((event: any) => {
+        const slots = event.items
+          .map((item: any) => {
+            const qty = Math.round(item.quantity);
+            const filled = approvedCountMap.get(`${event.id}::${item.name}`) ?? 0;
+            return {
+              id: item.id,
+              serviceId: serviceNameMap.get(item.name?.toLowerCase()) || item.productId,
+              quantity: qty,
+              filledCount: filled,
+              eventName: item.name,
+            };
+          })
+          .filter((slot: any) => slot.filledCount < slot.quantity); // hide full slots
+
+        return slots.length > 0
+          ? {
+              id: event.id,
+              event: {
+                id: event.id,
+                name: event.name,
+                startAt: event.startAt,
+                venues: event.venues,
+                employer: event.employer,
+              },
+              slots,
+            }
+          : null;
+      })
+      .filter(Boolean); // hide events where all slots are filled
 
     return { success: true, jobs };
   });
@@ -338,25 +360,39 @@ export async function freelancerRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Event not accepting applications' });
     }
 
-    // Check if already applied for this role/service
+    // Check if already applied for this role
     const existing = await prisma.freelancerApplication.findFirst({
-      where: {
-        freelancerId: user.id,
-        eventId,
-        role,
-      },
+      where: { freelancerId: user.id, eventId, role },
     });
 
     if (existing) {
       return reply.status(400).send({ error: 'Você já se candidatou para esta vaga' });
     }
 
+    // Check slot capacity: count approved applications for this role
+    const [approvedCount, slotItem] = await Promise.all([
+      prisma.freelancerApplication.count({
+        where: { eventId, role, status: 'approved' },
+      }),
+      (prisma as any).eventItem.findFirst({
+        where: { eventId, name: role, category: 'staff' },
+        select: { quantity: true },
+      }),
+    ]);
+
+    const capacity = slotItem ? Math.round(slotItem.quantity) : 0;
+
+    if (capacity > 0 && approvedCount >= capacity) {
+      return reply.status(400).send({ error: 'Vagas esgotadas para esta função' });
+    }
+
+    // Auto-approve: create application directly as approved
     const application = await prisma.freelancerApplication.create({
       data: {
         freelancerId: user.id,
         eventId,
         role,
-        status: 'pending',
+        status: 'approved',
       },
     });
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Check, X, Phone, Mail, AlertTriangle, UserCheck, Clock, Users } from 'lucide-react';
+import { X, Phone, Mail, AlertTriangle, UserCheck, Users, UserX } from 'lucide-react';
 
 interface Application {
   id: string;
@@ -23,8 +23,8 @@ interface Props {
 
 const statusConfig = {
   pending:  { label: 'Pendente',  color: 'bg-yellow-100 text-yellow-800' },
-  approved: { label: 'Aprovado',  color: 'bg-green-100 text-green-800'  },
-  rejected: { label: 'Rejeitado', color: 'bg-red-100 text-red-800'      },
+  approved: { label: 'Confirmado', color: 'bg-green-100 text-green-800'  },
+  rejected: { label: 'Removido',  color: 'bg-red-100 text-red-800'      },
 };
 
 export default function EventFreelancersTab({ eventId }: Props) {
@@ -67,15 +67,15 @@ export default function EventFreelancersTab({ eventId }: Props) {
     }
   }
 
-  // Group by role
+  // Group by role, only non-rejected by default shown together
   const byRole = applications.reduce<Record<string, Application[]>>((acc, app) => {
     (acc[app.role] ??= []).push(app);
     return acc;
   }, {});
 
-  const pending  = applications.filter(a => a.status === 'pending').length;
-  const approved = applications.filter(a => a.status === 'approved').length;
-  const rejected = applications.filter(a => a.status === 'rejected').length;
+  const confirmed = applications.filter(a => a.status === 'approved').length;
+  const removed   = applications.filter(a => a.status === 'rejected').length;
+  const total     = applications.length;
 
   if (loading) {
     return (
@@ -103,24 +103,24 @@ export default function EventFreelancersTab({ eventId }: Props) {
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-card border rounded-lg p-3 text-center">
           <div className="flex items-center justify-center gap-1.5 mb-1">
-            <Clock size={14} className="text-yellow-600" />
-            <span className="text-xs text-muted-foreground font-medium">Pendentes</span>
+            <Users size={14} className="text-muted-foreground" />
+            <span className="text-xs text-muted-foreground font-medium">Total</span>
           </div>
-          <p className="text-2xl font-bold text-yellow-600">{pending}</p>
+          <p className="text-2xl font-bold">{total}</p>
         </div>
         <div className="bg-card border rounded-lg p-3 text-center">
           <div className="flex items-center justify-center gap-1.5 mb-1">
             <UserCheck size={14} className="text-green-600" />
-            <span className="text-xs text-muted-foreground font-medium">Aprovados</span>
+            <span className="text-xs text-muted-foreground font-medium">Confirmados</span>
           </div>
-          <p className="text-2xl font-bold text-green-600">{approved}</p>
+          <p className="text-2xl font-bold text-green-600">{confirmed}</p>
         </div>
         <div className="bg-card border rounded-lg p-3 text-center">
           <div className="flex items-center justify-center gap-1.5 mb-1">
-            <X size={14} className="text-red-500" />
-            <span className="text-xs text-muted-foreground font-medium">Rejeitados</span>
+            <UserX size={14} className="text-red-500" />
+            <span className="text-xs text-muted-foreground font-medium">Removidos</span>
           </div>
-          <p className="text-2xl font-bold text-red-500">{rejected}</p>
+          <p className="text-2xl font-bold text-red-500">{removed}</p>
         </div>
       </div>
 
@@ -129,14 +129,17 @@ export default function EventFreelancersTab({ eventId }: Props) {
         <div key={role} className="bg-card border rounded-lg overflow-hidden">
           <div className="px-5 py-3 border-b bg-muted/30 flex items-center justify-between">
             <h3 className="font-semibold text-sm">{role}</h3>
-            <span className="text-xs text-muted-foreground">{apps.length} candidatura{apps.length !== 1 ? 's' : ''}</span>
+            <span className="text-xs text-muted-foreground">
+              {apps.filter(a => a.status === 'approved').length} confirmado{apps.filter(a => a.status === 'approved').length !== 1 ? 's' : ''}
+              {' '}/ {apps.length} candidatura{apps.length !== 1 ? 's' : ''}
+            </span>
           </div>
           <div className="divide-y">
             {apps.map(app => {
               const cfg = statusConfig[app.status];
               const busy = updating === app.id;
               return (
-                <div key={app.id} className="flex items-center gap-4 px-5 py-4">
+                <div key={app.id} className={`flex items-center gap-4 px-5 py-4 ${app.status === 'rejected' ? 'opacity-50' : ''}`}>
                   {/* Avatar */}
                   <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0 font-semibold text-primary text-sm">
                     {app.freelancer.name.charAt(0).toUpperCase()}
@@ -163,7 +166,10 @@ export default function EventFreelancersTab({ eventId }: Props) {
                         </span>
                       )}
                       <span className="text-xs text-muted-foreground">
-                        {new Date(app.appliedAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                        {new Date(app.appliedAt).toLocaleDateString('pt-BR', {
+                          day: '2-digit', month: '2-digit',
+                          hour: '2-digit', minute: '2-digit',
+                        })}
                       </span>
                     </div>
                   </div>
@@ -174,34 +180,28 @@ export default function EventFreelancersTab({ eventId }: Props) {
                   </span>
 
                   {/* Actions */}
-                  {app.status === 'pending' && (
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        onClick={() => updateStatus(app.id, 'approved')}
-                        disabled={busy}
-                        title="Aprovar"
-                        className="p-1.5 rounded-full bg-green-50 text-green-700 hover:bg-green-100 disabled:opacity-40 transition"
-                      >
-                        <Check size={14} />
-                      </button>
-                      <button
-                        onClick={() => updateStatus(app.id, 'rejected')}
-                        disabled={busy}
-                        title="Rejeitar"
-                        className="p-1.5 rounded-full bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-40 transition"
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  )}
-                  {app.status !== 'pending' && (
+                  {app.status === 'approved' && (
                     <button
-                      onClick={() => updateStatus(app.id, app.status === 'approved' ? 'rejected' : 'approved')}
+                      onClick={() => {
+                        if (confirm(`Remover ${app.freelancer.name} desta vaga?`)) {
+                          updateStatus(app.id, 'rejected');
+                        }
+                      }}
                       disabled={busy}
-                      title="Reverter"
-                      className="p-1.5 rounded border text-xs text-muted-foreground hover:bg-muted disabled:opacity-40 transition shrink-0"
+                      title="Remover freelancer"
+                      className="p-1.5 rounded-full bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-40 transition shrink-0"
                     >
-                      Reverter
+                      <X size={14} />
+                    </button>
+                  )}
+                  {app.status === 'rejected' && (
+                    <button
+                      onClick={() => updateStatus(app.id, 'approved')}
+                      disabled={busy}
+                      title="Restaurar"
+                      className="px-2.5 py-1 rounded border text-xs text-muted-foreground hover:bg-muted disabled:opacity-40 transition shrink-0"
+                    >
+                      Restaurar
                     </button>
                   )}
                 </div>
