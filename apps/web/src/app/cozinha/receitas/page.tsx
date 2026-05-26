@@ -21,20 +21,27 @@ interface RecipeIngredient {
   unit: string;
 }
 
+interface RecipeStep {
+  id: string;
+  stepNumber: number;
+  description: string;
+  durationMinutes?: number;
+}
+
 interface KitchenRecipe {
   id: string;
   name: string;
   category: string;
   servings: number;
   averagePerGuest: number;
-  prepTime: number;
+  prepTimeMinutes: number;
   notes: string | null;
-  ingredients: {
+  recipeIngredients: {
     ingredient: KitchenIngredient;
     quantity: number;
-    unit: string;
+    unit: string | null;
   }[];
-  steps: string[];
+  steps: RecipeStep[];
 }
 
 const RECIPE_CATEGORIES = [
@@ -119,7 +126,7 @@ export default function ReceitasPage() {
   }, [recipes, search, categoryFilter]);
 
   function calcRecipeCost(recipe: KitchenRecipe): number {
-    return recipe.ingredients.reduce((sum, ri) => {
+    return (recipe.recipeIngredients || []).reduce((sum, ri) => {
       return sum + ri.quantity * ri.ingredient.costPerUnit;
     }, 0);
   }
@@ -146,14 +153,14 @@ export default function ReceitasPage() {
       category: recipe.category,
       servings: String(recipe.servings),
       averagePerGuest: String(recipe.averagePerGuest),
-      prepTime: String(recipe.prepTime),
+      prepTime: String(recipe.prepTimeMinutes),
       notes: recipe.notes || '',
-      ingredients: recipe.ingredients.map(ri => ({
+      ingredients: (recipe.recipeIngredients || []).map(ri => ({
         ingredientId: ri.ingredient.id,
         quantity: String(ri.quantity),
-        unit: ri.unit,
+        unit: ri.unit || ri.ingredient.unit,
       })),
-      steps: [...recipe.steps],
+      steps: (recipe.steps || []).map(s => s.description),
     });
     setFormError('');
     setModal('edit');
@@ -172,7 +179,7 @@ export default function ReceitasPage() {
         category: form.category,
         servings: parseInt(form.servings) || 1,
         averagePerGuest: parseFloat(form.averagePerGuest) || 1,
-        prepTime: parseInt(form.prepTime) || 0,
+        prepTimeMinutes: parseInt(form.prepTime) || 0,
         notes: form.notes.trim() || null,
         ingredients: form.ingredients
           .filter(fi => fi.ingredientId)
@@ -181,7 +188,9 @@ export default function ReceitasPage() {
             quantity: parseFloat(fi.quantity) || 0,
             unit: fi.unit,
           })),
-        steps: form.steps.filter(s => s.trim()),
+        steps: form.steps
+          .filter(s => s.trim())
+          .map((description, i) => ({ stepNumber: i + 1, description })),
       };
       const url = selected ? `/api/v2/kitchen/recipes/${selected.id}` : '/api/v2/kitchen/recipes';
       const method = selected ? 'PATCH' : 'POST';
@@ -347,9 +356,9 @@ export default function ReceitasPage() {
                     <span className="flex items-center gap-1">
                       <Users size={13} /> {recipe.servings} porções
                     </span>
-                    {recipe.prepTime > 0 && (
+                    {recipe.prepTimeMinutes > 0 && (
                       <span className="flex items-center gap-1">
-                        <Clock size={13} /> {recipe.prepTime} min
+                        <Clock size={13} /> {recipe.prepTimeMinutes} min
                       </span>
                     )}
                     {cost > 0 && (
@@ -358,10 +367,10 @@ export default function ReceitasPage() {
                       </span>
                     )}
                   </div>
-                  {recipe.ingredients.length > 0 && (
+                  {(recipe.recipeIngredients || []).length > 0 && (
                     <p className="text-xs text-muted-foreground">
-                      {recipe.ingredients.length} ingrediente{recipe.ingredients.length !== 1 ? 's' : ''}
-                      {recipe.steps.length > 0 && ` • ${recipe.steps.length} etapa${recipe.steps.length !== 1 ? 's' : ''}`}
+                      {recipe.recipeIngredients.length} ingrediente{recipe.recipeIngredients.length !== 1 ? 's' : ''}
+                      {(recipe.steps || []).length > 0 && ` • ${recipe.steps.length} etapa${recipe.steps.length !== 1 ? 's' : ''}`}
                     </p>
                   )}
                   {recipe.notes && (

@@ -10,19 +10,18 @@ import {
 interface Event {
   id: string;
   name: string;
-  date: string;
+  startAt: string | null;
   status: string;
 }
 
 interface ShoppingItem {
   ingredientId: string;
-  ingredientName: string;
+  name: string;
   unit: string;
-  totalNeeded: number;
+  quantityNeeded: number;
   inStock: number;
   toBuy: number;
   estimatedCost: number;
-  usedInRecipes: string[];
 }
 
 interface ShoppingList {
@@ -96,13 +95,10 @@ export default function ComprasPage() {
     if (!shoppingList) return '';
     const lines: string[] = ['=== LISTA DE COMPRAS ===', ''];
     shoppingList.items.forEach(item => {
-      lines.push(`${item.ingredientName}`);
-      lines.push(`  Necessário: ${item.totalNeeded} ${item.unit}`);
+      lines.push(`${item.name}`);
+      lines.push(`  Necessário: ${item.quantityNeeded} ${item.unit}`);
       lines.push(`  Em estoque: ${item.inStock} ${item.unit}`);
       lines.push(`  Comprar: ${item.toBuy} ${item.unit} — R$ ${fmtCurrency(item.estimatedCost)}`);
-      if (item.usedInRecipes.length > 0) {
-        lines.push(`  Receitas: ${item.usedInRecipes.join(', ')}`);
-      }
       lines.push('');
     });
     lines.push(`TOTAL ESTIMADO: R$ ${fmtCurrency(shoppingList.totalCost)}`);
@@ -178,7 +174,7 @@ export default function ComprasPage() {
                         />
                         <div className="min-w-0">
                           <p className="text-sm font-medium leading-tight truncate">{event.name}</p>
-                          <p className="text-xs text-muted-foreground">{fmtDate(event.date)}</p>
+                          <p className="text-xs text-muted-foreground">{event.startAt ? fmtDate(event.startAt) : '—'}</p>
                         </div>
                       </label>
                     );
@@ -268,15 +264,10 @@ export default function ComprasPage() {
                         {itemsToBuy.map(item => (
                           <tr key={item.ingredientId}>
                             <td className="px-4 py-2.5">
-                              <p className="font-medium">{item.ingredientName}</p>
-                              {item.usedInRecipes.length > 0 && (
-                                <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
-                                  {item.usedInRecipes.join(', ')}
-                                </p>
-                              )}
+                              <p className="font-medium">{item.name}</p>
                             </td>
                             <td className="px-4 py-2.5 text-right text-muted-foreground">
-                              {item.totalNeeded} {item.unit}
+                              {item.quantityNeeded} {item.unit}
                             </td>
                             <td className="px-4 py-2.5 text-right text-muted-foreground">
                               {item.inStock} {item.unit}
@@ -304,9 +295,9 @@ export default function ComprasPage() {
                       {itemsInStock.map(item => (
                         <div key={item.ingredientId} className="flex items-center gap-3 px-4 py-2.5 text-sm">
                           <Check size={13} className="text-green-600 shrink-0" />
-                          <span className="flex-1 font-medium">{item.ingredientName}</span>
+                          <span className="flex-1 font-medium">{item.name}</span>
                           <span className="text-muted-foreground text-xs">
-                            {item.totalNeeded} {item.unit} necessário • {item.inStock} {item.unit} disponível
+                            {item.quantityNeeded} {item.unit} necessário • {item.inStock} {item.unit} disponível
                           </span>
                         </div>
                       ))}

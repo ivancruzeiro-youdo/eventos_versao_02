@@ -15,7 +15,7 @@ interface KitchenIngredient {
 
 interface PurchaseItem {
   id?: string;
-  name: string;
+  productName: string;
   ingredientId?: string | null;
   quantity: number;
   unit: string;
@@ -28,7 +28,7 @@ interface KitchenPurchaseRecord {
   storeName: string;
   date: string;
   source: 'manual' | 'foto';
-  total: number;
+  totalAmount: number;
   items: PurchaseItem[];
 }
 
@@ -105,7 +105,7 @@ export default function RegistrosComprasPage() {
       if (recRes.status === 401 || ingRes.status === 401) { router.push('/login'); return; }
       const recData = await recRes.json();
       const ingData = await ingRes.json();
-      setRecords(recData.purchases || recData || []);
+      setRecords(recData.records || recData || []);
       setAllIngredients(ingData.ingredients || ingData || []);
     } finally {
       setLoading(false);
@@ -173,8 +173,9 @@ export default function RegistrosComprasPage() {
         storeName: form.storeName.trim(),
         date: form.date,
         source: form.source,
+        totalAmount: formTotal,
         items: form.items.map(item => ({
-          name: item.name.trim() || (allIngredients.find(i => i.id === item.ingredientId)?.name || 'Item'),
+          productName: item.name.trim() || (allIngredients.find(i => i.id === item.ingredientId)?.name || 'Item'),
           ingredientId: item.ingredientId || null,
           quantity: parseFloat(item.quantity) || 0,
           unit: item.unit.trim(),
@@ -278,7 +279,7 @@ export default function RegistrosComprasPage() {
                         )}
                       </span>
                       <span className="text-sm font-semibold text-right">
-                        R$ {fmtCurrency(record.total)}
+                        R$ {fmtCurrency(record.totalAmount)}
                       </span>
                       <button
                         onClick={() => del(record)}
@@ -303,7 +304,7 @@ export default function RegistrosComprasPage() {
                           <tbody className="divide-y divide-border/50">
                             {record.items.map((item, idx) => (
                               <tr key={item.id || idx}>
-                                <td className="py-1.5">{item.name}</td>
+                                <td className="py-1.5">{item.productName}</td>
                                 <td className="py-1.5 text-right text-muted-foreground">{item.quantity}</td>
                                 <td className="py-1.5 text-right text-muted-foreground">{item.unit}</td>
                                 <td className="py-1.5 text-right text-muted-foreground">R$ {fmtCurrency(item.unitPrice)}</td>
@@ -324,7 +325,7 @@ export default function RegistrosComprasPage() {
         {!loading && records.length > 0 && (
           <p className="text-xs text-muted-foreground">
             {records.length} registro{records.length !== 1 ? 's' : ''} •{' '}
-            Total gasto: R$ {fmtCurrency(records.reduce((s, r) => s + r.total, 0))}
+            Total gasto: R$ {fmtCurrency(records.reduce((s, r) => s + r.totalAmount, 0))}
           </p>
         )}
       </div>
