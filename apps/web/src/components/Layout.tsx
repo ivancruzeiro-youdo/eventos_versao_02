@@ -18,7 +18,6 @@ const adminNavigation = [
   { name: 'Empresas', href: '/admin/employers' },
   { name: 'Produtos', href: '/admin/products' },
   { name: 'Templates de Plano', href: '/admin/plan-templates' },
-  { name: 'Templates de Briefing', href: '/admin/briefing-templates' },
   { name: 'Templates de Checklist', href: '/admin/checklist-templates' },
   { name: 'Relatórios', href: '/admin/reports' },
   { name: 'Logs', href: '/admin/audit-log' },

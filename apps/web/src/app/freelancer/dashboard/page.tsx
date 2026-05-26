@@ -199,24 +199,6 @@ export default function FreelancerDashboardPage() {
         {/* ══ HOME ═══════════════════════════════════ */}
         {section === 'home' && (
           <>
-            {/* Stats */}
-            <div className="-mt-8 grid grid-cols-2 gap-3">
-              {[
-                { label: 'Vagas Disponíveis',     value: stats.available,  Icon: Briefcase,    color: 'text-gray-800'   },
-                { label: 'Minhas Candidaturas',   value: stats.applied,    Icon: ClipboardList, color: 'text-blue-600'  },
-                { label: 'Trabalhos Confirmados', value: stats.confirmed,  Icon: CheckCircle2, color: 'text-green-600'  },
-                { label: 'Score',                 value: stats.score,      Icon: Award,        color: 'text-orange-500' },
-              ].map(c => (
-                <div key={c.label} className="rounded-2xl border bg-white p-3" style={{ boxShadow: S_SOFT }}>
-                  <div className="flex items-center gap-2 text-gray-400">
-                    <c.Icon className="h-3.5 w-3.5" />
-                    <span className="text-[11px] leading-none">{c.label}</span>
-                  </div>
-                  <div className={cn('mt-2 text-2xl font-bold tracking-tight', c.color)}>{c.value}</div>
-                </div>
-              ))}
-            </div>
-
             {/* Tabs */}
             <div className="mt-5 grid grid-cols-3 rounded-full bg-gray-200 p-1">
               {([
