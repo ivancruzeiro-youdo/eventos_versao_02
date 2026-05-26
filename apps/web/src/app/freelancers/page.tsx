@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Layout from '@/components/Layout';
-import { User, Plus, Search, ChevronLeft, ChevronRight, Pencil, Trash2, X, Check, AlertCircle, AlertTriangle, Calendar } from 'lucide-react';
+import { User, Plus, Search, ChevronLeft, ChevronRight, Pencil, Trash2, X, Check, AlertCircle, AlertTriangle, Calendar, Link2, ClipboardCheck } from 'lucide-react';
 
 interface Service { id: string; name: string; hourlyRate: number; description?: string | null; startOffsetMinutes: number; endOffsetMinutes: number; }
 interface FreelancerItem {
@@ -202,6 +202,7 @@ export default function FreelancersPage() {
   const [linkedServiceIds, setLinkedServiceIds] = useState<Set<string>>(new Set());
   const [savingServices, setSavingServices] = useState(false);
   const [tab, setTab] = useState<Tab>('freelancers');
+  const [copied, setCopied] = useState(false);
   const [penalties, setPenalties] = useState<Penalty[]>([]);
   const [penaltiesLoading, setPenaltiesLoading] = useState(false);
   const [penaltySearch, setPenaltySearch] = useState('');
@@ -316,6 +317,14 @@ export default function FreelancersPage() {
     p.reason.toLowerCase().includes(penaltySearch.toLowerCase())
   );
 
+  function copyFreelancerLink() {
+    const url = `${window.location.origin}/freelancer/login`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    });
+  }
+
   return (
     <Layout>
       {/* Header */}
@@ -323,12 +332,26 @@ export default function FreelancersPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Gerenciamento de Freelancers</h1>
         </div>
-        {tab === 'freelancers' && (
-          <button onClick={openCreate}
-            className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition">
-            <Plus size={16} /> Novo Freelancer
+        <div className="flex items-center gap-2">
+          <button
+            onClick={copyFreelancerLink}
+            title="Copiar link de acesso do freelancer"
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition ${
+              copied
+                ? 'bg-green-50 border-green-300 text-green-700'
+                : 'bg-background border-input text-foreground hover:bg-muted'
+            }`}
+          >
+            {copied ? <ClipboardCheck size={15} /> : <Link2 size={15} />}
+            {copied ? 'Link copiado!' : 'Copiar link de acesso'}
           </button>
-        )}
+          {tab === 'freelancers' && (
+            <button onClick={openCreate}
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition">
+              <Plus size={16} /> Novo Freelancer
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Tabs */}
