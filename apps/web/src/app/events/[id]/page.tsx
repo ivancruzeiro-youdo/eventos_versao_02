@@ -12,12 +12,13 @@ import EventFilesTab from '@/components/EventFilesTab';
 import EventScheduleTab from '@/components/EventScheduleTab';
 import EventItemsTab from '@/components/EventItemsTab';
 import EventFreelancersTab from '@/components/EventFreelancersTab';
+import EventKitchenTab from '@/components/EventKitchenTab';
 import { eventsApi, guestsApi } from '@/lib/api';
 import { formatDateTime, getStatusColor, getStatusLabel, formatPhone, formatCpf } from '@/lib/utils';
 import {
   MessageCircle, FileText, Clock, CheckSquare, Users,
   ClipboardList, Briefcase, UtensilsCrossed, HardHat, Trash2, ChevronDown,
-  Calendar, MapPin, Pencil, Check, X, Copy, UserCog
+  Calendar, MapPin, Pencil, Check, X, Copy, UserCog, ChefHat
 } from 'lucide-react';
 
 interface Event {
@@ -60,6 +61,7 @@ const tabs = [
   { id: 'jobs', label: 'Taxas', icon: Briefcase },
   { id: 'food', label: 'A&B', icon: UtensilsCrossed },
   { id: 'infra', label: 'Infraestrutura', icon: HardHat },
+  { id: 'kitchen', label: 'Cozinha', icon: ChefHat },
 ];
 
 export default function EventDetailPage() {
@@ -570,6 +572,9 @@ export default function EventDetailPage() {
           </h3>
           <EventItemsTab eventId={eventId} category="infra" />
         </div>
+      )}
+      {activeTab === 'kitchen' && (
+        <EventKitchenTab eventId={eventId} guestCount={event._count?.guests ?? 0} />
       )}
     </Layout>
   );

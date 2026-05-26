@@ -450,6 +450,11 @@ export async function syncEventsRoutes(app: FastifyInstance) {
 
       // For update or no_change: clear existing items and rebuild to ensure they're current
       if (action === 'update' || action === 'no_change') {
+        // Nullify KitchenEventMenu.eventItemId before deleting items to avoid FK constraint violations
+        await (prisma as any).kitchenEventMenu.updateMany({
+          where: { event: { id: eventId } },
+          data: { eventItemId: null },
+        });
         await (prisma as any).eventItem.deleteMany({ where: { eventId } });
         await (prisma as any).eventService.deleteMany({ where: { eventId } });
       }
@@ -504,6 +509,47 @@ export async function syncEventsRoutes(app: FastifyInstance) {
                 maxChoices: null,
               },
             });
+          }
+        }
+
+        // A&B auto-link: find matching KitchenRecipe and upsert KitchenEventMenu
+        if (item.category === 'ab') {
+          try {
+            // Look up by productId first, then by name
+            const matchedRecipe = await (prisma as any).kitchenRecipe.findFirst({
+              where: {
+                OR: [
+                  item.productId ? { productId: item.productId } : {},
+                  { name: { equals: item.name, mode: 'insensitive' } },
+                ],
+              },
+            });
+            if (matchedRecipe) {
+              // Check if already linked (same event + recipe + menuType)
+              const existingMenu = await (prisma as any).kitchenEventMenu.findFirst({
+                where: { eventId, recipeId: matchedRecipe.id, menuType: 'guest' },
+              });
+              if (existingMenu) {
+                // Update eventItemId link
+                await (prisma as any).kitchenEventMenu.update({
+                  where: { id: existingMenu.id },
+                  data: { eventItemId: eventItem.id },
+                });
+              } else {
+                await (prisma as any).kitchenEventMenu.create({
+                  data: {
+                    eventId,
+                    recipeId: matchedRecipe.id,
+                    menuType: 'guest',
+                    eventItemId: eventItem.id,
+                    servingsNeeded: 0, // will be calculated from guestCount
+                  },
+                });
+              }
+            }
+          } catch (autoLinkErr) {
+            // Non-fatal: auto-link failure should not break sync
+            console.warn('Kitchen auto-link failed:', autoLinkErr);
           }
         }
 

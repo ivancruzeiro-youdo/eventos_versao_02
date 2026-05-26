@@ -128,6 +128,11 @@ model Employer {
   venues  Venue[]
   services Service[]
 
+  kitchenIngredients  KitchenIngredient[]
+  kitchenRecipes      KitchenRecipe[]
+  kitchenPurchases    KitchenPurchaseRecord[]
+  kitchenLaborRoles   KitchenLaborRole[]
+
   @@index([cnpj])
 }
 
@@ -172,6 +177,10 @@ model Event {
   items        EventItem[]
   syncLogs     EventSyncLog[]  @relation("EventToSyncLog")
   venueAnswers EventVenueAnswer[]
+
+  kitchenMenus   KitchenEventMenu[]
+  kitchenLabors  KitchenEventLabor[]
+  productions    KitchenProductionLog[]
 
   @@index([employerId])
   @@index([status])
@@ -745,9 +754,10 @@ model Product {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  questions  ProductQuestion[]
-  services   ProductServiceLink[]
-  eventItems EventItem[]
+  questions      ProductQuestion[]
+  services       ProductServiceLink[]
+  eventItems     EventItem[]
+  kitchenRecipes KitchenRecipe[]
 
   @@index([categoryName])
 }
@@ -804,9 +814,10 @@ model EventItem {
 
   event   Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
   product Product?      @relation(fields: [productId], references: [id])
-  choices EventItemChoice[]
-  slots   EventStaffSlot[]
-  answers EventItemAnswer[]
+  choices         EventItemChoice[]
+  slots           EventStaffSlot[]
+  answers         EventItemAnswer[]
+  kitchenMenuLink KitchenEventMenu[]
 
   @@index([eventId])
   @@index([productId])
@@ -904,6 +915,210 @@ model EventSyncLog {
 
   event Event? @relation("EventToSyncLog", fields: [eventId], references: [id], onDelete: SetNull)
 
+  @@index([eventId])
+}
+
+// ============================================
+// Módulo Cozinha
+// ============================================
+
+enum KitchenStorageType {
+  dry
+  frozen
+  refrigerated
+}
+
+enum KitchenMenuType {
+  guest
+  staff
+}
+
+enum KitchenPurchaseSource {
+  foto
+  manual
+}
+
+model KitchenIngredient {
+  id            String             @id @default(uuid())
+  employerId    String
+  name          String
+  category      String
+  unit          String
+  costPerUnit   Float              @default(0)
+  stockQuantity Float              @default(0)
+  minQuantity   Float              @default(0)
+  storageType   KitchenStorageType @default(dry)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  employer          Employer                  @relation(fields: [employerId], references: [id])
+  recipeIngredients KitchenRecipeIngredient[]
+  purchaseItems     KitchenPurchaseItem[]
+
+  @@unique([employerId, name, unit])
+  @@index([employerId])
+}
+
+model KitchenRecipe {
+  id              String   @id @default(uuid())
+  employerId      String
+  productId       String?
+  name            String
+  category        String
+  servings        Int      @default(1)
+  averagePerGuest Float    @default(0)
+  prepTime        Int      @default(0)
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  employer      Employer                  @relation(fields: [employerId], references: [id])
+  product       Product?                  @relation(fields: [productId], references: [id])
+  ingredients   KitchenRecipeIngredient[]
+  subRecipes    KitchenSubRecipe[]        @relation("ParentRecipe")
+  parentRecipes KitchenSubRecipe[]        @relation("SubRecipe")
+  steps         KitchenRecipeStep[]
+  eventMenus    KitchenEventMenu[]
+  productions   KitchenProductionLog[]
+
+  @@index([employerId])
+  @@index([productId])
+}
+
+model KitchenRecipeIngredient {
+  id           String @id @default(uuid())
+  recipeId     String
+  ingredientId String
+  quantity     Float
+  unit         String
+
+  recipe     KitchenRecipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  ingredient KitchenIngredient @relation(fields: [ingredientId], references: [id])
+
+  @@unique([recipeId, ingredientId])
+  @@index([recipeId])
+}
+
+model KitchenSubRecipe {
+  id           String @id @default(uuid())
+  parentId     String
+  subRecipeId  String
+  servingsUsed Float  @default(1)
+
+  parent    KitchenRecipe @relation("ParentRecipe", fields: [parentId], references: [id], onDelete: Cascade)
+  subRecipe KitchenRecipe @relation("SubRecipe", fields: [subRecipeId], references: [id])
+
+  @@unique([parentId, subRecipeId])
+  @@index([parentId])
+}
+
+model KitchenRecipeStep {
+  id       String  @id @default(uuid())
+  recipeId String
+  order    Int
+  text     String
+  imageKey String?
+
+  recipe KitchenRecipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  @@index([recipeId])
+}
+
+model KitchenEventMenu {
+  id             String          @id @default(uuid())
+  eventId        String
+  recipeId       String
+  eventItemId    String?
+  menuType       KitchenMenuType @default(guest)
+  servingsNeeded Int             @default(0)
+  leftovers      Float?
+  breakage       Float?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  event     Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  recipe    KitchenRecipe @relation(fields: [recipeId], references: [id])
+  eventItem EventItem?    @relation(fields: [eventItemId], references: [id])
+
+  @@unique([eventId, recipeId, menuType])
+  @@index([eventId])
+}
+
+model KitchenProductionLog {
+  id               String   @id @default(uuid())
+  eventId          String
+  recipeId         String
+  servingsProduced Float
+  producedAt       DateTime
+  notes            String?
+  createdAt        DateTime @default(now())
+
+  event  Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  recipe KitchenRecipe @relation(fields: [recipeId], references: [id])
+
+  @@index([eventId])
+  @@index([recipeId])
+}
+
+model KitchenPurchaseRecord {
+  id          String                @id @default(uuid())
+  employerId  String
+  eventId     String?
+  storeName   String
+  date        DateTime
+  totalAmount Float                 @default(0)
+  source      KitchenPurchaseSource @default(manual)
+  createdAt   DateTime              @default(now())
+
+  employer Employer              @relation(fields: [employerId], references: [id])
+  items    KitchenPurchaseItem[]
+
+  @@index([employerId])
+  @@index([eventId])
+}
+
+model KitchenPurchaseItem {
+  id               String  @id @default(uuid())
+  purchaseRecordId String
+  ingredientId     String?
+  name             String
+  quantity         Float
+  unit             String
+  unitPrice        Float
+  totalPrice       Float
+
+  purchaseRecord KitchenPurchaseRecord @relation(fields: [purchaseRecordId], references: [id], onDelete: Cascade)
+  ingredient     KitchenIngredient?    @relation(fields: [ingredientId], references: [id])
+
+  @@index([purchaseRecordId])
+}
+
+model KitchenLaborRole {
+  id         String   @id @default(uuid())
+  employerId String
+  role       String
+  dailyRate  Float    @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  employer    Employer            @relation(fields: [employerId], references: [id])
+  eventLabors KitchenEventLabor[]
+
+  @@unique([employerId, role])
+  @@index([employerId])
+}
+
+model KitchenEventLabor {
+  id       String @id @default(uuid())
+  eventId  String
+  roleId   String
+  quantity Int    @default(1)
+  days     Int    @default(1)
+
+  event Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  role  KitchenLaborRole @relation(fields: [roleId], references: [id])
+
+  @@unique([eventId, roleId])
   @@index([eventId])
 }
 

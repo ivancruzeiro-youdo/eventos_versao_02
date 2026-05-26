@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, LayoutDashboard, Calendar, MapPin, Users, FileText, Settings, LogOut } from 'lucide-react';
+import { ChevronDown, ChevronRight, LayoutDashboard, Calendar, MapPin, Users, FileText, Settings, LogOut, ChefHat, Package, UtensilsCrossed, ShoppingCart, ClipboardList } from 'lucide-react';
 
 const mainNavigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -25,10 +25,18 @@ const adminNavigation = [
   { name: 'Integrações', href: '/admin/integrations/userp' },
 ];
 
+const kitchenNavigation = [
+  { name: 'Ingredientes & Estoque', href: '/cozinha/ingredientes', icon: Package },
+  { name: 'Receitas', href: '/cozinha/receitas', icon: UtensilsCrossed },
+  { name: 'Lista de Compras', href: '/cozinha/compras', icon: ShoppingCart },
+  { name: 'Registro de Compras', href: '/cozinha/compras/registros', icon: ClipboardList },
+];
+
 export default function Layout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [adminOpen, setAdminOpen] = useState(pathname.startsWith('/admin'));
+  const [kitchenOpen, setKitchenOpen] = useState(pathname.startsWith('/cozinha'));
 
   async function handleLogout() {
     try {
@@ -74,6 +82,47 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </Link>
             );
           })}
+
+          {/* Kitchen Section */}
+          <div className="pt-4 mt-4 border-t border-sidebar-border">
+            <button
+              onClick={() => setKitchenOpen(!kitchenOpen)}
+              className={`flex items-center justify-between w-full px-3 py-2 rounded-md text-sm transition-colors ${
+                pathname.startsWith('/cozinha')
+                  ? 'bg-sidebar-accent text-sidebar-foreground font-medium'
+                  : 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <ChefHat className="size-4" />
+                <span>Cozinha</span>
+              </div>
+              {kitchenOpen ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+            </button>
+
+            {kitchenOpen && (
+              <div className="mt-1 ml-4 space-y-1">
+                {kitchenNavigation.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+                  return (
+                    <Link
+                      key={item.name}
+                      href={item.href}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
+                        isActive
+                          ? 'bg-sidebar-accent text-sidebar-foreground font-medium'
+                          : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'
+                      }`}
+                    >
+                      <Icon className="size-3.5" />
+                      <span>{item.name}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
           {/* Admin Section */}
           <div className="pt-4 mt-4 border-t border-sidebar-border">
@@ -136,7 +185,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <header className="h-14 border-b bg-card flex items-center px-6 sticky top-0 z-10">
           <div className="flex items-center justify-between w-full max-w-7xl mx-auto">
             <h1 className="text-sm font-medium text-muted-foreground">
-              {[...mainNavigation, ...adminNavigation].find(n => pathname.startsWith(n.href))?.name || 'YOUDO Experience'}
+              {[...mainNavigation, ...kitchenNavigation, ...adminNavigation].find(n => pathname === n.href || pathname.startsWith(n.href + '/'))?.name || 'YOUDO Experience'}
             </h1>
           </div>
         </header>
