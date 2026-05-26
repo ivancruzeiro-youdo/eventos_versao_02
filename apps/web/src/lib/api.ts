@@ -1,7 +1,6 @@
-// Em produção NEXT_PUBLIC_API_URL é a URL pública (baked no bundle).
-// Em dev sem a var, usa string vazia → URL relativa → rewrite do next.config.mjs
-// proxia para localhost:3001. Nunca hardcoda localhost no bundle de produção.
-const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
+// Always use relative URLs: Next.js rewrites handle dev (→ localhost:3001),
+// nginx handles production (→ api:3001). Never call localhost from the browser bundle.
+const API_URL = '';
 
 async function fetchApi(endpoint: string, options: RequestInit = {}) {
   const url = `${API_URL}${endpoint}`;

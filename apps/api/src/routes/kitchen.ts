@@ -14,6 +14,27 @@ function kitchenWhere(user: any) {
   return { employerId: getEmployerId(user) };
 }
 
+// Transform Prisma recipe to frontend-expected shape.
+// Schema uses: ingredients, prepTime, steps.order, steps.text, subRecipes.servingsUsed
+// Frontend expects: recipeIngredients, prepTimeMinutes, steps.stepNumber, steps.description
+function transformRecipe(recipe: any) {
+  if (!recipe) return recipe;
+  return {
+    ...recipe,
+    prepTimeMinutes: recipe.prepTime,
+    recipeIngredients: recipe.ingredients ?? [],
+    steps: (recipe.steps ?? []).map((s: any) => ({
+      ...s,
+      stepNumber: s.order,
+      description: s.text,
+    })),
+    subRecipes: (recipe.subRecipes ?? []).map((sr: any) => ({
+      ...sr,
+      quantity: sr.servingsUsed,
+    })),
+  };
+}
+
 // ─── Schemas ─────────────────────────────────────────────────────────────────
 
 const ingredientSchema = z.object({
@@ -35,13 +56,12 @@ const recipeIngredientSchema = z.object({
 const recipeStepSchema = z.object({
   stepNumber: z.number().int().min(1),
   description: z.string(),
-  durationMinutes: z.number().int().min(0).optional(),
+  durationMinutes: z.number().int().min(0).optional(), // accepted but not stored (no column)
 });
 
 const subRecipeSchema = z.object({
   subRecipeId: z.string(),
-  quantity: z.number().min(0).default(1),
-  unit: z.string().optional(),
+  quantity: z.number().min(0).default(1), // maps to servingsUsed in DB
 });
 
 const recipeSchema = z.object({
@@ -49,7 +69,7 @@ const recipeSchema = z.object({
   category: z.string().default('Outros'),
   servings: z.number().int().min(1).default(1),
   averagePerGuest: z.number().min(0).default(1),
-  prepTimeMinutes: z.number().int().min(0).default(0),
+  prepTimeMinutes: z.number().int().min(0).default(0), // maps to prepTime in DB
   notes: z.string().optional(),
   productId: z.string().optional(),
   ingredients: z.array(recipeIngredientSchema).default([]),
@@ -104,17 +124,12 @@ const productionLogSchema = z.object({
   })).optional(),
 });
 
-const shoppingListParamsSchema = z.object({
-  eventIds: z.string(), // comma-separated
-});
-
 // ─── Router ───────────────────────────────────────────────────────────────────
 
 export async function kitchenRoutes(app: FastifyInstance) {
 
   // ── INGREDIENTS ──────────────────────────────────────────────────────────
 
-  // List ingredients
   app.get('/kitchen/ingredients', { preHandler: requireAuth }, async (request, reply) => {
     const user = (request as any).user;
     const ingredients = await prisma.kitchenIngredient.findMany({
@@ -124,20 +139,15 @@ export async function kitchenRoutes(app: FastifyInstance) {
     return { ingredients };
   });
 
-  // Create ingredient
   app.post('/kitchen/ingredients', { preHandler: [requireAuth, requireRole(['admin', 'event_owner', 'operator'])] }, async (request, reply) => {
     const user = (request as any).user;
     const data = ingredientSchema.parse(request.body);
     const ingredient = await prisma.kitchenIngredient.create({
-      data: {
-        ...data,
-        employerId: getEmployerId(user)!,
-      },
+      data: { ...data, employerId: getEmployerId(user)! },
     });
     return reply.status(201).send({ ingredient });
   });
 
-  // Update ingredient
   app.patch('/kitchen/ingredients/:id', { preHandler: [requireAuth, requireRole(['admin', 'event_owner', 'operator'])] }, async (request, reply) => {
     const user = (request as any).user;
     const { id } = request.params as { id: string };
@@ -149,100 +159,91 @@ export async function kitchenRoutes(app: FastifyInstance) {
     return { ingredient };
   });
 
-  // Delete ingredient
   app.delete('/kitchen/ingredients/:id', { preHandler: [requireAuth, requireRole(['admin', 'event_owner'])] }, async (request, reply) => {
     const user = (request as any).user;
     const { id } = request.params as { id: string };
-    await prisma.kitchenIngredient.delete({
-      where: { id, ...kitchenWhere(user) },
-    });
+    await prisma.kitchenIngredient.delete({ where: { id, ...kitchenWhere(user) } });
     return { success: true };
   });
 
   // ── RECIPES ───────────────────────────────────────────────────────────────
 
-  // List recipes
   app.get('/kitchen/recipes', { preHandler: requireAuth }, async (request, reply) => {
     const user = (request as any).user;
     const recipes = await prisma.kitchenRecipe.findMany({
       where: kitchenWhere(user),
       include: {
-        recipeIngredients: { include: { ingredient: true } },
-        steps: { orderBy: { stepNumber: 'asc' } },
+        ingredients: { include: { ingredient: true } },        // schema field: ingredients
+        steps: { orderBy: { order: 'asc' } },                 // schema field: order
         subRecipes: { include: { subRecipe: true } },
         product: { select: { id: true, name: true } },
       },
       orderBy: [{ category: 'asc' }, { name: 'asc' }],
     });
-    return { recipes };
+    return { recipes: recipes.map(transformRecipe) };
   });
 
-  // Get single recipe
   app.get('/kitchen/recipes/:id', { preHandler: requireAuth }, async (request, reply) => {
     const user = (request as any).user;
     const { id } = request.params as { id: string };
     const recipe = await prisma.kitchenRecipe.findFirst({
       where: { id, ...kitchenWhere(user) },
       include: {
-        recipeIngredients: { include: { ingredient: true } },
-        steps: { orderBy: { stepNumber: 'asc' } },
-        subRecipes: { include: { subRecipe: { include: { recipeIngredients: { include: { ingredient: true } } } } } },
+        ingredients: { include: { ingredient: true } },
+        steps: { orderBy: { order: 'asc' } },
+        subRecipes: { include: { subRecipe: { include: { ingredients: { include: { ingredient: true } } } } } },
         product: { select: { id: true, name: true } },
       },
     });
     if (!recipe) return reply.status(404).send({ error: 'Recipe not found' });
-    return { recipe };
+    return { recipe: transformRecipe(recipe) };
   });
 
-  // Create recipe
   app.post('/kitchen/recipes', { preHandler: [requireAuth, requireRole(['admin', 'event_owner', 'operator'])] }, async (request, reply) => {
     const user = (request as any).user;
     const data = recipeSchema.parse(request.body);
-    const { ingredients, steps, subRecipes, ...recipeData } = data;
+    const { ingredients, steps, subRecipes, prepTimeMinutes, ...restRecipeData } = data;
 
     const recipe = await prisma.kitchenRecipe.create({
       data: {
-        ...recipeData,
+        ...restRecipeData,
+        prepTime: prepTimeMinutes,                            // schema field: prepTime
         employerId: getEmployerId(user)!,
-        recipeIngredients: ingredients.length > 0 ? {
+        ingredients: ingredients.length > 0 ? {
           create: ingredients.map(i => ({
             ingredientId: i.ingredientId,
             quantity: i.quantity,
-            unit: i.unit,
+            unit: i.unit ?? '',
           })),
         } : undefined,
         steps: steps.length > 0 ? {
           create: steps.map(s => ({
-            stepNumber: s.stepNumber,
-            description: s.description,
-            durationMinutes: s.durationMinutes,
+            order: s.stepNumber,                              // schema field: order
+            text: s.description,                             // schema field: text
           })),
         } : undefined,
         subRecipes: subRecipes.length > 0 ? {
           create: subRecipes.map(sr => ({
             subRecipeId: sr.subRecipeId,
-            quantity: sr.quantity,
-            unit: sr.unit,
+            servingsUsed: sr.quantity,                       // schema field: servingsUsed
           })),
         } : undefined,
       },
       include: {
-        recipeIngredients: { include: { ingredient: true } },
-        steps: { orderBy: { stepNumber: 'asc' } },
+        ingredients: { include: { ingredient: true } },
+        steps: { orderBy: { order: 'asc' } },
         subRecipes: { include: { subRecipe: true } },
       },
     });
-    return reply.status(201).send({ recipe });
+    return reply.status(201).send({ recipe: transformRecipe(recipe) });
   });
 
-  // Update recipe
   app.patch('/kitchen/recipes/:id', { preHandler: [requireAuth, requireRole(['admin', 'event_owner', 'operator'])] }, async (request, reply) => {
     const user = (request as any).user;
     const { id } = request.params as { id: string };
     const data = recipeSchema.partial().parse(request.body);
-    const { ingredients, steps, subRecipes, ...recipeData } = data;
+    const { ingredients, steps, subRecipes, prepTimeMinutes, ...restRecipeData } = data;
 
-    // Delete and recreate related items if provided
     await prisma.$transaction(async (tx) => {
       if (ingredients !== undefined) {
         await tx.kitchenRecipeIngredient.deleteMany({ where: { recipeId: id } });
@@ -251,32 +252,31 @@ export async function kitchenRoutes(app: FastifyInstance) {
         await tx.kitchenRecipeStep.deleteMany({ where: { recipeId: id } });
       }
       if (subRecipes !== undefined) {
-        await tx.kitchenSubRecipe.deleteMany({ where: { parentRecipeId: id } });
+        await tx.kitchenSubRecipe.deleteMany({ where: { parentId: id } });   // schema field: parentId
       }
 
       await tx.kitchenRecipe.update({
         where: { id },
         data: {
-          ...recipeData,
-          recipeIngredients: ingredients ? {
+          ...restRecipeData,
+          ...(prepTimeMinutes !== undefined ? { prepTime: prepTimeMinutes } : {}),
+          ingredients: ingredients ? {
             create: ingredients.map(i => ({
               ingredientId: i.ingredientId,
               quantity: i.quantity,
-              unit: i.unit,
+              unit: i.unit ?? '',
             })),
           } : undefined,
           steps: steps ? {
             create: steps.map(s => ({
-              stepNumber: s.stepNumber,
-              description: s.description,
-              durationMinutes: s.durationMinutes,
+              order: s.stepNumber,
+              text: s.description,
             })),
           } : undefined,
           subRecipes: subRecipes ? {
             create: subRecipes.map(sr => ({
               subRecipeId: sr.subRecipeId,
-              quantity: sr.quantity,
-              unit: sr.unit,
+              servingsUsed: sr.quantity,
             })),
           } : undefined,
         },
@@ -286,15 +286,14 @@ export async function kitchenRoutes(app: FastifyInstance) {
     const recipe = await prisma.kitchenRecipe.findUnique({
       where: { id },
       include: {
-        recipeIngredients: { include: { ingredient: true } },
-        steps: { orderBy: { stepNumber: 'asc' } },
+        ingredients: { include: { ingredient: true } },
+        steps: { orderBy: { order: 'asc' } },
         subRecipes: { include: { subRecipe: true } },
       },
     });
-    return { recipe };
+    return { recipe: transformRecipe(recipe) };
   });
 
-  // Delete recipe
   app.delete('/kitchen/recipes/:id', { preHandler: [requireAuth, requireRole(['admin', 'event_owner'])] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     await prisma.kitchenRecipe.delete({ where: { id } });
@@ -303,7 +302,6 @@ export async function kitchenRoutes(app: FastifyInstance) {
 
   // ── SHOPPING LIST ─────────────────────────────────────────────────────────
 
-  // GET /kitchen/shopping-list?eventIds=id1,id2
   app.get('/kitchen/shopping-list', { preHandler: requireAuth }, async (request, reply) => {
     const user = (request as any).user;
     const query = request.query as any;
@@ -314,22 +312,16 @@ export async function kitchenRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'eventIds query param required (comma-separated)' });
     }
 
-    // Fetch event menus for the given events
     const eventMenus = await prisma.kitchenEventMenu.findMany({
-      where: {
-        eventId: { in: eventIds },
-        event: kitchenWhere(user),
-      },
+      where: { eventId: { in: eventIds }, event: kitchenWhere(user) },
       include: {
         recipe: {
           include: {
-            recipeIngredients: { include: { ingredient: true } },
+            ingredients: { include: { ingredient: true } },
             subRecipes: {
               include: {
                 subRecipe: {
-                  include: {
-                    recipeIngredients: { include: { ingredient: true } },
-                  },
+                  include: { ingredients: { include: { ingredient: true } } },
                 },
               },
             },
@@ -339,11 +331,10 @@ export async function kitchenRoutes(app: FastifyInstance) {
       },
     });
 
-    // Flatten all ingredient needs (with sub-recipes resolved)
     const needMap = new Map<string, { ingredient: any; quantityNeeded: number }>();
 
-    function addIngredients(recipeIngredients: any[], multiplier: number) {
-      for (const ri of recipeIngredients) {
+    function addIngredients(ingredientList: any[], multiplier: number) {
+      for (const ri of ingredientList) {
         const existing = needMap.get(ri.ingredientId);
         const qty = ri.quantity * multiplier;
         if (existing) {
@@ -359,17 +350,14 @@ export async function kitchenRoutes(app: FastifyInstance) {
       const guestCount = em.servingsNeeded ?? em.event._count?.guests ?? 0;
       const portionMultiplier = recipe.servings > 0 ? (guestCount * recipe.averagePerGuest) / recipe.servings : 1;
 
-      // Direct ingredients
-      addIngredients(recipe.recipeIngredients, portionMultiplier);
+      addIngredients(recipe.ingredients, portionMultiplier);
 
-      // Sub-recipe ingredients
       for (const sr of recipe.subRecipes) {
-        const subMultiplier = portionMultiplier * (sr.quantity || 1);
-        addIngredients(sr.subRecipe.recipeIngredients, subMultiplier);
+        const subMultiplier = portionMultiplier * (sr.servingsUsed || 1);  // schema: servingsUsed
+        addIngredients(sr.subRecipe.ingredients, subMultiplier);
       }
     }
 
-    // Subtract current stock and build list
     const items = Array.from(needMap.values()).map(({ ingredient, quantityNeeded }) => {
       const inStock = ingredient.stockQuantity || 0;
       const toBuy = Math.max(0, quantityNeeded - inStock);
@@ -392,7 +380,6 @@ export async function kitchenRoutes(app: FastifyInstance) {
 
   // ── PURCHASES ─────────────────────────────────────────────────────────────
 
-  // List purchase records
   app.get('/kitchen/purchases', { preHandler: requireAuth }, async (request, reply) => {
     const user = (request as any).user;
     const records = await prisma.kitchenPurchaseRecord.findMany({
@@ -405,7 +392,6 @@ export async function kitchenRoutes(app: FastifyInstance) {
     return { records };
   });
 
-  // Create purchase record
   app.post('/kitchen/purchases', { preHandler: [requireAuth, requireRole(['admin', 'event_owner', 'operator'])] }, async (request, reply) => {
     const user = (request as any).user;
     const data = purchaseRecordSchema.parse(request.body);
@@ -433,7 +419,6 @@ export async function kitchenRoutes(app: FastifyInstance) {
         include: { items: true },
       });
 
-      // Auto-update ingredient prices and stock
       if (updatePrices || updateStock) {
         for (const item of items) {
           if (item.ingredientId) {
@@ -466,7 +451,6 @@ export async function kitchenRoutes(app: FastifyInstance) {
     return reply.status(201).send({ record });
   });
 
-  // Delete purchase record
   app.delete('/kitchen/purchases/:id', { preHandler: [requireAuth, requireRole(['admin', 'event_owner'])] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     await prisma.kitchenPurchaseRecord.delete({ where: { id } });
@@ -475,7 +459,6 @@ export async function kitchenRoutes(app: FastifyInstance) {
 
   // ── LABOR ROLES ───────────────────────────────────────────────────────────
 
-  // List labor roles
   app.get('/kitchen/labor-roles', { preHandler: requireAuth }, async (request, reply) => {
     const user = (request as any).user;
     const roles = await prisma.kitchenLaborRole.findMany({
@@ -485,7 +468,6 @@ export async function kitchenRoutes(app: FastifyInstance) {
     return { roles };
   });
 
-  // Create labor role
   app.post('/kitchen/labor-roles', { preHandler: [requireAuth, requireRole(['admin', 'event_owner', 'operator'])] }, async (request, reply) => {
     const user = (request as any).user;
     const data = laborRoleSchema.parse(request.body);
@@ -495,7 +477,6 @@ export async function kitchenRoutes(app: FastifyInstance) {
     return reply.status(201).send({ role });
   });
 
-  // Update labor role
   app.patch('/kitchen/labor-roles/:id', { preHandler: [requireAuth, requireRole(['admin', 'event_owner', 'operator'])] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const data = laborRoleSchema.partial().parse(request.body);
@@ -503,7 +484,6 @@ export async function kitchenRoutes(app: FastifyInstance) {
     return { role };
   });
 
-  // Delete labor role
   app.delete('/kitchen/labor-roles/:id', { preHandler: [requireAuth, requireRole(['admin', 'event_owner'])] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     await prisma.kitchenLaborRole.delete({ where: { id } });
@@ -512,7 +492,6 @@ export async function kitchenRoutes(app: FastifyInstance) {
 
   // ── EVENT KITCHEN MENU ────────────────────────────────────────────────────
 
-  // List event kitchen menus
   app.get('/kitchen/events/:eventId/menu', { preHandler: requireAuth }, async (request, reply) => {
     const { eventId } = request.params as { eventId: string };
     const menus = await prisma.kitchenEventMenu.findMany({
@@ -520,7 +499,7 @@ export async function kitchenRoutes(app: FastifyInstance) {
       include: {
         recipe: {
           include: {
-            recipeIngredients: { include: { ingredient: true } },
+            ingredients: { include: { ingredient: true } },
             subRecipes: { include: { subRecipe: true } },
           },
         },
@@ -529,24 +508,25 @@ export async function kitchenRoutes(app: FastifyInstance) {
       orderBy: [{ menuType: 'asc' }, { createdAt: 'asc' }],
     });
 
-    // Calculate costs
     const menusWithCost = menus.map(m => {
-      const recipeCost = m.recipe.recipeIngredients.reduce(
+      const recipeCost = m.recipe.ingredients.reduce(
         (sum, ri) => sum + ri.quantity * (ri.ingredient?.costPerUnit ?? 0),
         0
       );
-      return { ...m, recipeCostPerServing: m.recipe.servings > 0 ? recipeCost / m.recipe.servings : 0 };
+      return {
+        ...m,
+        recipe: transformRecipe(m.recipe),
+        recipeCostPerServing: m.recipe.servings > 0 ? recipeCost / m.recipe.servings : 0,
+      };
     });
 
     return { menus: menusWithCost };
   });
 
-  // Add recipe to event menu
   app.post('/kitchen/events/:eventId/menu', { preHandler: [requireAuth, requireRole(['admin', 'event_owner', 'operator'])] }, async (request, reply) => {
     const { eventId } = request.params as { eventId: string };
     const data = eventMenuSchema.parse(request.body);
 
-    // Check if already added
     const existing = await prisma.kitchenEventMenu.findFirst({
       where: { eventId, recipeId: data.recipeId, menuType: data.menuType },
     });
@@ -567,7 +547,6 @@ export async function kitchenRoutes(app: FastifyInstance) {
     return reply.status(201).send({ menu });
   });
 
-  // Update event menu item
   app.patch('/kitchen/events/:eventId/menu/:menuId', { preHandler: [requireAuth, requireRole(['admin', 'event_owner', 'operator'])] }, async (request, reply) => {
     const { menuId } = request.params as { eventId: string; menuId: string };
     const data = eventMenuSchema.partial().parse(request.body);
@@ -575,7 +554,6 @@ export async function kitchenRoutes(app: FastifyInstance) {
     return { menu };
   });
 
-  // Remove recipe from event menu
   app.delete('/kitchen/events/:eventId/menu/:menuId', { preHandler: [requireAuth, requireRole(['admin', 'event_owner'])] }, async (request, reply) => {
     const { menuId } = request.params as { eventId: string; menuId: string };
     await prisma.kitchenEventMenu.delete({ where: { id: menuId } });
@@ -584,7 +562,6 @@ export async function kitchenRoutes(app: FastifyInstance) {
 
   // ── EVENT LABOR ───────────────────────────────────────────────────────────
 
-  // List event labor
   app.get('/kitchen/events/:eventId/labor', { preHandler: requireAuth }, async (request, reply) => {
     const { eventId } = request.params as { eventId: string };
     const labor = await prisma.kitchenEventLabor.findMany({
@@ -595,7 +572,6 @@ export async function kitchenRoutes(app: FastifyInstance) {
     return { labor };
   });
 
-  // Add labor to event
   app.post('/kitchen/events/:eventId/labor', { preHandler: [requireAuth, requireRole(['admin', 'event_owner', 'operator'])] }, async (request, reply) => {
     const { eventId } = request.params as { eventId: string };
     const data = eventLaborSchema.parse(request.body);
@@ -606,7 +582,6 @@ export async function kitchenRoutes(app: FastifyInstance) {
     return reply.status(201).send({ labor });
   });
 
-  // Update event labor
   app.patch('/kitchen/events/:eventId/labor/:laborId', { preHandler: [requireAuth, requireRole(['admin', 'event_owner', 'operator'])] }, async (request, reply) => {
     const { laborId } = request.params as { eventId: string; laborId: string };
     const data = eventLaborSchema.partial().parse(request.body);
@@ -618,7 +593,6 @@ export async function kitchenRoutes(app: FastifyInstance) {
     return { labor };
   });
 
-  // Remove labor from event
   app.delete('/kitchen/events/:eventId/labor/:laborId', { preHandler: [requireAuth, requireRole(['admin', 'event_owner'])] }, async (request, reply) => {
     const { laborId } = request.params as { eventId: string; laborId: string };
     await prisma.kitchenEventLabor.delete({ where: { id: laborId } });
@@ -627,7 +601,6 @@ export async function kitchenRoutes(app: FastifyInstance) {
 
   // ── PRODUCTION LOGS ───────────────────────────────────────────────────────
 
-  // List production logs for event
   app.get('/kitchen/events/:eventId/production', { preHandler: requireAuth }, async (request, reply) => {
     const { eventId } = request.params as { eventId: string };
     const logs = await prisma.kitchenProductionLog.findMany({
@@ -638,13 +611,11 @@ export async function kitchenRoutes(app: FastifyInstance) {
     return { logs };
   });
 
-  // Register production (deducts stock)
   app.post('/kitchen/events/:eventId/production', { preHandler: [requireAuth, requireRole(['admin', 'event_owner', 'operator'])] }, async (request, reply) => {
     const { eventId } = request.params as { eventId: string };
     const data = productionLogSchema.parse(request.body);
 
     const log = await prisma.$transaction(async (tx) => {
-      // Create production log
       const created = await tx.kitchenProductionLog.create({
         data: {
           eventId,
@@ -655,7 +626,6 @@ export async function kitchenRoutes(app: FastifyInstance) {
         },
       });
 
-      // Deduct stock for provided ingredient deductions
       if (data.ingredientDeductions && data.ingredientDeductions.length > 0) {
         for (const deduction of data.ingredientDeductions) {
           const ingredient = await tx.kitchenIngredient.findUnique({
@@ -665,9 +635,7 @@ export async function kitchenRoutes(app: FastifyInstance) {
           if (ingredient) {
             await tx.kitchenIngredient.update({
               where: { id: deduction.ingredientId },
-              data: {
-                stockQuantity: Math.max(0, ingredient.stockQuantity - deduction.quantity),
-              },
+              data: { stockQuantity: Math.max(0, ingredient.stockQuantity - deduction.quantity) },
             });
           }
         }
@@ -675,11 +643,11 @@ export async function kitchenRoutes(app: FastifyInstance) {
         // Auto-deduct based on recipe ingredients × portions
         const recipe = await tx.kitchenRecipe.findUnique({
           where: { id: data.recipeId },
-          include: { recipeIngredients: true },
+          include: { ingredients: true },              // schema field: ingredients
         });
         if (recipe && recipe.servings > 0) {
           const multiplier = data.portionsProduced / recipe.servings;
-          for (const ri of recipe.recipeIngredients) {
+          for (const ri of recipe.ingredients) {     // schema field: ingredients
             const ingredient = await tx.kitchenIngredient.findUnique({
               where: { id: ri.ingredientId },
               select: { stockQuantity: true },
@@ -687,9 +655,7 @@ export async function kitchenRoutes(app: FastifyInstance) {
             if (ingredient) {
               await tx.kitchenIngredient.update({
                 where: { id: ri.ingredientId },
-                data: {
-                  stockQuantity: Math.max(0, ingredient.stockQuantity - ri.quantity * multiplier),
-                },
+                data: { stockQuantity: Math.max(0, ingredient.stockQuantity - ri.quantity * multiplier) },
               });
             }
           }
@@ -713,9 +679,11 @@ export async function kitchenRoutes(app: FastifyInstance) {
         include: {
           recipe: {
             include: {
-              recipeIngredients: { include: { ingredient: true } },
+              ingredients: { include: { ingredient: true } },
               subRecipes: {
-                include: { subRecipe: { include: { recipeIngredients: { include: { ingredient: true } } } } },
+                include: {
+                  subRecipe: { include: { ingredients: { include: { ingredient: true } } } },
+                },
               },
             },
           },
@@ -733,29 +701,26 @@ export async function kitchenRoutes(app: FastifyInstance) {
 
     const guestCount = event?._count?.guests ?? 0;
 
-    // Ingredient cost
     let ingredientCost = 0;
     for (const m of menus) {
       const recipe = m.recipe;
       const servingsNeeded = m.servingsNeeded ?? guestCount * recipe.averagePerGuest;
       const multiplier = recipe.servings > 0 ? servingsNeeded / recipe.servings : 1;
 
-      for (const ri of recipe.recipeIngredients) {
+      for (const ri of recipe.ingredients) {          // schema field: ingredients
         ingredientCost += ri.quantity * multiplier * (ri.ingredient?.costPerUnit ?? 0);
       }
       for (const sr of recipe.subRecipes) {
-        const subMultiplier = multiplier * (sr.quantity || 1);
-        for (const ri of sr.subRecipe.recipeIngredients) {
+        const subMultiplier = multiplier * (sr.servingsUsed || 1);  // schema field: servingsUsed
+        for (const ri of sr.subRecipe.ingredients) {  // schema field: ingredients
           ingredientCost += ri.quantity * subMultiplier * (ri.ingredient?.costPerUnit ?? 0);
         }
       }
     }
 
-    // Labor cost
     const laborCost = labor.reduce((sum, l) => sum + l.quantity * l.days * l.laborRole.dailyRate, 0);
-
     const totalCost = ingredientCost + laborCost;
-    const suggestedPrice = totalCost / 0.30; // 70% margin
+    const suggestedPrice = totalCost > 0 ? totalCost / 0.30 : 0; // 70% margin
 
     return {
       eventId,
