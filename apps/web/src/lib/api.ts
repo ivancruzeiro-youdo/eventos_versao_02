@@ -65,8 +65,11 @@ export const authApi = {
 export const freelancerApi = {
   jobs: () => fetchApi('/api/v2/freelancer/jobs'),
   applications: () => fetchApi('/api/v2/freelancer/applications'),
-  apply: (jobId: string, role: string) => 
+  apply: (jobId: string, role: string) =>
     fetchApi(`/api/v2/freelancer/jobs/${jobId}/apply`, { method: 'POST', body: JSON.stringify({ role }) }),
+  cancelApplication: (id: string) =>
+    fetchApi(`/api/v2/freelancer/applications/${id}`, { method: 'DELETE' }),
+  earnings: () => fetchApi('/api/v2/freelancer/earnings'),
   profile: () => fetchApi('/api/v2/freelancer/profile'),
 };
 

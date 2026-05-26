@@ -258,7 +258,7 @@ export async function authRoutes(app: FastifyInstance) {
       if (decoded.role === 'freelancer') {
         const freelancer = await prisma.freelancer.findUnique({
           where: { id: decoded.sub },
-          select: { id: true, name: true, email: true, status: true },
+          select: { id: true, name: true, email: true, cpf: true, phone: true, status: true, strikeCount: true },
         });
         return { user: { ...freelancer, role: 'freelancer' } };
       } else {

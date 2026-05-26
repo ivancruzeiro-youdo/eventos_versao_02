@@ -399,6 +399,89 @@ export async function freelancerRoutes(app: FastifyInstance) {
     return reply.status(201).send({ success: true, application });
   });
 
+  // Cancel own application (sets status to cancelled, frees the slot)
+  app.delete('/freelancer/applications/:id', { preHandler: requireAuth }, async (request, reply) => {
+    const user = (request as any).user;
+    if (user.role !== 'freelancer') {
+      return reply.status(403).send({ error: 'Freelancer access only' });
+    }
+    const { id } = request.params as { id: string };
+    const application = await prisma.freelancerApplication.findUnique({ where: { id } });
+    if (!application || application.freelancerId !== user.id) {
+      return reply.status(404).send({ error: 'Candidatura não encontrada' });
+    }
+    if (application.status === 'cancelled') {
+      return reply.status(400).send({ error: 'Candidatura já cancelada' });
+    }
+    await prisma.freelancerApplication.update({
+      where: { id },
+      data: { status: 'cancelled' },
+    });
+    return { success: true };
+  });
+
+  // Freelancer earnings (realized + upcoming based on approved applications)
+  app.get('/freelancer/earnings', { preHandler: requireAuth }, async (request, reply) => {
+    const user = (request as any).user;
+    if (user.role !== 'freelancer') {
+      return reply.status(403).send({ error: 'Freelancer access only' });
+    }
+
+    const freelancer = await prisma.freelancer.findUnique({
+      where: { id: user.id },
+      include: { services: { include: { service: true } } },
+    });
+    if (!freelancer) return reply.status(404).send({ error: 'Not found' });
+
+    const applications = await prisma.freelancerApplication.findMany({
+      where: { freelancerId: user.id, status: 'approved' },
+      include: {
+        event: { select: { id: true, name: true, startAt: true, teardownAt: true, clientName: true } },
+      },
+      orderBy: { appliedAt: 'desc' },
+    });
+
+    const rateMap = new Map<string, number>(
+      freelancer.services.map((s: any) => [s.service.name.toLowerCase(), s.service.hourlyRate])
+    );
+
+    const now = new Date();
+    const entries = applications.map((app: any) => {
+      const rate = rateMap.get(app.role.toLowerCase()) ?? 0;
+      const startAt: Date | null = app.event.startAt;
+      const teardownAt: Date | null = app.event.teardownAt;
+      let hours = 0;
+      if (startAt && teardownAt) {
+        hours = Math.max(0, (new Date(teardownAt).getTime() - new Date(startAt).getTime()) / 3_600_000);
+      }
+      const total = Math.round(rate * hours * 100) / 100;
+      const isPast = teardownAt ? new Date(teardownAt) < now : startAt ? new Date(startAt) < now : false;
+      return {
+        id: app.id,
+        eventName: app.event.name,
+        clientName: app.event.clientName,
+        eventId: app.event.id,
+        role: app.role,
+        startAt: app.event.startAt,
+        rate,
+        hours: Math.round(hours * 10) / 10,
+        total,
+        isPast,
+      };
+    });
+
+    const realized = entries.filter((e: any) => e.isPast);
+    const upcoming = entries.filter((e: any) => !e.isPast);
+
+    return {
+      success: true,
+      realized,
+      upcoming,
+      totalRealized: Math.round(realized.reduce((s: number, e: any) => s + e.total, 0) * 100) / 100,
+      totalUpcoming: Math.round(upcoming.reduce((s: number, e: any) => s + e.total, 0) * 100) / 100,
+    };
+  });
+
   // Get my applications
   app.get('/freelancer/applications', { preHandler: requireAuth }, async (request, reply) => {
     const user = (request as any).user;
