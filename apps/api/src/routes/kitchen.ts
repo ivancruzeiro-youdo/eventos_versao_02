@@ -494,6 +494,36 @@ export async function kitchenRoutes(app: FastifyInstance) {
     return { success: true };
   });
 
+  // ── FOOD ITEMS STATUS ─────────────────────────────────────────────────────
+
+  // GET /kitchen/events/:eventId/food-items — A&B items with recipe-link status
+  app.get('/kitchen/events/:eventId/food-items', { preHandler: requireAuth }, async (request, reply) => {
+    const { eventId } = request.params as { eventId: string };
+
+    const items = await prisma.eventItem.findMany({
+      where: { eventId, category: 'ab' },
+      include: {
+        kitchenMenuLink: {
+          include: { recipe: { select: { id: true, name: true, recipeType: true } } },
+        },
+        product: { select: { id: true, name: true, categoryName: true } },
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    return {
+      items: items.map(item => ({
+        id: item.id,
+        name: item.name,
+        quantity: item.quantity,
+        unit: item.unit,
+        product: item.product,
+        recipe: item.kitchenMenuLink[0]?.recipe ?? null,
+        hasRecipe: item.kitchenMenuLink.length > 0,
+      })),
+    };
+  });
+
   // ── EVENT KITCHEN MENU ────────────────────────────────────────────────────
 
   app.get('/kitchen/events/:eventId/menu', { preHandler: requireAuth }, async (request, reply) => {
