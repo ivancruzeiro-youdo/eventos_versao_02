@@ -11,12 +11,13 @@ import EventCommentsTab from '@/components/EventCommentsTab';
 import EventFilesTab from '@/components/EventFilesTab';
 import EventScheduleTab from '@/components/EventScheduleTab';
 import EventItemsTab from '@/components/EventItemsTab';
+import EventFreelancersTab from '@/components/EventFreelancersTab';
 import { eventsApi, guestsApi } from '@/lib/api';
 import { formatDateTime, getStatusColor, getStatusLabel, formatPhone, formatCpf } from '@/lib/utils';
-import { 
-  MessageCircle, FileText, Clock, CheckSquare, Users, 
+import {
+  MessageCircle, FileText, Clock, CheckSquare, Users,
   ClipboardList, Briefcase, UtensilsCrossed, HardHat, Trash2, ChevronDown,
-  Calendar, MapPin, Pencil, Check, X, Copy
+  Calendar, MapPin, Pencil, Check, X, Copy, UserCog
 } from 'lucide-react';
 
 interface Event {
@@ -55,6 +56,7 @@ const tabs = [
   { id: 'checklists', label: 'Checklists', icon: CheckSquare },
   { id: 'guests', label: 'Convidados', icon: Users },
   { id: 'plan', label: 'Plano do Evento', icon: ClipboardList },
+  { id: 'freelancers', label: 'Freelancers', icon: UserCog },
   { id: 'jobs', label: 'Taxas', icon: Briefcase },
   { id: 'food', label: 'A&B', icon: UtensilsCrossed },
   { id: 'infra', label: 'Infraestrutura', icon: HardHat },
@@ -544,6 +546,9 @@ export default function EventDetailPage() {
       )}
       {activeTab === 'plan' && (
         <EventPlanTab eventId={eventId} />
+      )}
+      {activeTab === 'freelancers' && (
+        <EventFreelancersTab eventId={eventId} />
       )}
       {activeTab === 'jobs' && (
         <EventTaxasTab eventId={eventId} eventStartAt={event.startAt} />
