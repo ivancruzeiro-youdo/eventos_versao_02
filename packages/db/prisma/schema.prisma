@@ -965,6 +965,7 @@ model KitchenRecipe {
   productId       String?
   name            String
   category        String
+  recipeType      String   @default("final") // 'base' | 'final'
   servings        Int      @default(1)
   averagePerGuest Float    @default(0)
   prepTime        Int      @default(0)

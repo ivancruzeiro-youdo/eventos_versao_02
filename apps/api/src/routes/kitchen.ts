@@ -21,6 +21,7 @@ function transformRecipe(recipe: any) {
   if (!recipe) return recipe;
   return {
     ...recipe,
+    recipeType: recipe.recipeType ?? 'final',
     prepTimeMinutes: recipe.prepTime,
     recipeIngredients: recipe.ingredients ?? [],
     steps: (recipe.steps ?? []).map((s: any) => ({
@@ -31,6 +32,8 @@ function transformRecipe(recipe: any) {
     subRecipes: (recipe.subRecipes ?? []).map((sr: any) => ({
       ...sr,
       quantity: sr.servingsUsed,
+      // nest transformed subRecipe if present
+      subRecipe: sr.subRecipe ? transformRecipe(sr.subRecipe) : undefined,
     })),
   };
 }
@@ -67,6 +70,7 @@ const subRecipeSchema = z.object({
 const recipeSchema = z.object({
   name: z.string().min(1),
   category: z.string().default('Outros'),
+  recipeType: z.enum(['base', 'final']).default('final'),
   servings: z.number().int().min(1).default(1),
   averagePerGuest: z.number().min(0).default(1),
   prepTimeMinutes: z.number().int().min(0).default(0), // maps to prepTime in DB
