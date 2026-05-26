@@ -6,7 +6,7 @@ RUN npm install -g pnpm
 
 # NEXT_PUBLIC_API_URL is baked into the client bundle at build time
 # Set to the public-facing URL so the browser can reach the API via nginx
-ARG NEXT_PUBLIC_API_URL=http://localhost:3001
+ARG NEXT_PUBLIC_API_URL=
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
 # Copy package files for dependency installation

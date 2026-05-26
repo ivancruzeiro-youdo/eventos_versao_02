@@ -7,7 +7,8 @@ const nextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/:path*`,
+        // INTERNAL_API_URL for server-side rewrites (container-to-container); NEXT_PUBLIC_API_URL is empty in prod
+        destination: `${process.env.INTERNAL_API_URL || 'http://localhost:3001'}/api/:path*`,
       },
     ];
   },
