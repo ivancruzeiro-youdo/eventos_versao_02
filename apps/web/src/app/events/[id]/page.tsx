@@ -58,7 +58,7 @@ const tabs = [
   { id: 'guests', label: 'Convidados', icon: Users },
   { id: 'plan', label: 'Plano do Evento', icon: ClipboardList },
   { id: 'freelancers', label: 'Freelancers', icon: UserCog },
-  { id: 'jobs', label: 'Taxas', icon: Briefcase },
+  { id: 'jobs', label: 'Mão de Obra', icon: Briefcase },
   { id: 'food', label: 'A&B', icon: UtensilsCrossed },
   { id: 'infra', label: 'Infraestrutura', icon: HardHat },
   { id: 'kitchen', label: 'Cozinha', icon: ChefHat },

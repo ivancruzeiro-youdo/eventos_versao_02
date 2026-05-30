@@ -767,4 +767,260 @@ export async function kitchenRoutes(app: FastifyInstance) {
       marginPercent: 70,
     };
   });
+
+  // ── PRODUCTION PIPELINE ────────────────────────────────────────────────────
+
+  const planStatusSchema = z.object({
+    status: z.enum(['pending', 'shopping_approved', 'planned', 'in_production', 'done']),
+    notes: z.string().optional(),
+  });
+
+  const batchSchema = z.object({
+    recipeId: z.string(),
+    phase: z.enum(['pre_prep', 'day_of']),
+    scheduledAt: z.string(), // ISO date string
+    targetQty: z.number().min(0),
+    notes: z.string().optional(),
+    allocations: z.array(z.object({
+      eventId: z.string(),
+      quantity: z.number().min(0),
+      menuId: z.string().optional(),
+    })).default([]),
+  });
+
+  // GET /kitchen/planning/overview — all events with kitchen plan status + food items
+  app.get('/kitchen/planning/overview', { preHandler: requireAuth }, async (request, reply) => {
+    const user = (request as any).user;
+    const empWhere = kitchenWhere(user);
+
+    // Events with confirmed/in_progress status, with food items
+    const events = await prisma.event.findMany({
+      where: {
+        employerId: empWhere.employerId,
+        status: { in: ['confirmed', 'in_progress'] },
+        items: { some: { category: 'ab' } }, // has at least one food item
+      },
+      include: {
+        kitchenPlan: true,
+        items: {
+          where: { category: 'ab' },
+          include: {
+            kitchenMenuLink: {
+              include: { recipe: { select: { id: true, name: true, recipeType: true } } },
+            },
+          },
+          orderBy: { name: 'asc' },
+        },
+      },
+      orderBy: { startAt: 'asc' },
+    });
+
+    return {
+      events: events.map(ev => {
+        const foodItems = ev.items.map(item => ({
+          id: item.id,
+          name: item.name,
+          quantity: item.quantity,
+          hasRecipe: item.kitchenMenuLink.length > 0,
+          recipe: item.kitchenMenuLink[0]?.recipe ?? null,
+        }));
+        return {
+          id: ev.id,
+          name: ev.name,
+          startAt: ev.startAt,
+          status: ev.status,
+          plan: ev.kitchenPlan,
+          planStatus: ev.kitchenPlan?.status ?? 'pending',
+          foodItems,
+          totalFoodItems: foodItems.length,
+          itemsWithRecipe: foodItems.filter(i => i.hasRecipe).length,
+          allRecipesLinked: foodItems.length > 0 && foodItems.every(i => i.hasRecipe),
+        };
+      }),
+    };
+  });
+
+  // PATCH /kitchen/planning/:eventId — upsert plan + set status
+  app.patch('/kitchen/planning/:eventId', { preHandler: [requireAuth, requireRole(['admin', 'event_owner', 'operator'])] }, async (request, reply) => {
+    const user = (request as any).user;
+    const { eventId } = request.params as { eventId: string };
+    const data = planStatusSchema.parse(request.body);
+
+    const plan = await (prisma as any).kitchenEventPlan.upsert({
+      where: { eventId },
+      create: {
+        eventId,
+        employerId: getEmployerId(user)!,
+        status: data.status,
+        notes: data.notes,
+      },
+      update: {
+        status: data.status,
+        ...(data.notes !== undefined ? { notes: data.notes } : {}),
+        updatedAt: new Date(),
+      },
+    });
+    return { plan };
+  });
+
+  // DELETE /kitchen/planning/:eventId — remove plan (reset to pending)
+  app.delete('/kitchen/planning/:eventId', { preHandler: [requireAuth, requireRole(['admin', 'event_owner'])] }, async (request, reply) => {
+    const { eventId } = request.params as { eventId: string };
+    await (prisma as any).kitchenEventPlan.deleteMany({ where: { eventId } });
+    return { success: true };
+  });
+
+  // GET /kitchen/production/batches — list all production batches with allocations
+  app.get('/kitchen/production/batches', { preHandler: requireAuth }, async (request, reply) => {
+    const user = (request as any).user;
+    const batches = await (prisma as any).kitchenProductionBatch.findMany({
+      where: kitchenWhere(user),
+      include: {
+        recipe: { select: { id: true, name: true, recipeType: true, servings: true } },
+        allocations: {
+          include: {
+            event: { select: { id: true, name: true, startAt: true } },
+          },
+        },
+      },
+      orderBy: { scheduledAt: 'asc' },
+    });
+    return { batches };
+  });
+
+  // POST /kitchen/production/batches — create batch (optionally with allocations)
+  app.post('/kitchen/production/batches', { preHandler: [requireAuth, requireRole(['admin', 'event_owner', 'operator'])] }, async (request, reply) => {
+    const user = (request as any).user;
+    const data = batchSchema.parse(request.body);
+
+    const batch = await (prisma as any).kitchenProductionBatch.create({
+      data: {
+        employerId: getEmployerId(user)!,
+        recipeId: data.recipeId,
+        phase: data.phase,
+        scheduledAt: new Date(data.scheduledAt),
+        targetQty: data.targetQty,
+        notes: data.notes,
+        allocations: data.allocations.length > 0 ? {
+          create: data.allocations.map(a => ({
+            eventId: a.eventId,
+            quantity: a.quantity,
+            menuId: a.menuId ?? null,
+          })),
+        } : undefined,
+      },
+      include: {
+        recipe: { select: { id: true, name: true, recipeType: true } },
+        allocations: {
+          include: { event: { select: { id: true, name: true, startAt: true } } },
+        },
+      },
+    });
+
+    // Advance plan status to 'planned' for all allocated events
+    for (const alloc of data.allocations) {
+      await (prisma as any).kitchenEventPlan.upsert({
+        where: { eventId: alloc.eventId },
+        create: { eventId: alloc.eventId, employerId: getEmployerId(user)!, status: 'planned' },
+        update: { status: 'planned', updatedAt: new Date() },
+      });
+    }
+
+    return reply.status(201).send({ batch });
+  });
+
+  // PATCH /kitchen/production/batches/:id — update batch (status, produced qty)
+  app.patch('/kitchen/production/batches/:id', { preHandler: [requireAuth, requireRole(['admin', 'event_owner', 'operator'])] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const data = z.object({
+      status: z.enum(['planned', 'in_progress', 'done']).optional(),
+      producedQty: z.number().min(0).optional(),
+      scheduledAt: z.string().optional(),
+      targetQty: z.number().min(0).optional(),
+      notes: z.string().optional(),
+    }).parse(request.body);
+
+    const batch = await (prisma as any).kitchenProductionBatch.update({
+      where: { id },
+      data: {
+        ...data,
+        ...(data.scheduledAt ? { scheduledAt: new Date(data.scheduledAt) } : {}),
+        updatedAt: new Date(),
+      },
+      include: {
+        recipe: { select: { id: true, name: true } },
+        allocations: {
+          include: { event: { select: { id: true, name: true, startAt: true } } },
+        },
+      },
+    });
+
+    // If batch done → advance allocated events to in_production if not further
+    if (data.status === 'done') {
+      for (const alloc of batch.allocations) {
+        const plan = await (prisma as any).kitchenEventPlan.findUnique({
+          where: { eventId: alloc.eventId },
+        });
+        const ORDER = ['pending', 'shopping_approved', 'planned', 'in_production', 'done'];
+        const cur = ORDER.indexOf(plan?.status ?? 'pending');
+        if (cur < ORDER.indexOf('in_production')) {
+          await (prisma as any).kitchenEventPlan.upsert({
+            where: { eventId: alloc.eventId },
+            create: { eventId: alloc.eventId, employerId: batch.employerId, status: 'in_production' },
+            update: { status: 'in_production', updatedAt: new Date() },
+          });
+        }
+      }
+    }
+
+    return { batch };
+  });
+
+  // DELETE /kitchen/production/batches/:id
+  app.delete('/kitchen/production/batches/:id', { preHandler: [requireAuth, requireRole(['admin', 'event_owner'])] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    await (prisma as any).kitchenProductionBatch.delete({ where: { id } });
+    return { success: true };
+  });
+
+  // GET /kitchen/production/recipe-needs — per-recipe qty needed across confirmed events (for batch planning)
+  app.get('/kitchen/production/recipe-needs', { preHandler: requireAuth }, async (request, reply) => {
+    const user = (request as any).user;
+    // All event menus for confirmed/in_progress events, grouped by recipe
+    const menus = await prisma.kitchenEventMenu.findMany({
+      where: { event: { status: { in: ['confirmed', 'in_progress'] }, ...kitchenWhere(user) } },
+      include: {
+        recipe: { select: { id: true, name: true, recipeType: true, servings: true, averagePerGuest: true } },
+        event: { select: { id: true, name: true, startAt: true, _count: { select: { guests: true } } } },
+      },
+    });
+
+    const recipeMap = new Map<string, {
+      recipe: any;
+      events: { eventId: string; eventName: string; startAt: any; servingsNeeded: number }[];
+    }>();
+
+    for (const m of menus) {
+      const guestCount = m.servingsNeeded || m.event._count?.guests || 0;
+      const portions = guestCount * (m.recipe.averagePerGuest || 1);
+      const key = m.recipe.id;
+      if (!recipeMap.has(key)) {
+        recipeMap.set(key, { recipe: m.recipe, events: [] });
+      }
+      recipeMap.get(key)!.events.push({
+        eventId: m.event.id,
+        eventName: m.event.name,
+        startAt: m.event.startAt,
+        servingsNeeded: Math.ceil(portions),
+      });
+    }
+
+    const needs = Array.from(recipeMap.values()).map(({ recipe, events }) => ({
+      recipe,
+      events,
+      totalPortions: events.reduce((s, e) => s + e.servingsNeeded, 0),
+    }));
+
+    return { needs };
+  });
 }

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, LayoutDashboard, Calendar, MapPin, Users, FileText, Settings, LogOut, ChefHat, Package, UtensilsCrossed, ShoppingCart, ClipboardList } from 'lucide-react';
+import { ChevronDown, ChevronRight, LayoutDashboard, Calendar, MapPin, Users, FileText, Settings, LogOut, ChefHat, Package, UtensilsCrossed, ShoppingCart, ClipboardList, Flame } from 'lucide-react';
 
 const mainNavigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -29,6 +29,7 @@ const kitchenNavigation = [
   { name: 'Receitas', href: '/cozinha/receitas', icon: UtensilsCrossed },
   { name: 'Lista de Compras', href: '/cozinha/compras', icon: ShoppingCart },
   { name: 'Registro de Compras', href: '/cozinha/compras/registros', icon: ClipboardList },
+  { name: 'Produção', href: '/cozinha/producao', icon: Flame },
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {

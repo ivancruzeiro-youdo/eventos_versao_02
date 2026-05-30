@@ -6,7 +6,7 @@ import Link from 'next/link';
 import Layout from '@/components/Layout';
 import {
   ShoppingCart, Calendar, Check, ClipboardCopy, Loader2, RefreshCw,
-  AlertTriangle, ChefHat, ExternalLink, X,
+  AlertTriangle, ChefHat, ExternalLink, X, CheckCircle2,
 } from 'lucide-react';
 
 interface Event {
@@ -31,6 +31,7 @@ interface EventFoodStatus {
   eventName: string;
   items: FoodItem[];
   loading: boolean;
+  planStatus?: string | null;
 }
 
 interface ShoppingItem {
@@ -89,12 +90,16 @@ export default function ComprasPage() {
       return next;
     });
     try {
-      const res = await fetch(`/api/v2/kitchen/events/${eventId}/food-items`, { credentials: 'include' });
-      if (!res.ok) { throw new Error('Erro ao carregar itens'); }
-      const data = await res.json();
+      const [itemsRes, planRes] = await Promise.all([
+        fetch(`/api/v2/kitchen/events/${eventId}/food-items`, { credentials: 'include' }),
+        fetch(`/api/v2/kitchen/planning/overview`, { credentials: 'include' }),
+      ]);
+      const itemsData = itemsRes.ok ? await itemsRes.json() : { items: [] };
+      const planData = planRes.ok ? await planRes.json() : { events: [] };
+      const planStatus = planData.events?.find((e: any) => e.id === eventId)?.planStatus ?? null;
       setFoodStatusMap(prev => {
         const next = new Map(prev);
-        next.set(eventId, { eventId, eventName, items: data.items || [], loading: false });
+        next.set(eventId, { eventId, eventName, items: itemsData.items || [], loading: false, planStatus });
         return next;
       });
     } catch {
@@ -104,6 +109,18 @@ export default function ComprasPage() {
         return next;
       });
     }
+  }
+
+  async function approveShoppingList(eventId: string) {
+    await fetch(`/api/v2/kitchen/planning/${eventId}`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'shopping_approved' }),
+    });
+    // refresh status
+    const event = events.find(e => e.id === eventId);
+    if (event) fetchFoodStatus(eventId, event.name);
   }
 
   function toggleEvent(id: string) {
@@ -468,6 +485,39 @@ export default function ComprasPage() {
                     Nenhum ingrediente necessário para os eventos selecionados.
                   </div>
                 )}
+
+                {/* Approve shopping list for each event */}
+                <div className="bg-card rounded-lg border p-4 space-y-2">
+                  <h3 className="text-sm font-semibold flex items-center gap-2">
+                    <CheckCircle2 size={15} className="text-emerald-500" />
+                    Aprovar Lista de Compras
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    Confirme a lista de compras de cada evento para liberar o planejamento de produção.
+                  </p>
+                  <div className="space-y-2 pt-1">
+                    {allFoodStatuses.map(s => {
+                      const approved = s.planStatus === 'shopping_approved' || s.planStatus === 'planned' || s.planStatus === 'in_production' || s.planStatus === 'done';
+                      return (
+                        <div key={s.eventId} className="flex items-center justify-between gap-3">
+                          <span className="text-sm truncate">{s.eventName}</span>
+                          {approved ? (
+                            <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 shrink-0">
+                              <Check size={12} /> Aprovada
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => approveShoppingList(s.eventId)}
+                              className="flex items-center gap-1 text-xs px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded transition shrink-0"
+                            >
+                              <CheckCircle2 size={12} /> Aprovar
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               </>
             )}
           </div>

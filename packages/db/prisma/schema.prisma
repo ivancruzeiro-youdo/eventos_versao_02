@@ -59,9 +59,10 @@ model Freelancer {
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
 
-  applications FreelancerApplication[]
-  penalties    FreelancerPenalty[]
-  services     FreelancerServiceLink[]
+  applications  FreelancerApplication[]
+  penalties     FreelancerPenalty[]
+  services      FreelancerServiceLink[]
+  eventServices EventService[]
 
   @@index([email])
   @@index([cpf])
@@ -128,10 +129,12 @@ model Employer {
   venues  Venue[]
   services Service[]
 
-  kitchenIngredients  KitchenIngredient[]
-  kitchenRecipes      KitchenRecipe[]
-  kitchenPurchases    KitchenPurchaseRecord[]
-  kitchenLaborRoles   KitchenLaborRole[]
+  kitchenIngredients    KitchenIngredient[]
+  kitchenRecipes        KitchenRecipe[]
+  kitchenPurchases      KitchenPurchaseRecord[]
+  kitchenLaborRoles     KitchenLaborRole[]
+  kitchenEventPlans     KitchenEventPlan[]
+  kitchenBatches        KitchenProductionBatch[]
 
   @@index([cnpj])
 }
@@ -178,9 +181,11 @@ model Event {
   syncLogs     EventSyncLog[]  @relation("EventToSyncLog")
   venueAnswers EventVenueAnswer[]
 
-  kitchenMenus   KitchenEventMenu[]
-  kitchenLabors  KitchenEventLabor[]
-  productions    KitchenProductionLog[]
+  kitchenMenus      KitchenEventMenu[]
+  kitchenLabors     KitchenEventLabor[]
+  productions       KitchenProductionLog[]
+  kitchenPlan       KitchenEventPlan?
+  batchAllocations  KitchenBatchAllocation[]
 
   @@index([employerId])
   @@index([status])
@@ -523,6 +528,7 @@ model EventService {
   id           String    @id @default(uuid())
   eventId      String
   serviceId    String
+  freelancerId String?
   productName  String?
   notes        String?
   status       String    @default("active")
@@ -532,11 +538,13 @@ model EventService {
   maxSlots     Int       @default(1)
   createdAt    DateTime  @default(now())
 
-  event   Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  service FreelancerService @relation(fields: [serviceId], references: [id])
+  event      Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  service    FreelancerService  @relation(fields: [serviceId], references: [id])
+  freelancer Freelancer?        @relation(fields: [freelancerId], references: [id])
 
   @@index([eventId])
   @@index([serviceId])
+  @@index([freelancerId])
 }
 
 // ============================================
@@ -978,9 +986,10 @@ model KitchenRecipe {
   ingredients   KitchenRecipeIngredient[]
   subRecipes    KitchenSubRecipe[]        @relation("ParentRecipe")
   parentRecipes KitchenSubRecipe[]        @relation("SubRecipe")
-  steps         KitchenRecipeStep[]
-  eventMenus    KitchenEventMenu[]
-  productions   KitchenProductionLog[]
+  steps            KitchenRecipeStep[]
+  eventMenus       KitchenEventMenu[]
+  productions      KitchenProductionLog[]
+  productionBatches KitchenProductionBatch[]
 
   @@index([employerId])
   @@index([productId])
@@ -1120,6 +1129,67 @@ model KitchenEventLabor {
   role  KitchenLaborRole @relation(fields: [roleId], references: [id])
 
   @@unique([eventId, roleId])
+  @@index([eventId])
+}
+
+// ============================================
+// Kitchen Production Pipeline
+// ============================================
+
+// Kitchen planning status per event
+// Status flow: pending → shopping_approved → planned → in_production → done
+model KitchenEventPlan {
+  id         String   @id @default(uuid())
+  eventId    String   @unique
+  employerId String
+  status     String   @default("pending")
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  event    Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  employer Employer @relation(fields: [employerId], references: [id])
+
+  @@index([employerId])
+  @@index([status])
+}
+
+// A production run for one recipe; can cover multiple events (unified pre-prep)
+model KitchenProductionBatch {
+  id          String   @id @default(uuid())
+  employerId  String
+  recipeId    String
+  phase       String   // 'pre_prep' | 'day_of'
+  scheduledAt DateTime
+  targetQty   Float    // total portions to produce
+  producedQty Float    @default(0)
+  status      String   @default("planned") // planned | in_progress | done
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  employer    Employer                  @relation(fields: [employerId], references: [id])
+  recipe      KitchenRecipe             @relation(fields: [recipeId], references: [id])
+  allocations KitchenBatchAllocation[]
+
+  @@index([employerId])
+  @@index([recipeId])
+  @@index([scheduledAt])
+}
+
+// Portion split of a batch across events
+model KitchenBatchAllocation {
+  id       String @id @default(uuid())
+  batchId  String
+  eventId  String
+  menuId   String?
+  quantity Float  // portions for this event
+
+  batch KitchenProductionBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  event Event                  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([batchId, eventId])
+  @@index([batchId])
   @@index([eventId])
 }
 

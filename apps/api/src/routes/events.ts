@@ -239,26 +239,30 @@ export async function eventRoutes(app: FastifyInstance) {
     return { success: true, event: updated };
   });
 
-  // List event services (Taxas)
+  // List event services (Mão de Obra)
   app.get('/:id/services', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const services = await (prisma as any).eventService.findMany({
       where: { eventId: id },
-      include: { service: true },
+      include: {
+        service: true,
+        freelancer: { select: { id: true, name: true, phone: true, email: true } },
+      },
       orderBy: { createdAt: 'asc' },
     });
     return { success: true, services };
   });
 
-  // Create event service (Taxa)
+  // Create event service (Mão de Obra)
   app.post('/:id/services', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId } = request.params as { id: string };
-    const { serviceId, maxSlots, valuePerHour, startAt, endAt, notes, status } = request.body as any;
+    const { serviceId, freelancerId, maxSlots, valuePerHour, startAt, endAt, notes, status } = request.body as any;
     if (!serviceId) return reply.status(400).send({ error: 'serviceId obrigatório.' });
     const svc = await (prisma as any).eventService.create({
       data: {
         eventId,
         serviceId,
+        freelancerId: freelancerId || null,
         maxSlots: maxSlots ?? 1,
         valuePerHour: valuePerHour ?? 0,
         startAt: startAt ? new Date(startAt) : null,
@@ -266,7 +270,10 @@ export async function eventRoutes(app: FastifyInstance) {
         notes: notes ?? null,
         status: status ?? 'active',
       },
-      include: { service: true },
+      include: {
+        service: true,
+        freelancer: { select: { id: true, name: true, phone: true, email: true } },
+      },
     });
     return reply.status(201).send({ success: true, service: svc });
   });
@@ -278,14 +285,18 @@ export async function eventRoutes(app: FastifyInstance) {
     const updated = await (prisma as any).eventService.update({
       where: { id: svcId },
       data: {
+        ...(data.freelancerId !== undefined ? { freelancerId: data.freelancerId || null } : {}),
         maxSlots: data.maxSlots,
         valuePerHour: data.valuePerHour,
-        startAt: data.startAt ? new Date(data.startAt) : undefined,
-        endAt: data.endAt ? new Date(data.endAt) : undefined,
+        startAt: data.startAt ? new Date(data.startAt) : (data.startAt === null ? null : undefined),
+        endAt: data.endAt ? new Date(data.endAt) : (data.endAt === null ? null : undefined),
         notes: data.notes,
         status: data.status,
       },
-      include: { service: true },
+      include: {
+        service: true,
+        freelancer: { select: { id: true, name: true, phone: true, email: true } },
+      },
     });
     return { success: true, service: updated };
   });
