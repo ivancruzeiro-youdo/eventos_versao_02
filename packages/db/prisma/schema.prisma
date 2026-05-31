@@ -135,6 +135,7 @@ model Employer {
   kitchenLaborRoles     KitchenLaborRole[]
   kitchenEventPlans     KitchenEventPlan[]
   kitchenBatches        KitchenProductionBatch[]
+  kitchenProductionPlans KitchenProductionPlan[]
 
   @@index([cnpj])
 }
@@ -181,11 +182,12 @@ model Event {
   syncLogs     EventSyncLog[]  @relation("EventToSyncLog")
   venueAnswers EventVenueAnswer[]
 
-  kitchenMenus      KitchenEventMenu[]
-  kitchenLabors     KitchenEventLabor[]
-  productions       KitchenProductionLog[]
-  kitchenPlan       KitchenEventPlan?
-  batchAllocations  KitchenBatchAllocation[]
+  kitchenMenus           KitchenEventMenu[]
+  kitchenLabors          KitchenEventLabor[]
+  productions            KitchenProductionLog[]
+  kitchenPlan            KitchenEventPlan?
+  batchAllocations       KitchenBatchAllocation[]
+  productionAllocations  KitchenProductionAllocation[]
 
   @@index([employerId])
   @@index([status])
@@ -977,19 +979,21 @@ model KitchenRecipe {
   servings        Int      @default(1)
   averagePerGuest Float    @default(0)
   prepTime        Int      @default(0)
+  validityHours   Int      @default(48)       // hours recipe is good after production
   notes           String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  employer      Employer                  @relation(fields: [employerId], references: [id])
-  product       Product?                  @relation(fields: [productId], references: [id])
-  ingredients   KitchenRecipeIngredient[]
-  subRecipes    KitchenSubRecipe[]        @relation("ParentRecipe")
-  parentRecipes KitchenSubRecipe[]        @relation("SubRecipe")
-  steps            KitchenRecipeStep[]
-  eventMenus       KitchenEventMenu[]
-  productions      KitchenProductionLog[]
+  employer          Employer                    @relation(fields: [employerId], references: [id])
+  product           Product?                    @relation(fields: [productId], references: [id])
+  ingredients       KitchenRecipeIngredient[]
+  subRecipes        KitchenSubRecipe[]          @relation("ParentRecipe")
+  parentRecipes     KitchenSubRecipe[]          @relation("SubRecipe")
+  steps             KitchenRecipeStep[]
+  eventMenus        KitchenEventMenu[]
+  productions       KitchenProductionLog[]
   productionBatches KitchenProductionBatch[]
+  planItems         KitchenProductionPlanItem[]
 
   @@index([employerId])
   @@index([productId])
@@ -1190,6 +1194,70 @@ model KitchenBatchAllocation {
 
   @@unique([batchId, eventId])
   @@index([batchId])
+  @@index([eventId])
+}
+
+// ============================================
+// Kitchen AI Production Plan
+// ============================================
+
+// A plan covers N days ahead and groups all recipe production needed
+model KitchenProductionPlan {
+  id          String   @id @default(uuid())
+  employerId  String
+  status      String   @default("draft") // draft | approved | in_progress | done
+  windowDays  Int      @default(30)       // days ahead this plan covers
+  aiModel     String?
+  aiNotes     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  employer Employer                    @relation(fields: [employerId], references: [id])
+  items    KitchenProductionPlanItem[]
+
+  @@index([employerId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// One production run for one recipe on one date
+model KitchenProductionPlanItem {
+  id            String   @id @default(uuid())
+  planId        String
+  recipeId      String
+  quantity      Float    // total portions to produce
+  scheduledDate DateTime
+  phase         String   // pre_prep | day_of
+  estimatedCost Float    @default(0)
+  validityHours Int      @default(48)
+  reasoning     String?
+  status        String   @default("pending") // pending | done
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  plan        KitchenProductionPlan         @relation(fields: [planId], references: [id], onDelete: Cascade)
+  recipe      KitchenRecipe                 @relation(fields: [recipeId], references: [id])
+  allocations KitchenProductionAllocation[]
+
+  @@index([planId])
+  @@index([recipeId])
+  @@index([scheduledDate])
+}
+
+// Maps each plan item to the events it serves (for per-event cost)
+model KitchenProductionAllocation {
+  id         String @id @default(uuid())
+  planItemId String
+  eventId    String
+  quantity   Float  // portions for this event
+  costShare  Float  @default(0)  // R$ cost allocated to this event
+
+  planItem KitchenProductionPlanItem @relation(fields: [planItemId], references: [id], onDelete: Cascade)
+  event    Event                     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([planItemId, eventId])
+  @@index([planItemId])
   @@index([eventId])
 }
 

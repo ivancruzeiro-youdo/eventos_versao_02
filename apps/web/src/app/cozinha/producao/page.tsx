@@ -1,719 +1,533 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import Layout from '@/components/Layout';
 import {
-  Flame, Plus, X, Check, ChefHat, Calendar, Users, Layers,
-  Loader2, RefreshCw, ExternalLink, Clock, CheckCircle2, AlertTriangle,
-  Package, ChevronDown, ChevronUp,
+  BrainCircuit, RefreshCw, Check, Trash2, Pencil, X,
+  ChevronDown, ChevronRight, AlertTriangle, CheckCircle,
+  Calendar, Clock, Package, ShoppingCart, Loader2,
+  SlidersHorizontal, Info, TrendingUp,
 } from 'lucide-react';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-type PlanStatus = 'pending' | 'shopping_approved' | 'planned' | 'in_production' | 'done';
-type BatchPhase = 'pre_prep' | 'day_of';
-type BatchStatus = 'planned' | 'in_progress' | 'done';
-
-interface EventOverview {
-  id: string;
-  name: string;
-  startAt: string | null;
-  planStatus: PlanStatus;
-  totalFoodItems: number;
-  itemsWithRecipe: number;
-  allRecipesLinked: boolean;
-}
-
-interface BatchAllocation {
-  id: string;
-  eventId: string;
-  quantity: number;
+interface Allocation {
+  id: string; eventId: string; quantity: number; costShare: number;
   event: { id: string; name: string; startAt: string | null };
 }
-
-interface ProductionBatch {
-  id: string;
-  recipeId: string;
-  phase: BatchPhase;
-  scheduledAt: string;
-  targetQty: number;
-  producedQty: number;
-  status: BatchStatus;
-  notes: string | null;
-  recipe: { id: string; name: string; recipeType: string };
-  allocations: BatchAllocation[];
+interface PlanItem {
+  id: string; recipeId: string; quantity: number; scheduledDate: string;
+  phase: 'pre_prep' | 'day_of'; estimatedCost: number; validityHours: number;
+  reasoning: string | null; status: 'pending' | 'done'; notes: string | null;
+  recipe: { id: string; name: string; recipeType: string; prepTime: number; validityHours: number };
+  allocations: Allocation[];
+}
+interface Plan {
+  id: string; status: 'draft' | 'approved' | 'in_progress' | 'done';
+  windowDays: number; aiModel: string | null; aiNotes: string | null;
+  createdAt: string; items: PlanItem[];
+}
+interface StockDeficit {
+  ingredientId: string; ingredientName: string; unit: string;
+  needed: number; have: number; deficit: number; costToRestock: number;
 }
 
-interface RecipeNeed {
-  recipe: { id: string; name: string; recipeType: string; servings: number };
-  totalPortions: number;
-  events: { eventId: string; eventName: string; startAt: string | null; servingsNeeded: number }[];
+const PHASE_LABELS: Record<string,string> = { pre_prep: 'Pré-preparo', day_of: 'Produção do Dia' };
+const PHASE_COLORS: Record<string,string> = { pre_prep: 'bg-violet-100 text-violet-800', day_of: 'bg-amber-100 text-amber-800' };
+const STATUS_LABELS: Record<string,string> = { draft: 'Rascunho', approved: 'Aprovado', in_progress: 'Em Produção', done: 'Concluído' };
+const STATUS_COLORS: Record<string,string> = { draft: 'bg-muted text-muted-foreground', approved: 'bg-blue-100 text-blue-800', in_progress: 'bg-amber-100 text-amber-800', done: 'bg-emerald-100 text-emerald-800' };
+
+function fmt(date: string) {
+  return new Date(date).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+}
+function fmtCost(v: number) {
+  return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+function groupByDate(items: PlanItem[]) {
+  const map = new Map<string, PlanItem[]>();
+  for (const item of items) {
+    const key = item.scheduledDate.slice(0, 10);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(item);
+  }
+  return map;
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const PLAN_STATUS_LABELS: Record<PlanStatus, string> = {
-  pending: 'Sem planejamento',
-  shopping_approved: 'Compras aprovadas',
-  planned: 'Produção planejada',
-  in_production: 'Em produção',
-  done: 'Concluído',
-};
-
-const PLAN_STATUS_COLORS: Record<PlanStatus, string> = {
-  pending: 'bg-muted text-muted-foreground',
-  shopping_approved: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
-  planned: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
-  in_production: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
-  done: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
-};
-
-const BATCH_STATUS_LABELS: Record<BatchStatus, string> = {
-  planned: 'Planejado',
-  in_progress: 'Em andamento',
-  done: 'Concluído',
-};
-
-function fmtDate(d: string | null) {
-  if (!d) return '—';
-  return new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-}
-
-function fmtDateFull(d: string | null) {
-  if (!d) return '—';
-  return new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-}
-
-// ─── Main page ────────────────────────────────────────────────────────────────
-
-export default function ProducaoPage() {
-  const router = useRouter();
-
-  const [events, setEvents] = useState<EventOverview[]>([]);
-  const [batches, setBatches] = useState<ProductionBatch[]>([]);
-  const [recipeNeeds, setRecipeNeeds] = useState<RecipeNeed[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [activeFilter, setActiveFilter] = useState<PlanStatus | 'all'>('all');
-
-  // Batch creation modal state
-  const [showBatchModal, setShowBatchModal] = useState(false);
-  const [batchForm, setBatchForm] = useState<{
-    recipeId: string;
-    phase: BatchPhase;
-    scheduledAt: string;
-    targetQty: string;
-    notes: string;
-    allocations: { eventId: string; quantity: string }[];
-  }>({
-    recipeId: '',
-    phase: 'pre_prep',
-    scheduledAt: new Date().toISOString().split('T')[0],
-    targetQty: '',
-    notes: '',
-    allocations: [],
-  });
-  const [batchSaving, setBatchSaving] = useState(false);
-  const [batchError, setBatchError] = useState('');
-  const [expandedBatch, setExpandedBatch] = useState<string | null>(null);
-
-  const loadAll = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [overviewRes, batchesRes, needsRes] = await Promise.all([
-        fetch('/api/v2/kitchen/planning/overview', { credentials: 'include' }),
-        fetch('/api/v2/kitchen/production/batches', { credentials: 'include' }),
-        fetch('/api/v2/kitchen/production/recipe-needs', { credentials: 'include' }),
-      ]);
-      if (overviewRes.status === 401) { router.push('/login'); return; }
-      const [ov, bt, nd] = await Promise.all([overviewRes.json(), batchesRes.json(), needsRes.json()]);
-      setEvents(ov.events || []);
-      setBatches(bt.batches || []);
-      setRecipeNeeds(nd.needs || []);
-    } finally {
-      setLoading(false);
-    }
-  }, [router]);
-
-  useEffect(() => { loadAll(); }, [loadAll]);
-
-  async function updatePlanStatus(eventId: string, status: PlanStatus) {
-    await fetch(`/api/v2/kitchen/planning/${eventId}`, {
-      method: 'PATCH',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
-    });
-    loadAll();
-  }
-
-  async function updateBatchStatus(batchId: string, status: BatchStatus) {
-    await fetch(`/api/v2/kitchen/production/batches/${batchId}`, {
-      method: 'PATCH',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
-    });
-    loadAll();
-  }
-
-  async function deleteBatch(batchId: string) {
-    if (!confirm('Excluir este lote de produção?')) return;
-    await fetch(`/api/v2/kitchen/production/batches/${batchId}`, { method: 'DELETE', credentials: 'include' });
-    loadAll();
-  }
-
-  // Open batch modal pre-filled for a specific recipe
-  function openBatchForRecipe(need: RecipeNeed) {
-    setBatchForm({
-      recipeId: need.recipe.id,
-      phase: 'pre_prep',
-      scheduledAt: new Date().toISOString().split('T')[0],
-      targetQty: String(need.totalPortions),
-      notes: '',
-      allocations: need.events.map(e => ({
-        eventId: e.eventId,
-        quantity: String(e.servingsNeeded),
-      })),
-    });
-    setBatchError('');
-    setShowBatchModal(true);
-  }
-
-  function openEmptyBatch() {
-    setBatchForm({
-      recipeId: recipeNeeds[0]?.recipe.id || '',
-      phase: 'pre_prep',
-      scheduledAt: new Date().toISOString().split('T')[0],
-      targetQty: '',
-      notes: '',
-      allocations: [],
-    });
-    setBatchError('');
-    setShowBatchModal(true);
-  }
-
-  function selectRecipeForBatch(recipeId: string) {
-    const need = recipeNeeds.find(n => n.recipe.id === recipeId);
-    setBatchForm(f => ({
-      ...f,
-      recipeId,
-      targetQty: need ? String(need.totalPortions) : f.targetQty,
-      allocations: need ? need.events.map(e => ({ eventId: e.eventId, quantity: String(e.servingsNeeded) })) : f.allocations,
-    }));
-  }
-
-  function toggleAllocation(eventId: string, eventName: string) {
-    setBatchForm(f => {
-      const has = f.allocations.some(a => a.eventId === eventId);
-      if (has) return { ...f, allocations: f.allocations.filter(a => a.eventId !== eventId) };
-      const need = recipeNeeds.find(n => n.recipe.id === f.recipeId);
-      const eventNeed = need?.events.find(e => e.eventId === eventId);
-      return { ...f, allocations: [...f.allocations, { eventId, quantity: String(eventNeed?.servingsNeeded || 0) }] };
-    });
-  }
-
-  function updateAllocQty(eventId: string, qty: string) {
-    setBatchForm(f => ({
-      ...f,
-      allocations: f.allocations.map(a => a.eventId === eventId ? { ...a, quantity: qty } : a),
-    }));
-  }
-
-  async function saveBatch() {
-    if (!batchForm.recipeId) { setBatchError('Selecione a receita.'); return; }
-    if (!batchForm.scheduledAt) { setBatchError('Informe a data.'); return; }
-    setBatchSaving(true);
-    setBatchError('');
-    try {
-      const totalFromAllocs = batchForm.allocations.reduce((s, a) => s + (parseFloat(a.quantity) || 0), 0);
-      const body = {
-        recipeId: batchForm.recipeId,
-        phase: batchForm.phase,
-        scheduledAt: batchForm.scheduledAt,
-        targetQty: parseFloat(batchForm.targetQty) || totalFromAllocs,
-        notes: batchForm.notes || null,
-        allocations: batchForm.allocations
-          .filter(a => parseFloat(a.quantity) > 0)
-          .map(a => ({ eventId: a.eventId, quantity: parseFloat(a.quantity) })),
-      };
-      const res = await fetch('/api/v2/kitchen/production/batches', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const d = await res.json();
-      if (!res.ok) { setBatchError(d.error || 'Erro ao salvar.'); return; }
-      setShowBatchModal(false);
-      loadAll();
-    } finally {
-      setBatchSaving(false);
-    }
-  }
-
-  // Filtered events
-  const filteredEvents = activeFilter === 'all' ? events : events.filter(e => e.planStatus === activeFilter);
-
-  // Group batches by phase
-  const prePrepBatches = batches.filter(b => b.phase === 'pre_prep');
-  const dayOfBatches = batches.filter(b => b.phase === 'day_of');
-
-  // Status counts
-  const statusCounts = {
-    all: events.length,
-    pending: events.filter(e => e.planStatus === 'pending').length,
-    shopping_approved: events.filter(e => e.planStatus === 'shopping_approved').length,
-    planned: events.filter(e => e.planStatus === 'planned').length,
-    in_production: events.filter(e => e.planStatus === 'in_production').length,
-    done: events.filter(e => e.planStatus === 'done').length,
-  };
-
-  return (
-    <Layout>
-      <div className="p-6 space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <Flame size={24} /> Linha de Produção
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Pipeline de eventos — compras, pré-preparo unificado e produção do dia.
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={loadAll} className="p-2 border rounded-lg hover:bg-muted transition" title="Atualizar">
-              <RefreshCw size={15} />
-            </button>
-            <button onClick={openEmptyBatch}
-              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition">
-              <Plus size={15} /> Novo Lote de Produção
-            </button>
-          </div>
-        </div>
-
-        {loading ? (
-          <div className="text-center py-16">
-            <Loader2 size={28} className="animate-spin mx-auto text-muted-foreground" />
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
-
-            {/* ── Left: Event pipeline (3 cols) ── */}
-            <div className="xl:col-span-3 space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-base font-semibold">Eventos</h2>
-                <span className="text-xs text-muted-foreground">{events.length} evento{events.length !== 1 ? 's' : ''} com itens de alimentação</span>
-              </div>
-
-              {/* Status filter tabs */}
-              <div className="flex flex-wrap gap-1.5">
-                {([
-                  ['all', 'Todos'],
-                  ['pending', 'Sem plano'],
-                  ['shopping_approved', 'Compras OK'],
-                  ['planned', 'Planejado'],
-                  ['in_production', 'Em produção'],
-                  ['done', 'Concluído'],
-                ] as const).map(([key, label]) => (
-                  <button key={key}
-                    onClick={() => setActiveFilter(key)}
-                    className={`px-3 py-1 rounded-full text-xs font-medium transition ${
-                      activeFilter === key
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                    }`}>
-                    {label}
-                    {statusCounts[key as keyof typeof statusCounts] > 0 && (
-                      <span className="ml-1 opacity-70">({statusCounts[key as keyof typeof statusCounts]})</span>
-                    )}
-                  </button>
-                ))}
-              </div>
-
-              {filteredEvents.length === 0 ? (
-                <div className="text-center py-10 bg-card rounded-lg border text-muted-foreground text-sm">
-                  Nenhum evento neste status.
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {filteredEvents.map(ev => {
-                    const status = ev.planStatus;
-                    return (
-                      <div key={ev.id} className="bg-card rounded-lg border p-4">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <h3 className="font-semibold text-sm truncate">{ev.name}</h3>
-                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${PLAN_STATUS_COLORS[status]}`}>
-                                {PLAN_STATUS_LABELS[status]}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                              {ev.startAt && (
-                                <span className="flex items-center gap-1">
-                                  <Calendar size={11} /> {fmtDateFull(ev.startAt)}
-                                </span>
-                              )}
-                              <span className="flex items-center gap-1">
-                                <ChefHat size={11} />
-                                {ev.itemsWithRecipe}/{ev.totalFoodItems} receitas
-                              </span>
-                              {!ev.allRecipesLinked && (
-                                <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
-                                  <AlertTriangle size={10} /> faltam receitas
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1 shrink-0">
-                            <Link href={`/events/${ev.id}?tab=kitchen`}
-                              className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-primary transition"
-                              title="Abrir cardápio do evento">
-                              <ExternalLink size={13} />
-                            </Link>
-                          </div>
-                        </div>
-
-                        {/* Status action buttons */}
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {status === 'pending' && ev.allRecipesLinked && (
-                            <Link href="/cozinha/compras"
-                              className="flex items-center gap-1 text-xs px-3 py-1.5 border rounded hover:bg-muted transition">
-                              <Package size={11} /> Ver lista de compras
-                            </Link>
-                          )}
-                          {status === 'shopping_approved' && (
-                            <button onClick={() => updatePlanStatus(ev.id, 'planned')}
-                              className="flex items-center gap-1 text-xs px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded transition">
-                              <Flame size={11} /> Iniciar planejamento de produção
-                            </button>
-                          )}
-                          {status === 'planned' && (
-                            <button onClick={() => updatePlanStatus(ev.id, 'in_production')}
-                              className="flex items-center gap-1 text-xs px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white rounded transition">
-                              <Flame size={11} /> Iniciar produção
-                            </button>
-                          )}
-                          {status === 'in_production' && (
-                            <button onClick={() => updatePlanStatus(ev.id, 'done')}
-                              className="flex items-center gap-1 text-xs px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded transition">
-                              <CheckCircle2 size={11} /> Marcar como concluído
-                            </button>
-                          )}
-                          {status !== 'pending' && (
-                            <button onClick={() => updatePlanStatus(ev.id, 'pending')}
-                              className="flex items-center gap-1 text-xs px-3 py-1.5 border rounded hover:bg-muted transition text-muted-foreground">
-                              <X size={11} /> Resetar
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* ── Right: Production batches (2 cols) ── */}
-            <div className="xl:col-span-2 space-y-4">
-              <h2 className="text-base font-semibold">Lotes de Produção</h2>
-
-              {/* Recipe needs — call to action for creating batches */}
-              {recipeNeeds.length > 0 && (
-                <div className="bg-card rounded-lg border overflow-hidden">
-                  <div className="px-4 py-3 border-b bg-muted/40">
-                    <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                      Receitas necessárias · criar lote
-                    </h3>
-                  </div>
-                  <div className="divide-y">
-                    {recipeNeeds.map(need => (
-                      <div key={need.recipe.id} className="flex items-center gap-3 px-4 py-3">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{need.recipe.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {need.totalPortions} porções · {need.events.length} evento{need.events.length !== 1 ? 's' : ''}
-                          </p>
-                        </div>
-                        <button onClick={() => openBatchForRecipe(need)}
-                          className="flex items-center gap-1 text-xs px-2.5 py-1.5 border rounded hover:bg-muted transition shrink-0">
-                          <Plus size={11} /> Criar lote
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Pre-prep batches */}
-              <div className="space-y-2">
-                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
-                  <Clock size={12} /> Pré-preparo
-                </h3>
-                {prePrepBatches.length === 0 ? (
-                  <p className="text-xs text-muted-foreground text-center py-4 border rounded-lg bg-card">
-                    Nenhum lote de pré-preparo planejado.
-                  </p>
-                ) : (
-                  prePrepBatches.map(b => <BatchCard key={b.id} batch={b}
-                    expanded={expandedBatch === b.id}
-                    onToggle={() => setExpandedBatch(expandedBatch === b.id ? null : b.id)}
-                    onStatusChange={s => updateBatchStatus(b.id, s)}
-                    onDelete={() => deleteBatch(b.id)} />)
-                )}
-              </div>
-
-              {/* Day-of batches */}
-              <div className="space-y-2">
-                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
-                  <Flame size={12} /> Produção do Dia
-                </h3>
-                {dayOfBatches.length === 0 ? (
-                  <p className="text-xs text-muted-foreground text-center py-4 border rounded-lg bg-card">
-                    Nenhum lote de produção do dia.
-                  </p>
-                ) : (
-                  dayOfBatches.map(b => <BatchCard key={b.id} batch={b}
-                    expanded={expandedBatch === b.id}
-                    onToggle={() => setExpandedBatch(expandedBatch === b.id ? null : b.id)}
-                    onStatusChange={s => updateBatchStatus(b.id, s)}
-                    onDelete={() => deleteBatch(b.id)} />)
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ── Batch creation modal ── */}
-      {showBatchModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-card rounded-xl shadow-xl w-full max-w-lg flex flex-col max-h-[90vh]">
-            <div className="flex items-center justify-between p-6 border-b shrink-0">
-              <h2 className="text-lg font-semibold flex items-center gap-2">
-                <Flame size={18} /> Novo Lote de Produção
-              </h2>
-              <button onClick={() => setShowBatchModal(false)} className="p-1.5 rounded hover:bg-muted">
-                <X size={16} />
-              </button>
-            </div>
-
-            <div className="p-6 space-y-5 overflow-y-auto flex-1">
-              {batchError && (
-                <p className="text-sm text-destructive bg-destructive/10 px-3 py-2 rounded">{batchError}</p>
-              )}
-
-              {/* Recipe */}
-              <div>
-                <label className="block text-sm font-medium mb-1">Receita *</label>
-                <select value={batchForm.recipeId}
-                  onChange={e => selectRecipeForBatch(e.target.value)}
-                  className="w-full px-3 py-2 bg-background border border-input rounded-md text-sm focus:ring-2 focus:ring-ring">
-                  <option value="">Selecionar receita...</option>
-                  {recipeNeeds.map(n => (
-                    <option key={n.recipe.id} value={n.recipe.id}>
-                      {n.recipe.name} ({n.totalPortions} porções necessárias)
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Phase */}
-              <div>
-                <label className="block text-sm font-medium mb-1">Fase</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {([
-                    { value: 'pre_prep', label: 'Pré-preparo', desc: 'Antes do evento; pode ser unificado', icon: Clock },
-                    { value: 'day_of', label: 'Produção do Dia', desc: 'No dia do evento', icon: Flame },
-                  ] as const).map(opt => (
-                    <button key={opt.value} type="button"
-                      onClick={() => setBatchForm(f => ({ ...f, phase: opt.value }))}
-                      className={`flex flex-col items-start gap-1 p-3 rounded-lg border-2 text-left transition ${
-                        batchForm.phase === opt.value ? 'border-primary bg-primary/5' : 'border-input hover:bg-muted/50'
-                      }`}>
-                      <span className="flex items-center gap-1.5 text-sm font-medium">
-                        <opt.icon size={13} /> {opt.label}
-                      </span>
-                      <span className="text-xs text-muted-foreground">{opt.desc}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Date + qty */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Data agendada *</label>
-                  <input type="date" value={batchForm.scheduledAt}
-                    onChange={e => setBatchForm(f => ({ ...f, scheduledAt: e.target.value }))}
-                    className="w-full px-3 py-2 bg-background border border-input rounded-md text-sm focus:ring-2 focus:ring-ring"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Total de porções</label>
-                  <input type="number" min="0" step="1" value={batchForm.targetQty}
-                    onChange={e => setBatchForm(f => ({ ...f, targetQty: e.target.value }))}
-                    placeholder="Auto (soma eventos)"
-                    className="w-full px-3 py-2 bg-background border border-input rounded-md text-sm focus:ring-2 focus:ring-ring"
-                  />
-                </div>
-              </div>
-
-              {/* Event allocations */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium">Distribuição por evento</label>
-                  <span className="text-xs text-muted-foreground">
-                    Total: {batchForm.allocations.reduce((s, a) => s + (parseFloat(a.quantity) || 0), 0)} porções
-                  </span>
-                </div>
-                {/* Events from recipeNeeds for selected recipe */}
-                {(() => {
-                  const need = recipeNeeds.find(n => n.recipe.id === batchForm.recipeId);
-                  if (!need) {
-                    return <p className="text-xs text-muted-foreground">Selecione uma receita para ver os eventos.</p>;
-                  }
-                  return (
-                    <div className="space-y-2 max-h-48 overflow-y-auto">
-                      {need.events.map(ev => {
-                        const alloc = batchForm.allocations.find(a => a.eventId === ev.eventId);
-                        const included = !!alloc;
-                        return (
-                          <div key={ev.eventId} className={`flex items-center gap-3 p-2.5 rounded-lg border ${included ? 'border-primary bg-primary/5' : 'border-input'}`}>
-                            <input type="checkbox" checked={included}
-                              onChange={() => toggleAllocation(ev.eventId, ev.eventName)}
-                              className="rounded shrink-0" />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium truncate">{ev.eventName}</p>
-                              <p className="text-xs text-muted-foreground">{fmtDate(ev.startAt)} · {ev.servingsNeeded} porções</p>
-                            </div>
-                            {included && (
-                              <input type="number" min="0" step="1"
-                                value={alloc.quantity}
-                                onChange={e => updateAllocQty(ev.eventId, e.target.value)}
-                                className="w-20 px-2 py-1 bg-background border border-input rounded text-sm text-right"
-                              />
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })()}
-              </div>
-
-              {/* Notes */}
-              <div>
-                <label className="block text-sm font-medium mb-1">Observações</label>
-                <textarea value={batchForm.notes}
-                  onChange={e => setBatchForm(f => ({ ...f, notes: e.target.value }))}
-                  rows={2} placeholder="Ex: usar sobra do evento anterior, temperatura..."
-                  className="w-full px-3 py-2 bg-background border border-input rounded-md text-sm focus:ring-2 focus:ring-ring resize-none"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 px-6 py-4 border-t shrink-0">
-              <button onClick={() => setShowBatchModal(false)}
-                className="px-4 py-2 text-sm rounded border hover:bg-muted transition">
-                Cancelar
-              </button>
-              <button onClick={saveBatch} disabled={batchSaving}
-                className="px-4 py-2 text-sm rounded bg-primary text-primary-foreground hover:bg-primary/90 transition disabled:opacity-50 flex items-center gap-2">
-                {batchSaving && <Loader2 size={13} className="animate-spin" />}
-                Criar Lote
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </Layout>
-  );
-}
-
-// ─── Batch Card Component ─────────────────────────────────────────────────────
-
-function BatchCard({
-  batch, expanded, onToggle, onStatusChange, onDelete,
-}: {
-  batch: ProductionBatch;
-  expanded: boolean;
-  onToggle: () => void;
-  onStatusChange: (s: BatchStatus) => void;
-  onDelete: () => void;
+function PlanItemCard({ item, onUpdate, onDelete }: {
+  item: PlanItem;
+  onUpdate: (id: string, data: any) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
 }) {
-  const statusColors: Record<BatchStatus, string> = {
-    planned: 'bg-muted text-muted-foreground',
-    in_progress: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
-    done: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
-  };
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({
+    quantity: item.quantity,
+    scheduledDate: item.scheduledDate.slice(0, 10),
+    phase: item.phase,
+    notes: item.notes || '',
+  });
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    await onUpdate(item.id, form);
+    setEditing(false); setSaving(false);
+  }
+
+  async function toggleDone() {
+    await onUpdate(item.id, { status: item.status === 'done' ? 'pending' : 'done' });
+  }
 
   return (
-    <div className={`bg-card rounded-lg border overflow-hidden ${batch.status === 'done' ? 'opacity-70' : ''}`}>
-      <div className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-muted/30 transition"
-        onClick={onToggle}>
+    <div className={`bg-card border rounded-xl overflow-hidden ${item.status === 'done' ? 'opacity-60' : ''}`}>
+      <div className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-muted/30 transition" onClick={() => setOpen(v => !v)}>
+        <button onClick={e => { e.stopPropagation(); toggleDone(); }}
+          className={`w-5 h-5 rounded border-2 shrink-0 flex items-center justify-center transition ${item.status === 'done' ? 'bg-emerald-500 border-emerald-500' : 'border-muted-foreground hover:border-primary'}`}>
+          {item.status === 'done' && <Check size={11} className="text-white" />}
+        </button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-semibold truncate">{batch.recipe.name}</span>
-            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColors[batch.status]}`}>
-              {BATCH_STATUS_LABELS[batch.status]}
-            </span>
+            <span className={`text-sm font-medium ${item.status === 'done' ? 'line-through text-muted-foreground' : ''}`}>{item.recipe.name}</span>
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${PHASE_COLORS[item.phase]}`}>{PHASE_LABELS[item.phase]}</span>
           </div>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {new Date(batch.scheduledAt).toLocaleDateString('pt-BR')} ·{' '}
-            {batch.targetQty} porções ·{' '}
-            {batch.allocations.length} evento{batch.allocations.length !== 1 ? 's' : ''}
-          </p>
+          <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1"><Package size={10} /> {item.quantity} porções</span>
+            {item.estimatedCost > 0 && <span className="text-green-600">{fmtCost(item.estimatedCost)}</span>}
+            {item.allocations.length > 0 && <span>{item.allocations.length} evento{item.allocations.length !== 1 ? 's' : ''}</span>}
+          </div>
         </div>
-        {expanded ? <ChevronUp size={14} className="text-muted-foreground shrink-0" /> : <ChevronDown size={14} className="text-muted-foreground shrink-0" />}
+        <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+          <button onClick={() => { setEditing(v => !v); setOpen(true); }} className="p-1.5 rounded hover:bg-muted transition text-muted-foreground"><Pencil size={13} /></button>
+          <button onClick={() => onDelete(item.id)} className="p-1.5 rounded hover:bg-destructive/10 transition text-muted-foreground hover:text-destructive"><Trash2 size={13} /></button>
+          {open ? <ChevronDown size={14} className="text-muted-foreground" /> : <ChevronRight size={14} className="text-muted-foreground" />}
+        </div>
       </div>
-
-      {expanded && (
-        <div className="border-t px-4 py-3 space-y-3">
-          {/* Event breakdown */}
-          <div className="space-y-1.5">
-            {batch.allocations.map(alloc => (
-              <div key={alloc.id} className="flex items-center justify-between text-sm">
-                <div className="flex items-center gap-2">
-                  <Calendar size={11} className="text-muted-foreground" />
-                  <span className="truncate">{alloc.event.name}</span>
-                  {alloc.event.startAt && (
-                    <span className="text-xs text-muted-foreground">{fmtDate(alloc.event.startAt)}</span>
-                  )}
+      {open && (
+        <div className="border-t px-4 py-4 space-y-3 bg-muted/10">
+          {editing ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-muted-foreground font-medium block mb-1">Data</label>
+                  <input type="date" value={form.scheduledDate} onChange={e => setForm(f => ({ ...f, scheduledDate: e.target.value }))} className="w-full border rounded px-2 py-1.5 text-sm bg-background" />
                 </div>
-                <span className="font-medium text-sm shrink-0">{alloc.quantity} porções</span>
+                <div>
+                  <label className="text-xs text-muted-foreground font-medium block mb-1">Porções</label>
+                  <input type="number" min={1} value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: parseInt(e.target.value) || 1 }))} className="w-full border rounded px-2 py-1.5 text-sm bg-background" />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground font-medium block mb-1">Fase</label>
+                  <select value={form.phase} onChange={e => setForm(f => ({ ...f, phase: e.target.value as any }))} className="w-full border rounded px-2 py-1.5 text-sm bg-background">
+                    <option value="pre_prep">Pré-preparo</option>
+                    <option value="day_of">Produção do Dia</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground font-medium block mb-1">Observações</label>
+                  <input type="text" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} className="w-full border rounded px-2 py-1.5 text-sm bg-background" placeholder="Opcional" />
+                </div>
               </div>
-            ))}
-          </div>
-
-          {batch.notes && (
-            <p className="text-xs text-muted-foreground italic border-t pt-2">{batch.notes}</p>
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => setEditing(false)} className="text-xs px-3 py-1.5 border rounded hover:bg-muted transition">Cancelar</button>
+                <button onClick={save} disabled={saving} className="text-xs px-3 py-1.5 bg-primary text-primary-foreground rounded hover:bg-primary/90 transition flex items-center gap-1 disabled:opacity-50">
+                  <Check size={12} /> {saving ? 'Salvando...' : 'Salvar'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {item.reasoning && (
+                <div className="bg-blue-50 rounded-lg px-3 py-2 text-xs text-blue-700 flex items-start gap-2">
+                  <Info size={13} className="shrink-0 mt-0.5" />
+                  <p>{item.reasoning}</p>
+                </div>
+              )}
+              {item.notes && <p className="text-xs text-muted-foreground italic">{item.notes}</p>}
+              <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1"><Clock size={11} /> Preparo: {item.recipe.prepTime}min</span>
+                <span className="flex items-center gap-1"><Clock size={11} /> Validade: {item.validityHours}h após produção</span>
+              </div>
+            </>
           )}
-
-          {/* Actions */}
-          <div className="flex flex-wrap gap-2 pt-1">
-            {batch.status === 'planned' && (
-              <button onClick={() => onStatusChange('in_progress')}
-                className="flex items-center gap-1 text-xs px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded transition">
-                <Flame size={11} /> Iniciar produção
-              </button>
-            )}
-            {batch.status === 'in_progress' && (
-              <button onClick={() => onStatusChange('done')}
-                className="flex items-center gap-1 text-xs px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded transition">
-                <Check size={11} /> Concluir lote
-              </button>
-            )}
-            <button onClick={onDelete}
-              className="flex items-center gap-1 text-xs px-3 py-1.5 border rounded hover:bg-destructive/10 hover:text-destructive transition text-muted-foreground">
-              <X size={11} /> Excluir
-            </button>
-          </div>
+          {item.allocations.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Distribuição por evento</p>
+              <div className="space-y-1.5">
+                {item.allocations.map(a => (
+                  <div key={a.id} className="flex items-center justify-between text-xs bg-background border rounded-lg px-3 py-2">
+                    <div>
+                      <span className="font-medium">{a.event.name}</span>
+                      {a.event.startAt && <span className="text-muted-foreground ml-2">{new Date(a.event.startAt).toLocaleDateString('pt-BR')}</span>}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-muted-foreground">{a.quantity} porções</span>
+                      {a.costShare > 0 && <span className="text-green-600 font-medium">{fmtCost(a.costShare)}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+export default function ProducaoPage() {
+  const [plan, setPlan] = useState<Plan | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [deficits, setDeficits] = useState<StockDeficit[]>([]);
+  const [loadingDeficits, setLoadingDeficits] = useState(false);
+  const [error, setError] = useState('');
+  const [hasConfig, setHasConfig] = useState(true);
+  const [activeSection, setActiveSection] = useState<'plan' | 'stock' | 'events'>('plan');
+
+  useEffect(() => { loadAll(); }, []);
+
+  async function loadAll() {
+    setLoading(true);
+    try {
+      const [cfgRes, planRes] = await Promise.all([
+        fetch('/api/v2/kitchen/config', { credentials: 'include' }).then(r => r.json()),
+        fetch('/api/v2/kitchen/production-plan', { credentials: 'include' }).then(r => r.json()),
+      ]);
+      setHasConfig(cfgRes.hasApiKey);
+      setPlan(planRes.plan || null);
+      if (planRes.plan) loadDeficits(planRes.plan.id);
+    } catch { setError('Erro ao carregar dados'); }
+    setLoading(false);
+  }
+
+  async function loadDeficits(planId: string) {
+    setLoadingDeficits(true);
+    try {
+      const res = await fetch(`/api/v2/kitchen/production-plan/${planId}/stock-check`, { credentials: 'include' });
+      const data = await res.json();
+      setDeficits(data.missingItems || []);
+    } catch { }
+    setLoadingDeficits(false);
+  }
+
+  async function generate() {
+    setGenerating(true); setError('');
+    try {
+      const res = await fetch('/api/v2/kitchen/production-plan/generate', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || 'Erro ao gerar plano'); }
+      else { setPlan(data.plan); setDeficits(data.stockDeficits || []); }
+    } catch (e: any) { setError(e.message || 'Erro ao gerar plano'); }
+    setGenerating(false);
+  }
+
+  async function updatePlanStatus(status: string) {
+    if (!plan) return;
+    await fetch(`/api/v2/kitchen/production-plan/${plan.id}`, {
+      method: 'PATCH', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    await loadAll();
+  }
+
+  async function updateItem(id: string, data: any) {
+    await fetch(`/api/v2/kitchen/production-plan/items/${id}`, {
+      method: 'PATCH', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    await loadAll();
+  }
+
+  async function deleteItem(id: string) {
+    if (!confirm('Remover este item do plano?')) return;
+    await fetch(`/api/v2/kitchen/production-plan/items/${id}`, { method: 'DELETE', credentials: 'include' });
+    await loadAll();
+  }
+
+  async function deletePlan() {
+    if (!plan) return;
+    if (!confirm('Excluir o plano atual?')) return;
+    await fetch(`/api/v2/kitchen/production-plan/${plan.id}`, { method: 'DELETE', credentials: 'include' });
+    setPlan(null); setDeficits([]);
+  }
+
+  if (loading) {
+    return (
+      <Layout>
+        <div className="flex justify-center py-20">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary" />
+        </div>
+      </Layout>
+    );
+  }
+
+  const grouped = plan ? groupByDate(plan.items) : new Map<string, PlanItem[]>();
+  const totalCost = plan?.items.reduce((s, i) => s + i.estimatedCost, 0) ?? 0;
+  const doneCount = plan?.items.filter(i => i.status === 'done').length ?? 0;
+  const totalCount = plan?.items.length ?? 0;
+
+  const eventCosts = new Map<string, { name: string; startAt: string | null; cost: number; items: number }>();
+  if (plan) {
+    for (const item of plan.items) {
+      for (const alloc of item.allocations) {
+        const prev = eventCosts.get(alloc.eventId) || { name: alloc.event.name, startAt: alloc.event.startAt, cost: 0, items: 0 };
+        eventCosts.set(alloc.eventId, { ...prev, cost: prev.cost + alloc.costShare, items: prev.items + alloc.quantity });
+      }
+    }
+  }
+
+  return (
+    <Layout>
+      <div className="space-y-6">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <BrainCircuit size={24} className="text-primary" /> Plano de Produção IA
+            </h1>
+            <p className="text-muted-foreground text-sm mt-0.5">Gerado automaticamente com base nos eventos e estoque atual</p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            {plan && (
+              <>
+                {plan.status === 'draft' && (
+                  <button onClick={() => updatePlanStatus('approved')}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition">
+                    <Check size={15} /> Aprovar Plano
+                  </button>
+                )}
+                {plan.status === 'approved' && (
+                  <button onClick={() => updatePlanStatus('in_progress')}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 transition">
+                    Iniciar Produção
+                  </button>
+                )}
+                {plan.status === 'in_progress' && (
+                  <button onClick={() => updatePlanStatus('done')}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition">
+                    Concluir Produção
+                  </button>
+                )}
+                <button onClick={deletePlan}
+                  className="flex items-center gap-1.5 px-3 py-2 border rounded-lg text-sm text-muted-foreground hover:text-destructive hover:border-destructive transition">
+                  <Trash2 size={14} /> Excluir
+                </button>
+              </>
+            )}
+            <button onClick={generate} disabled={generating || !hasConfig}
+              className="flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition disabled:opacity-50">
+              {generating ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
+              {generating ? 'Gerando...' : plan ? 'Regenerar com IA' : 'Gerar com IA'}
+            </button>
+          </div>
+        </div>
+
+        {!hasConfig && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 flex items-start gap-3">
+            <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium text-amber-800 text-sm">OpenAI não configurado</p>
+              <p className="text-xs text-amber-700 mt-0.5">Configure a chave de API em <a href="/cozinha/config" className="underline font-medium">Cozinha → Configurações</a> para usar o Plano de Produção IA.</p>
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <div className="bg-destructive/10 border border-destructive/20 rounded-xl px-5 py-4 flex items-start gap-3">
+            <X size={16} className="text-destructive shrink-0 mt-0.5" />
+            <p className="text-sm text-destructive">{error}</p>
+          </div>
+        )}
+
+        {generating && (
+          <div className="bg-card border rounded-xl p-10 text-center">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4">
+              <BrainCircuit size={32} className="text-primary animate-pulse" />
+            </div>
+            <h3 className="font-semibold text-lg mb-2">IA analisando...</h3>
+            <p className="text-sm text-muted-foreground max-w-sm mx-auto">Analisando eventos futuros, cardápios, tempos de preparo, validade e estoque atual. Isso pode levar alguns segundos.</p>
+          </div>
+        )}
+
+        {!plan && !generating && (
+          <div className="bg-card border rounded-xl p-16 text-center">
+            <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-primary/10 mb-5">
+              <BrainCircuit size={40} className="text-primary" />
+            </div>
+            <h2 className="text-xl font-bold mb-2">Nenhum plano de produção</h2>
+            <p className="text-muted-foreground text-sm mb-6 max-w-md mx-auto">
+              Clique em "Gerar com IA" para criar automaticamente um plano de produção otimizado com base nos seus eventos confirmados, receitas e estoque.
+            </p>
+            {hasConfig ? (
+              <button onClick={generate} disabled={generating}
+                className="inline-flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition">
+                <BrainCircuit size={18} /> Gerar Plano com IA
+              </button>
+            ) : (
+              <a href="/cozinha/config" className="inline-flex items-center gap-2 px-6 py-3 border rounded-lg font-medium hover:bg-muted transition text-sm">
+                <SlidersHorizontal size={16} /> Configurar OpenAI primeiro
+              </a>
+            )}
+          </div>
+        )}
+
+        {plan && !generating && (
+          <>
+            <div className="bg-card border rounded-xl px-5 py-4">
+              <div className="flex flex-wrap items-center gap-4">
+                <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${STATUS_COLORS[plan.status]}`}>{STATUS_LABELS[plan.status]}</span>
+                <div className="text-sm text-muted-foreground">
+                  Gerado em {new Date(plan.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })}
+                  {plan.aiModel && <span className="ml-1">· {plan.aiModel}</span>}
+                </div>
+                <div className="ml-auto flex items-center gap-4 text-sm">
+                  <span className="text-muted-foreground">{doneCount}/{totalCount} itens concluídos</span>
+                  {totalCost > 0 && <span className="font-medium text-green-600">{fmtCost(totalCost)} est.</span>}
+                </div>
+              </div>
+              {totalCount > 0 && (
+                <div className="mt-3 h-1.5 bg-muted rounded-full overflow-hidden">
+                  <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${(doneCount / totalCount) * 100}%` }} />
+                </div>
+              )}
+              {plan.aiNotes && (
+                <div className="mt-3 pt-3 border-t text-sm text-muted-foreground italic">
+                  <Info size={13} className="inline mr-1" />{plan.aiNotes}
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-1 border-b">
+              {([
+                { id: 'plan' as const, label: 'Plano de Produção', count: totalCount },
+                { id: 'stock' as const, label: 'Déficit de Estoque', count: deficits.length },
+                { id: 'events' as const, label: 'Custo por Evento', count: eventCosts.size },
+              ]).map(tab => (
+                <button key={tab.id} onClick={() => setActiveSection(tab.id)}
+                  className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition ${activeSection === tab.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
+                  {tab.label}
+                  {tab.count > 0 && (
+                    <span className={`text-xs px-1.5 py-0.5 rounded-full ${tab.id === 'stock' && tab.count > 0 ? 'bg-amber-100 text-amber-800' : 'bg-muted text-muted-foreground'}`}>
+                      {tab.count}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {activeSection === 'plan' && (
+              <div className="space-y-6">
+                {plan.items.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground text-sm">Nenhum item no plano.</div>
+                ) : (
+                  Array.from(grouped.entries()).map(([date, items]) => (
+                    <div key={date}>
+                      <h3 className="text-sm font-semibold text-muted-foreground mb-3 flex items-center gap-2 uppercase tracking-wide">
+                        <Calendar size={14} />
+                        {fmt(date + 'T12:00:00')}
+                        <span className="text-xs font-normal normal-case">
+                          — {items.length} item{items.length !== 1 ? 's' : ''} · {fmtCost(items.reduce((s, i) => s + i.estimatedCost, 0))} est.
+                        </span>
+                      </h3>
+                      <div className="space-y-2">
+                        {items.map(item => (
+                          <PlanItemCard key={item.id} item={item} onUpdate={updateItem} onDelete={deleteItem} />
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {activeSection === 'stock' && (
+              <div className="space-y-3">
+                {loadingDeficits ? (
+                  <div className="flex justify-center py-8"><Loader2 size={24} className="animate-spin text-muted-foreground" /></div>
+                ) : deficits.length === 0 ? (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-8 text-center">
+                    <CheckCircle size={32} className="text-emerald-500 mx-auto mb-3" />
+                    <p className="font-medium text-emerald-800">Estoque suficiente!</p>
+                    <p className="text-sm text-emerald-700 mt-1">Todos os ingredientes necessários estão disponíveis em estoque.</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-3 flex items-center gap-3">
+                      <AlertTriangle size={16} className="text-amber-600 shrink-0" />
+                      <p className="text-sm text-amber-800">
+                        <span className="font-medium">{deficits.length} ingrediente{deficits.length !== 1 ? 's' : ''} faltando.</span>
+                        {' '}Custo estimado para reposição: <span className="font-bold">{fmtCost(deficits.reduce((s, d) => s + d.costToRestock, 0))}</span>
+                      </p>
+                      <a href="/cozinha/compras" className="ml-auto flex items-center gap-1 text-xs text-amber-700 hover:underline whitespace-nowrap">
+                        <ShoppingCart size={12} /> Ver Compras
+                      </a>
+                    </div>
+                    <div className="bg-card border rounded-xl overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead className="bg-muted/40 border-b">
+                          <tr>
+                            <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Ingrediente</th>
+                            <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Necessário</th>
+                            <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Em Estoque</th>
+                            <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-amber-700">Falta</th>
+                            <th className="text-right px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Custo Reposição</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {deficits.map(d => (
+                            <tr key={d.ingredientId} className="hover:bg-muted/20">
+                              <td className="px-4 py-3 font-medium">{d.ingredientName}</td>
+                              <td className="px-4 py-3 text-right text-muted-foreground">{d.needed} {d.unit}</td>
+                              <td className="px-4 py-3 text-right text-muted-foreground">{d.have} {d.unit}</td>
+                              <td className="px-4 py-3 text-right font-semibold text-amber-700">{d.deficit} {d.unit}</td>
+                              <td className="px-4 py-3 text-right text-green-600">{fmtCost(d.costToRestock)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {activeSection === 'events' && (
+              <div className="space-y-3">
+                {eventCosts.size === 0 ? (
+                  <div className="bg-card border rounded-xl p-8 text-center text-muted-foreground text-sm">Nenhum custo alocado por evento ainda.</div>
+                ) : (
+                  <div className="bg-card border rounded-xl overflow-hidden">
+                    <div className="px-5 py-3 border-b bg-muted/30 flex items-center gap-2">
+                      <TrendingUp size={15} className="text-primary" />
+                      <span className="text-sm font-semibold">Custo de Produção por Evento</span>
+                      <span className="ml-auto text-xs text-muted-foreground">Total: {fmtCost(Array.from(eventCosts.values()).reduce((s, e) => s + e.cost, 0))}</span>
+                    </div>
+                    <div className="divide-y">
+                      {Array.from(eventCosts.entries())
+                        .sort((a, b) => (a[1].startAt && b[1].startAt) ? new Date(a[1].startAt).getTime() - new Date(b[1].startAt).getTime() : 0)
+                        .map(([eventId, ev]) => (
+                          <div key={eventId} className="flex items-center gap-4 px-5 py-3.5">
+                            <div className="flex-1">
+                              <p className="font-medium text-sm">{ev.name}</p>
+                              {ev.startAt && <p className="text-xs text-muted-foreground">{new Date(ev.startAt).toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}</p>}
+                            </div>
+                            <div className="text-right">
+                              <p className="font-semibold text-green-600">{fmtCost(ev.cost)}</p>
+                              <p className="text-xs text-muted-foreground">{ev.items} porções produzidas</p>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </Layout>
   );
 }
