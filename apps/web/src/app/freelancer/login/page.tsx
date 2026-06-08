@@ -19,6 +19,7 @@ export default function FreelancerLoginPage() {
       const response = await fetch('/api/v2/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ email, cpf }),
       });
 
