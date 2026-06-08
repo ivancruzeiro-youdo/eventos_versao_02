@@ -63,7 +63,7 @@ export async function freelancerRoutes(app: FastifyInstance) {
 
     // Create token
     const token = await reply.jwtSign({
-      id: freelancer.id,
+      sub: freelancer.id,
       email: freelancer.email,
       name: freelancer.name,
       role: 'freelancer',
@@ -120,7 +120,7 @@ export async function freelancerRoutes(app: FastifyInstance) {
 
     // Auto login after registration
     const token = await reply.jwtSign({
-      id: freelancer.id,
+      sub: freelancer.id,
       email: freelancer.email,
       name: freelancer.name,
       role: 'freelancer',
