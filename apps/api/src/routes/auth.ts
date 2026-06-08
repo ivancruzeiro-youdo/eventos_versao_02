@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../server.js';
+import { normalizeCpf } from '../utils/cpf.js';
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -34,7 +35,8 @@ export async function authRoutes(app: FastifyInstance) {
     }
 
     // CPF is identifier, not password - just validate it matches
-    if (freelancer.cpf !== body.cpf) {
+    // Normalize CPF to handle both masked (123.456.789-00) and unmasked (12345678900) formats
+    if (normalizeCpf(freelancer.cpf) !== normalizeCpf(body.cpf)) {
       return reply.status(401).send({ error: 'Invalid credentials' });
     }
 
