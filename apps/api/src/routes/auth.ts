@@ -51,9 +51,10 @@ export async function authRoutes(app: FastifyInstance) {
     }, { expiresIn: '7d' });
 
     reply.setCookie('token', token, {
+      path: '/',
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      sameSite: 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 
@@ -105,9 +106,10 @@ export async function authRoutes(app: FastifyInstance) {
     }, { expiresIn: '8h' });
 
     reply.setCookie('token', token, {
+      path: '/',
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      sameSite: 'lax',
       maxAge: 8 * 60 * 60 * 1000, // 8 hours
     });
 
@@ -205,9 +207,10 @@ export async function authRoutes(app: FastifyInstance) {
       const newToken = app.jwt.sign(decoded, { expiresIn: '24h' });
       
       reply.setCookie('token', newToken, {
+        path: '/',
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
+        sameSite: 'lax',
         maxAge: 24 * 60 * 60 * 1000,
       });
 
