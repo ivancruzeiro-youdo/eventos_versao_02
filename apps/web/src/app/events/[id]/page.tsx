@@ -5,13 +5,12 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
 import EventPlanTab from '@/components/EventPlanTab';
-import EventTaxasTab from '@/components/EventTaxasTab';
 import EventGuestsTab from '@/components/EventGuestsTab';
 import EventCommentsTab from '@/components/EventCommentsTab';
 import EventFilesTab from '@/components/EventFilesTab';
 import EventScheduleTab from '@/components/EventScheduleTab';
 import EventItemsTab from '@/components/EventItemsTab';
-import EventFreelancersTab from '@/components/EventFreelancersTab';
+import EventMaoDeObraTab from '@/components/EventMaoDeObraTab';
 import EventKitchenTab from '@/components/EventKitchenTab';
 import { eventsApi, guestsApi } from '@/lib/api';
 import { formatDateTime, getStatusColor, getStatusLabel, formatPhone, formatCpf } from '@/lib/utils';
@@ -57,8 +56,7 @@ const tabs = [
   { id: 'checklists', label: 'Checklists', icon: CheckSquare },
   { id: 'guests', label: 'Convidados', icon: Users },
   { id: 'plan', label: 'Plano do Evento', icon: ClipboardList },
-  { id: 'freelancers', label: 'Freelancers', icon: UserCog },
-  { id: 'jobs', label: 'Mão de Obra', icon: Briefcase },
+  { id: 'mao-de-obra', label: 'Mão de Obra', icon: Briefcase },
   { id: 'food', label: 'A&B', icon: UtensilsCrossed },
   { id: 'infra', label: 'Infraestrutura', icon: HardHat },
   { id: 'kitchen', label: 'Cozinha', icon: ChefHat },
@@ -549,11 +547,8 @@ export default function EventDetailPage() {
       {activeTab === 'plan' && (
         <EventPlanTab eventId={eventId} />
       )}
-      {activeTab === 'freelancers' && (
-        <EventFreelancersTab eventId={eventId} />
-      )}
-      {activeTab === 'jobs' && (
-        <EventTaxasTab eventId={eventId} eventStartAt={event.startAt} />
+      {activeTab === 'mao-de-obra' && (
+        <EventMaoDeObraTab eventId={eventId} eventStartAt={event.startAt} />
       )}
       {activeTab === 'food' && (
         <div>
