@@ -180,7 +180,7 @@ export async function freelancerRoutes(app: FastifyInstance) {
     return { success: true, freelancer };
   });
 
-  // List job slots for freelancer portal
+  // List jobs grouped by event for freelancer portal
   app.get('/freelancer/jobs', { preHandler: requireAuth }, async (request, reply) => {
     const user = (request as any).user;
     
@@ -188,44 +188,64 @@ export async function freelancerRoutes(app: FastifyInstance) {
       return reply.status(403).send({ error: 'Freelancer access only' });
     }
 
-    // Get already applied event+role combos to exclude
-    const myApplications = await prisma.freelancerApplication.findMany({
-      where: { freelancerId: user.id, status: { not: 'cancelled' } },
-      select: { eventId: true, role: true },
-    });
-
     // Get this freelancer's registered service IDs
     const myServices = await prisma.freelancerServiceLink.findMany({
       where: { freelancerId: user.id },
       select: { serviceId: true },
     });
-    const myServiceIds = myServices.map(s => s.serviceId);
+    const myServiceIds = myServices.map((s: any) => s.serviceId);
 
-    const slots = await prisma.eventService.findMany({
+    // Get all active (non-cancelled) applications for this freelancer
+    const myApplications = await prisma.freelancerApplication.findMany({
+      where: { freelancerId: user.id, status: { not: 'cancelled' } },
+      select: { id: true, eventId: true, role: true, status: true },
+    });
+    const myAppMap = new Map(myApplications.map((a: any) => [`${a.eventId}::${a.role}`, { status: a.status, id: a.id }]));
+
+    const slotFilter: any = {
+      status: 'active',
+      startAt: { gte: new Date() },
+      ...(myServiceIds.length > 0 ? { serviceId: { in: myServiceIds } } : {}),
+    };
+
+    const events = await prisma.event.findMany({
       where: {
-        status: 'active',
-        startAt: { gte: new Date() },
-        event: { status: { in: ['confirmed', 'in_progress'] } },
-        ...(myServiceIds.length > 0 ? { serviceId: { in: myServiceIds } } : {}),
+        status: { in: ['confirmed', 'in_progress'] },
+        services: { some: slotFilter },
       },
       include: {
-        service: { select: { id: true, name: true } },
-        event: {
-          select: {
-            id: true,
-            name: true,
-            venues: { include: { venue: { select: { name: true, city: true } } } },
-          },
+        venues: { include: { venue: { select: { name: true, city: true } } } },
+        employer: { select: { name: true } },
+        services: {
+          where: slotFilter,
+          include: { service: { select: { id: true, name: true } } },
+          orderBy: { startAt: 'asc' },
         },
       },
       orderBy: { startAt: 'asc' },
     });
 
-    // Filter out slots the freelancer already applied to
-    const applied = new Set(myApplications.map(a => `${a.eventId}::${a.role}`));
-    const available = slots.filter(s => !applied.has(`${s.eventId}::${s.service.name}`));
+    // Count approved applications per event+role in one query
+    const eventIds = events.map((e: any) => e.id);
+    const approvedCounts = eventIds.length > 0 ? await prisma.freelancerApplication.groupBy({
+      by: ['eventId', 'role'],
+      where: { eventId: { in: eventIds }, status: 'approved' },
+      _count: { id: true },
+    }) : [];
+    const approvedMap = new Map((approvedCounts as any[]).map(c => [`${c.eventId}::${c.role}`, c._count.id]));
 
-    return { success: true, jobs: available };
+    // Enrich each slot with filledSlots and myStatus
+    const enriched = (events as any[]).map(event => ({
+      ...event,
+      services: event.services.map((slot: any) => ({
+        ...slot,
+        filledSlots: approvedMap.get(`${event.id}::${slot.service.name}`) ?? 0,
+        myStatus: myAppMap.get(`${event.id}::${slot.service.name}`)?.status ?? null,
+        myApplicationId: myAppMap.get(`${event.id}::${slot.service.name}`)?.id ?? null,
+      })),
+    }));
+
+    return { success: true, jobs: enriched };
   });
 
   // Apply for a job slot (jobId = EventService ID)
