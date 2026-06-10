@@ -194,11 +194,19 @@ export async function freelancerRoutes(app: FastifyInstance) {
       select: { eventId: true, role: true },
     });
 
+    // Get this freelancer's registered service IDs
+    const myServices = await prisma.freelancerServiceLink.findMany({
+      where: { freelancerId: user.id },
+      select: { serviceId: true },
+    });
+    const myServiceIds = myServices.map(s => s.serviceId);
+
     const slots = await prisma.eventService.findMany({
       where: {
         status: 'active',
         startAt: { gte: new Date() },
         event: { status: { in: ['confirmed', 'in_progress'] } },
+        ...(myServiceIds.length > 0 ? { serviceId: { in: myServiceIds } } : {}),
       },
       include: {
         service: { select: { id: true, name: true } },
