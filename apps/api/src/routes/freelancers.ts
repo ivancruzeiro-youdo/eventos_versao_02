@@ -251,6 +251,41 @@ export async function freelancerRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Você já se candidatou para esta vaga' });
     }
 
+    // Block overlapping shifts: A overlaps B if A.start < B.end AND A.end > B.start
+    if (slot.startAt && slot.endAt) {
+      const activeApps = await prisma.freelancerApplication.findMany({
+        where: { freelancerId: user.id, status: { in: ['pending', 'approved'] } },
+        select: { eventId: true, role: true },
+      });
+
+      if (activeApps.length > 0) {
+        const eventIds = activeApps.map(a => a.eventId);
+        const roles = [...new Set(activeApps.map(a => a.role))];
+
+        const conflictingSlots = await prisma.eventService.findMany({
+          where: {
+            eventId: { in: eventIds },
+            service: { name: { in: roles } },
+            startAt: { lt: slot.endAt },
+            endAt: { gt: slot.startAt },
+          },
+          include: { service: true },
+        });
+
+        const appSet = new Set(activeApps.map(a => `${a.eventId}::${a.role}`));
+        const conflict = conflictingSlots.find(s => appSet.has(`${s.eventId}::${s.service.name}`));
+
+        if (conflict) {
+          const time = new Date(conflict.startAt!).toLocaleString('pt-BR', {
+            day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+          });
+          return reply.status(400).send({
+            error: `Conflito de horário: você já tem "${conflict.service.name}" agendado às ${time}`,
+          });
+        }
+      }
+    }
+
     const application = existing
       ? await prisma.freelancerApplication.update({
           where: { id: existing.id },
