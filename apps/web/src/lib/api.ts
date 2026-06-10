@@ -20,8 +20,8 @@ async function fetchApi(endpoint: string, options: RequestInit = {}) {
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-    throw new ApiError(error.error || `HTTP ${response.status}`, response.status);
+    const error = await response.json().catch(() => ({ message: 'Unknown error' }));
+    throw new ApiError(error.message || error.error || `HTTP ${response.status}`, response.status);
   }
 
   return response.json();
@@ -71,7 +71,7 @@ export const freelancerApi = {
   jobs: () => fetchApi('/api/v2/freelancer/jobs'),
   applications: () => fetchApi('/api/v2/freelancer/applications'),
   apply: (jobId: string) => 
-    fetchApi(`/api/v2/freelancer/jobs/${jobId}/apply`, { method: 'POST' }),
+    fetchApi(`/api/v2/freelancer/jobs/${jobId}/apply`, { method: 'POST', body: JSON.stringify({}) }),
   cancelApplication: (id: string) =>
     fetchApi(`/api/v2/freelancer/applications/${id}/cancel`, { method: 'PATCH' }),
   profile: () => fetchApi('/api/v2/freelancer/profile'),
