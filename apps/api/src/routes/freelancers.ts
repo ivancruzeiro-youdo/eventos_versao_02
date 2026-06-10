@@ -317,10 +317,10 @@ export async function freelancerRoutes(app: FastifyInstance) {
     const application = existing
       ? await prisma.freelancerApplication.update({
           where: { id: existing.id },
-          data: { status: 'pending', appliedAt: new Date() },
+          data: { status: 'approved', appliedAt: new Date() },
         })
       : await prisma.freelancerApplication.create({
-          data: { freelancerId: user.id, eventId: slot.eventId, role: slot.service.name, status: 'pending' },
+          data: { freelancerId: user.id, eventId: slot.eventId, role: slot.service.name, status: 'approved' },
         });
 
     return reply.status(201).send({ success: true, application });
