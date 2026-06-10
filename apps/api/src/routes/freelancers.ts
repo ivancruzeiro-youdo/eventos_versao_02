@@ -197,6 +197,7 @@ export async function freelancerRoutes(app: FastifyInstance) {
     const slots = await prisma.eventService.findMany({
       where: {
         status: 'active',
+        startAt: { gte: new Date() },
         event: { status: { in: ['confirmed', 'in_progress'] } },
       },
       include: {

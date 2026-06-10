@@ -86,6 +86,11 @@ export default function FreelancerDashboardPage() {
     }
   }
 
+  async function handleLogout() {
+    try { await authApi.logout(); } catch {}
+    router.replace('/freelancer/login');
+  }
+
   async function handleApply(jobId: string) {
     try {
       await freelancerApi.apply(jobId);
@@ -109,7 +114,7 @@ export default function FreelancerDashboardPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
       </div>
     );
   }
@@ -117,15 +122,15 @@ export default function FreelancerDashboardPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-primary-600 text-white">
+      <header className="bg-indigo-600 text-white">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex justify-between items-center">
             <h1 className="text-xl font-bold">Portal do Freelancer</h1>
             <div className="flex items-center gap-4">
               <span className="text-sm">Olá, {user?.name}</span>
               <button 
-                onClick={() => authApi.logout()}
-                className="text-sm bg-primary-700 px-3 py-1 rounded hover:bg-primary-800"
+                onClick={handleLogout}
+                className="text-sm bg-indigo-700 px-3 py-1 rounded hover:bg-indigo-800"
               >
                 Sair
               </button>
@@ -139,7 +144,7 @@ export default function FreelancerDashboardPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <div className="bg-white rounded-lg shadow p-4">
             <p className="text-sm text-gray-500">Vagas Disponíveis</p>
-            <p className="text-2xl font-bold text-primary-600">{jobs.length}</p>
+            <p className="text-2xl font-bold text-indigo-600">{jobs.length}</p>
           </div>
           <div className="bg-white rounded-lg shadow p-4">
             <p className="text-sm text-gray-500">Minhas Candidaturas</p>
@@ -182,7 +187,7 @@ export default function FreelancerDashboardPage() {
                         <p className="text-xl font-bold text-green-600">{calcTotal(job.valuePerHour, job.startAt, job.endAt)}</p>
                         <button
                           onClick={() => handleApply(job.id)}
-                          className="w-full px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium"
+                          className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium"
                         >
                           Inscrever-se
                         </button>
