@@ -12,6 +12,7 @@ import EventScheduleTab from '@/components/EventScheduleTab';
 import EventItemsTab from '@/components/EventItemsTab';
 import EventMaoDeObraTab from '@/components/EventMaoDeObraTab';
 import EventKitchenTab from '@/components/EventKitchenTab';
+import UserpStatusBanner from '@/components/UserpStatusBanner';
 import { eventsApi, guestsApi } from '@/lib/api';
 import { formatDateTime, getStatusColor, getStatusLabel, formatPhone, formatCpf } from '@/lib/utils';
 import {
@@ -363,6 +364,11 @@ export default function EventDetailPage() {
             )}
           </div>
         </div>
+      </div>
+
+      {/* USERP sync status */}
+      <div className="mb-4">
+        <UserpStatusBanner eventId={event.id} />
       </div>
 
       {/* Quick Stats */}

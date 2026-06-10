@@ -543,6 +543,168 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     return { success: true, results };
   });
 
+  // GET /events/:id/userp-status — check USERP for unimported contracts linked to this event
+  app.get('/events/:id/userp-status', { preHandler: requireAuth }, async (request, reply) => {
+    const { id: eventId } = request.params as { id: string };
+    const user = (request as any).user;
+    const employerId: string = user.employerId;
+
+    // 1. Get this event's already-imported contracts
+    const eventContracts = await (prisma as any).eventContract.findMany({
+      where: { eventId },
+      select: { externalId: true, clientCode: true, startDate: true },
+    });
+
+    if (eventContracts.length === 0) {
+      return { success: true, status: 'no_contracts' };
+    }
+
+    const { clientCode, startDate } = eventContracts[0];
+
+    // 2. Get all globally imported contract IDs from DB (to diff against USERP)
+    const allImportedContracts = await (prisma as any).eventContract.findMany({
+      select: { externalId: true },
+    });
+    const globalImportedIds = new Set(allImportedContracts.map((c: any) => String(c.externalId)));
+
+    let baseUrl: string;
+    try {
+      baseUrl = await getBaseUrl();
+    } catch (e: any) {
+      return reply.status(400).send({ error: e.message });
+    }
+
+    // 3. Fetch all USERP contract IDs (paginated, only IDs — fast)
+    let userpIds: number[];
+    try {
+      userpIds = await fetchContratoIds(baseUrl);
+    } catch (e: any) {
+      return reply.status(502).send({ error: e.message });
+    }
+
+    // 4. Find IDs not yet in DB at all
+    const unknownIds = userpIds.filter(id => !globalImportedIds.has(String(id)));
+
+    if (unknownIds.length === 0) {
+      return { success: true, status: 'up_to_date' };
+    }
+
+    // 5. Fetch details for unknown IDs in batches of 10, filter by this event's clientCode+startDate
+    const pendingContracts: any[] = [];
+    for (let i = 0; i < unknownIds.length; i += 10) {
+      const batch = unknownIds.slice(i, i + 10);
+      const details = await Promise.all(batch.map(id => fetchContratoDetails(baseUrl, id)));
+      for (const d of details) {
+        if (!d?.main) continue;
+        const main = d.main;
+        const contractClientCode = String(main.cliente_codigo || main.cliente || '');
+        const contractStartDate = String(main.data_checkin || '');
+        if (contractClientCode === clientCode && contractStartDate === startDate) {
+          pendingContracts.push({ ...main, _secondary: d.secondary || [] });
+        }
+      }
+    }
+
+    if (pendingContracts.length === 0) {
+      return { success: true, status: 'up_to_date' };
+    }
+
+    // 6. Build preview (same structure as sync-preview) so frontend can pass to sync-import
+    const [allProducts, allVenues] = await Promise.all([
+      (prisma as any).product.findMany({ include: { services: { include: { service: true } } } }),
+      (prisma as any).venue.findMany({ where: { employerId } }),
+    ]);
+
+    const productByExtId = new Map<string, any>();
+    const productByName = new Map<string, any>();
+    for (const p of allProducts) {
+      if (p.externalId) productByExtId.set(String(p.externalId), p);
+      productByName.set(p.name.trim().toLowerCase(), p);
+    }
+    const venueByName = new Map<string, any>();
+    for (const v of allVenues) venueByName.set(v.name.trim().toLowerCase(), v);
+
+    const clientName = pendingContracts[0]?.razaosocial || pendingContracts[0]?.cliente_info?.razaosocial || clientCode;
+    const newContractIds = pendingContracts.map((c: any) => String(c.codlocacontrato || ''));
+    const rawItems = buildItemsSnapshot(pendingContracts);
+    const blockingReasons: string[] = [];
+    const previewItems: PreviewEventItem[] = [];
+
+    for (const ri of rawItems) {
+      let product: any = null;
+      if (ri.externalProductCode) product = productByExtId.get(ri.externalProductCode);
+      if (!product) product = productByName.get(ri.name.trim().toLowerCase());
+      const category = product ? mapCategory(product.categoryName) : mapCategory(ri.categoryName);
+      const venueMatch = venueByName.get(ri.name.trim().toLowerCase());
+
+      if (venueMatch) {
+        previewItems.push({
+          name: ri.name, qty: ri.qty, unit: ri.unit,
+          externalProductCode: ri.externalProductCode,
+          category: 'venue',
+          productId: null, productName: null,
+          venueId: venueMatch.id, venueName: venueMatch.name,
+          subitems: [], staffServices: [],
+          missing: false, missingReason: '',
+        });
+        continue;
+      }
+
+      let missing = false;
+      let missingReason = '';
+      if (!product) {
+        missing = true;
+        missingReason = `Produto "${ri.name}" não encontrado.`;
+        blockingReasons.push(missingReason);
+      }
+
+      const subitems = product?.subitems || [];
+      const staffServices = (product?.services || []).map((l: any) => ({
+        id: l.service?.id || l.serviceId,
+        name: l.service?.name || '',
+      }));
+      const resolvedCategory = category || 'unknown';
+
+      if (!missing && resolvedCategory === 'staff' && staffServices.length === 0) {
+        missing = true;
+        missingReason = `Produto de equipe "${ri.name}" sem serviço vinculado.`;
+        blockingReasons.push(missingReason);
+      }
+
+      previewItems.push({
+        name: ri.name, qty: ri.qty, unit: ri.unit,
+        externalProductCode: ri.externalProductCode,
+        category: resolvedCategory,
+        productId: product?.id || null, productName: product?.name || null,
+        venueId: null, venueName: null,
+        subitems, staffServices,
+        missing, missingReason,
+      });
+    }
+
+    const preview: PreviewEvent = {
+      key: `${clientCode}__${startDate}`,
+      clientCode, startDate, clientName,
+      existingEventId: eventId,
+      action: 'update',
+      contractIds: newContractIds,
+      items: previewItems,
+      canImport: blockingReasons.length === 0,
+      blockingReasons,
+    };
+
+    return {
+      success: true,
+      status: 'pending',
+      pendingContracts: pendingContracts.map((c: any) => ({
+        id: String(c.codlocacontrato),
+        clientName: c.razaosocial || c.cliente_info?.razaosocial || clientCode,
+        startDate: c.data_checkin || '',
+      })),
+      preview,
+    };
+  });
+
   // GET /events/:id/sync-history
   app.get('/events/:id/sync-history', { preHandler: requireAuth }, async (request) => {
     const { id } = request.params as { id: string };
