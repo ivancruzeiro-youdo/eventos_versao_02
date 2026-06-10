@@ -491,28 +491,66 @@ export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
                       </div>
                     </div>
 
-                    {/* Freelancer detail */}
-                    {svc.freelancer && (
-                      <div className="flex items-center gap-3 bg-primary/5 rounded-lg px-3 py-2">
-                        <div className="w-8 h-8 rounded-full bg-primary/15 flex items-center justify-center text-primary font-bold text-sm shrink-0">
-                          {svc.freelancer.name.charAt(0).toUpperCase()}
+                    {/* Freelancers inscritos via candidatura */}
+                    {(() => {
+                      const approvedApps = (applicationsByRole[svc.service.name] || []).filter(a => a.status === 'approved');
+                      const hasDirectFreelancer = !!svc.freelancer;
+                      const hasAny = hasDirectFreelancer || approvedApps.length > 0;
+                      return (
+                        <div className="space-y-1.5">
+                          {hasDirectFreelancer && (
+                            <div className="flex items-center gap-3 bg-primary/5 rounded-lg px-3 py-2">
+                              <div className="w-8 h-8 rounded-full bg-primary/15 flex items-center justify-center text-primary font-bold text-sm shrink-0">
+                                {svc.freelancer!.name.charAt(0).toUpperCase()}
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium">{svc.freelancer!.name}</p>
+                                <div className="flex items-center gap-3 mt-0.5">
+                                  {svc.freelancer!.phone && (
+                                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                                      <Phone size={10} /> {svc.freelancer!.phone}
+                                    </span>
+                                  )}
+                                  <span className="text-xs text-muted-foreground">{svc.freelancer!.email}</span>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                          {approvedApps.map(app => (
+                            <div key={app.id} className="flex items-center gap-3 bg-green-50 rounded-lg px-3 py-2">
+                              <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center text-green-700 font-bold text-sm shrink-0">
+                                {app.freelancer.name.charAt(0).toUpperCase()}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium">{app.freelancer.name}</p>
+                                <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                                  {app.freelancer.phone && (
+                                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                                      <Phone size={10} /> {app.freelancer.phone}
+                                    </span>
+                                  )}
+                                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                                    <Mail size={10} /> {app.freelancer.email}
+                                  </span>
+                                </div>
+                              </div>
+                              <span className="text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded-full shrink-0">Confirmado</span>
+                              <button
+                                onClick={() => { if (confirm(`Remover ${app.freelancer.name} desta vaga?`)) updateStatus(app.id, 'rejected'); }}
+                                disabled={updating === app.id}
+                                title="Remover"
+                                className="p-1.5 rounded-full bg-red-50 text-red-500 hover:bg-red-100 disabled:opacity-40 transition shrink-0"
+                              >
+                                <X size={13} />
+                              </button>
+                            </div>
+                          ))}
+                          {!hasAny && (
+                            <p className="text-xs text-muted-foreground italic">Nenhum freelancer inscrito (vaga aberta)</p>
+                          )}
                         </div>
-                        <div>
-                          <p className="text-sm font-medium">{svc.freelancer.name}</p>
-                          <div className="flex items-center gap-3 mt-0.5">
-                            {svc.freelancer.phone && (
-                              <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                                <Phone size={10} /> {svc.freelancer.phone}
-                              </span>
-                            )}
-                            <span className="text-xs text-muted-foreground">{svc.freelancer.email}</span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    {!svc.freelancer && (
-                      <p className="text-xs text-muted-foreground italic">Nenhum freelancer atribuído (vaga aberta)</p>
-                    )}
+                      );
+                    })()}
 
                     {svc.notes && (
                       <p className="text-xs text-muted-foreground border-t pt-2">{svc.notes}</p>
