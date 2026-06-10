@@ -180,7 +180,7 @@ export async function freelancerRoutes(app: FastifyInstance) {
     return { success: true, freelancer };
   });
 
-  // List jobs for freelancer portal
+  // List job slots for freelancer portal
   app.get('/freelancer/jobs', { preHandler: requireAuth }, async (request, reply) => {
     const user = (request as any).user;
     
@@ -188,49 +188,38 @@ export async function freelancerRoutes(app: FastifyInstance) {
       return reply.status(403).send({ error: 'Freelancer access only' });
     }
 
-    const query = request.query as { 
-      status?: string; 
-      from?: string; 
-      to?: string;
-      city?: string;
-    };
+    // Get already applied event+role combos to exclude
+    const myApplications = await prisma.freelancerApplication.findMany({
+      where: { freelancerId: user.id, status: { not: 'cancelled' } },
+      select: { eventId: true, role: true },
+    });
 
-    const where: any = {
-      status: { in: ['confirmed', 'in_progress'] },
-    };
-
-    if (query.from && query.to) {
-      where.startAt = {
-        gte: new Date(query.from),
-        lte: new Date(query.to),
-      };
-    }
-
-    const events = await prisma.event.findMany({
-      where,
+    const slots = await prisma.eventService.findMany({
+      where: {
+        status: 'active',
+        event: { status: { in: ['confirmed', 'in_progress'] } },
+      },
       include: {
-        venues: { include: { venue: true } },
-        employer: { select: { name: true } },
-        _count: { select: { 
-          applications: { where: { status: 'approved' } },
-          guests: { where: { status: 'confirmed' } },
-        }},
+        service: { select: { id: true, name: true } },
+        event: {
+          select: {
+            id: true,
+            name: true,
+            venues: { include: { venue: { select: { name: true, city: true } } } },
+          },
+        },
       },
       orderBy: { startAt: 'asc' },
     });
 
-    // Filter by city if requested
-    let filteredEvents = events;
-    if (query.city) {
-      filteredEvents = events.filter(e => 
-        e.venues.some(v => v.venue.city?.toLowerCase().includes(query.city!.toLowerCase()))
-      );
-    }
+    // Filter out slots the freelancer already applied to
+    const applied = new Set(myApplications.map(a => `${a.eventId}::${a.role}`));
+    const available = slots.filter(s => !applied.has(`${s.eventId}::${s.service.name}`));
 
-    return { success: true, jobs: filteredEvents };
+    return { success: true, jobs: available };
   });
 
-  // Apply for a job
+  // Apply for a job slot (jobId = EventService ID)
   app.post('/freelancer/jobs/:jobId/apply', { preHandler: requireAuth }, async (request, reply) => {
     const user = (request as any).user;
     
@@ -238,41 +227,37 @@ export async function freelancerRoutes(app: FastifyInstance) {
       return reply.status(403).send({ error: 'Freelancer access only' });
     }
 
-    const { jobId: eventId } = request.params as { jobId: string };
-    const { role } = applySchema.parse(request.body);
+    const { jobId } = request.params as { jobId: string };
 
-    const event = await prisma.event.findUnique({
-      where: { id: eventId },
+    const slot = await prisma.eventService.findUnique({
+      where: { id: jobId },
+      include: { service: true, event: true },
     });
 
-    if (!event) {
-      return reply.status(404).send({ error: 'Event not found' });
+    if (!slot) {
+      return reply.status(404).send({ error: 'Vaga não encontrada' });
     }
 
-    if (event.status === 'cancelled' || event.status === 'completed') {
-      return reply.status(400).send({ error: 'Event not accepting applications' });
+    if (!['confirmed', 'in_progress'].includes(slot.event.status)) {
+      return reply.status(400).send({ error: 'Evento não está aceitando candidaturas' });
     }
 
-    // Check if already applied
     const existing = await prisma.freelancerApplication.findFirst({
-      where: {
-        freelancerId: user.id,
-        eventId,
-      },
+      where: { freelancerId: user.id, eventId: slot.eventId, role: slot.service.name },
     });
 
-    if (existing) {
-      return reply.status(400).send({ error: 'Already applied to this event' });
+    if (existing && existing.status !== 'cancelled') {
+      return reply.status(400).send({ error: 'Você já se candidatou para esta vaga' });
     }
 
-    const application = await prisma.freelancerApplication.create({
-      data: {
-        freelancerId: user.id,
-        eventId,
-        role,
-        status: 'pending',
-      },
-    });
+    const application = existing
+      ? await prisma.freelancerApplication.update({
+          where: { id: existing.id },
+          data: { status: 'pending', appliedAt: new Date() },
+        })
+      : await prisma.freelancerApplication.create({
+          data: { freelancerId: user.id, eventId: slot.eventId, role: slot.service.name, status: 'pending' },
+        });
 
     return reply.status(201).send({ success: true, application });
   });
@@ -286,19 +271,50 @@ export async function freelancerRoutes(app: FastifyInstance) {
     }
 
     const applications = await prisma.freelancerApplication.findMany({
-      where: { freelancerId: user.id },
+      where: { freelancerId: user.id, status: { not: 'cancelled' } },
       include: {
         event: {
           include: {
-            venues: { include: { venue: true } },
-            employer: { select: { name: true } },
+            venues: { include: { venue: { select: { name: true, city: true } } } },
+            services: { include: { service: { select: { name: true } } } },
           },
         },
       },
       orderBy: { appliedAt: 'desc' },
     });
 
-    return { success: true, applications };
+    // Enrich each application with its matching slot details
+    const enriched = applications.map((app: any) => {
+      const slot = app.event.services.find((s: any) => s.service.name === app.role);
+      return { ...app, slot: slot ?? null };
+    });
+
+    return { success: true, applications: enriched };
+  });
+
+  // Cancel an application
+  app.patch('/freelancer/applications/:id/cancel', { preHandler: requireAuth }, async (request, reply) => {
+    const user = (request as any).user;
+    const { id } = request.params as { id: string };
+
+    const application = await prisma.freelancerApplication.findFirst({
+      where: { id, freelancerId: user.id },
+    });
+
+    if (!application) {
+      return reply.status(404).send({ error: 'Candidatura não encontrada' });
+    }
+
+    if (application.status !== 'pending') {
+      return reply.status(400).send({ error: 'Apenas candidaturas pendentes podem ser canceladas' });
+    }
+
+    const updated = await prisma.freelancerApplication.update({
+      where: { id },
+      data: { status: 'cancelled' },
+    });
+
+    return { success: true, application: updated };
   });
 
   // Get freelancer profile
