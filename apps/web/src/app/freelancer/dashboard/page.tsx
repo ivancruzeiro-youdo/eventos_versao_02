@@ -7,15 +7,13 @@ import { authApi, freelancerApi, ApiError } from '@/lib/api';
 
 interface Job {
   id: string;
-  role: string;
-  shift: string;
-  compensation: number;
-  event: {
-    id: string;
-    name: string;
-    startAt: string;
-    venues: { venue: { name: string } }[];
-  };
+  name: string;
+  startAt: string | null;
+  status: string;
+  description: string | null;
+  venues: { venue: { name: string; city?: string } }[];
+  employer: { name: string } | null;
+  _count?: { applications: number; guests: number };
 }
 
 export default function FreelancerDashboardPage() {
@@ -127,28 +125,23 @@ export default function FreelancerDashboardPage() {
                   <div key={job.id} className="border rounded-lg p-4 hover:shadow-md transition">
                     <div className="flex flex-col md:flex-row justify-between gap-4">
                       <div>
-                        <h3 className="font-medium text-gray-900">{job.event.name}</h3>
+                        <h3 className="font-medium text-gray-900">{job.name}</h3>
                         <p className="text-sm text-gray-500">
-                          📍 {job.event.venues[0]?.venue.name || 'Local a definir'}
+                          📍 {job.venues[0]?.venue.name || 'Local a definir'}
                         </p>
                         <p className="text-sm text-gray-500">
-                          📅 {new Date(job.event.startAt).toLocaleDateString('pt-BR')}
+                          📅 {job.startAt ? new Date(job.startAt).toLocaleDateString('pt-BR') : 'Data a definir'}
                         </p>
-                        <div className="mt-2 flex gap-2">
-                          <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">
-                            {job.role}
-                          </span>
-                          <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs">
-                            {job.shift}
-                          </span>
-                        </div>
+                        {job.description && (
+                          <p className="text-sm text-gray-600 mt-1">{job.description}</p>
+                        )}
                       </div>
                       <div className="flex flex-col items-end gap-2">
-                        <p className="font-bold text-green-600">
-                          R$ {job.compensation}
-                        </p>
+                        <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">
+                          {job._count?.applications ?? 0} candidaturas
+                        </span>
                         <button
-                          onClick={() => handleApply(job.id, job.role)}
+                          onClick={() => handleApply(job.id, 'freelancer')}
                           className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm"
                         >
                           Candidatar-se
