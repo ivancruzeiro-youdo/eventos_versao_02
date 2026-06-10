@@ -62,6 +62,7 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply) 
 
     (request as any).user = user;
   } catch (error) {
+    reply.clearCookie('token', { path: '/' });
     return reply.status(401).send({ error: 'Invalid token' });
   }
 }

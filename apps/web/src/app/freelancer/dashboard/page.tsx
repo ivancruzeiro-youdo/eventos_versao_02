@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { authApi, freelancerApi } from '@/lib/api';
+import { authApi, freelancerApi, ApiError } from '@/lib/api';
 
 interface Job {
   id: string;
@@ -18,6 +19,7 @@ interface Job {
 }
 
 export default function FreelancerDashboardPage() {
+  const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [applications, setApplications] = useState<any[]>([]);
@@ -38,6 +40,10 @@ export default function FreelancerDashboardPage() {
       setJobs(jobsRes.jobs || []);
       setApplications(appsRes.applications || []);
     } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        router.replace('/freelancer/login');
+        return;
+      }
       console.error(err);
     } finally {
       setLoading(false);

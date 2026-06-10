@@ -48,14 +48,14 @@ export async function authRoutes(app: FastifyInstance) {
       sub: freelancer.id,
       role: 'freelancer',
       email: freelancer.email,
-    }, { expiresIn: '7d' });
+    }, { expiresIn: '24h' });
 
     reply.setCookie('token', token, {
       path: '/',
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      maxAge: 24 * 60 * 60, // 24 hours in seconds
     });
 
     return {
@@ -110,7 +110,7 @@ export async function authRoutes(app: FastifyInstance) {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 8 * 60 * 60 * 1000, // 8 hours
+      maxAge: 8 * 60 * 60, // 8 hours in seconds
     });
 
     return {
@@ -161,11 +161,11 @@ export async function authRoutes(app: FastifyInstance) {
     }, { expiresIn: '24h' });
 
     reply.setCookie('token', token, {
+      path: '/',
       httpOnly: true,
       secure: false, // Allow HTTP in dev
-      sameSite: 'lax', // Better for localhost
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      path: '/',
+      sameSite: 'lax',
+      maxAge: 24 * 60 * 60, // 24 hours in seconds
     });
 
     return {
@@ -211,7 +211,7 @@ export async function authRoutes(app: FastifyInstance) {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
-        maxAge: 24 * 60 * 60 * 1000,
+        maxAge: 24 * 60 * 60, // 24 hours in seconds
       });
 
       return { success: true };
@@ -254,6 +254,7 @@ export async function authRoutes(app: FastifyInstance) {
         return { user };
       }
     } catch {
+      reply.clearCookie('token', { path: '/' });
       return reply.status(401).send({ error: 'Invalid token' });
     }
   });
