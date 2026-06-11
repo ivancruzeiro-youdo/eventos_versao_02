@@ -74,15 +74,15 @@ const recipeSchema = z.object({
   servings: z.number().int().min(1).default(1),
   averagePerGuest: z.number().min(0).default(1),
   prepTimeMinutes: z.number().int().min(0).default(0), // maps to prepTime in DB
-  notes: z.string().optional(),
-  productId: z.string().optional(),
+  notes: z.string().nullish(),
+  productId: z.string().nullish(),
   ingredients: z.array(recipeIngredientSchema).default([]),
   steps: z.array(recipeStepSchema).default([]),
   subRecipes: z.array(subRecipeSchema).default([]),
 });
 
 const purchaseItemSchema = z.object({
-  ingredientId: z.string().optional(),
+  ingredientId: z.string().nullish(),
   productName: z.string().min(1),
   quantity: z.number().min(0),
   unit: z.string(),
@@ -121,7 +121,7 @@ const eventLaborSchema = z.object({
 const productionLogSchema = z.object({
   recipeId: z.string(),
   portionsProduced: z.number().min(0),
-  notes: z.string().optional(),
+  notes: z.string().nullish(),
   ingredientDeductions: z.array(z.object({
     ingredientId: z.string(),
     quantity: z.number().min(0),
