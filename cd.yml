@@ -1,0 +1,54 @@
+name: CD
+
+# Deploys to the production EC2 server on every push to main
+# (i.e. when a PR is merged). Requires the EC2_SSH_KEY repository secret.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+env:
+  EC2_HOST: 54.161.207.19
+  EC2_USER: ec2-user
+  PROJECT_DIR: ~/eventos-v2
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy over SSH
+        run: |
+          ssh -i ~/.ssh/deploy_key "$EC2_USER@$EC2_HOST" bash -s <<'EOSSH'
+          set -euo pipefail
+          cd ~/eventos-v2
+
+          echo "==> Pulling latest main"
+          git fetch origin main
+          git checkout main
+          git pull --ff-only origin main
+
+          echo "==> Building and starting containers"
+          docker compose -f docker/docker-compose.prod.yml --env-file docker/.env.production up -d --build
+
+          echo "==> Applying database migrations"
+          docker compose -f docker/docker-compose.prod.yml exec -T api npx prisma migrate deploy
+
+          echo "==> Pruning dangling images"
+          docker image prune -f
+
+          echo "==> Deploy complete"
+          docker compose -f docker/docker-compose.prod.yml ps
+          EOSSH
