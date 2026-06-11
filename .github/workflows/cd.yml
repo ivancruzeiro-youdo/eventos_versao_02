@@ -15,7 +15,7 @@ concurrency:
 env:
   EC2_HOST: 54.161.207.19
   EC2_USER: ec2-user
-  PROJECT_DIR: ~/eventos-v2
+  PROJECT_DIR:  ~/youdo-v2
 
 jobs:
   deploy:
@@ -33,7 +33,7 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key "$EC2_USER@$EC2_HOST" bash -s <<'EOSSH'
           set -euo pipefail
-          cd ~/eventos-v2
+          cd ~/youdo-v2
 
           echo "==> Pulling latest main"
           git fetch origin main
