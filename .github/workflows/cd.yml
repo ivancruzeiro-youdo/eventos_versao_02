@@ -40,6 +40,10 @@ jobs:
           git checkout main
           git pull --ff-only origin main
 
+          echo "==> Freeing disk space before build"
+          docker builder prune -af || true
+          docker image prune -af || true
+
           echo "==> Building and starting containers"
           docker compose -f docker/docker-compose.prod.yml --env-file docker/.env.production up -d --build
 
