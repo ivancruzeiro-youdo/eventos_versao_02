@@ -12,7 +12,7 @@
     },
     "lint": {},
     "typecheck": {
-      "dependsOn": ["^typecheck"]
+      "dependsOn": ["^typecheck", "db:generate", "^db:generate"]
     },
     "test": {
       "dependsOn": ["^build"]
