@@ -597,7 +597,8 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       for (const d of details) {
         if (!d?.main) continue;
         const main = d.main;
-        const contractClientCode = String(main.cliente_codigo || main.cliente || '');
+        // Must match how clientCode is derived in groupContracts/sync-import (uses main.cliente)
+        const contractClientCode = String(main.cliente || '');
         const contractStartDate = String(main.data_checkin || '');
         if (contractClientCode === clientCode && contractStartDate === startDate) {
           pendingContracts.push({ ...main, _secondary: d.secondary || [] });

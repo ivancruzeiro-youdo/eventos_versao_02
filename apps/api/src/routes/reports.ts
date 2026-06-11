@@ -14,7 +14,7 @@ export async function reportRoutes(app: FastifyInstance) {
     const user = (request as any).user;
     const query = request.query as { from?: string; to?: string };
 
-    let whereClause: any = {};
+    const whereClause: any = {};
     if (user.role !== 'admin') {
       whereClause.employerId = user.employerId;
     }
@@ -73,7 +73,7 @@ export async function reportRoutes(app: FastifyInstance) {
     const user = (request as any).user;
     const query = request.query as { from?: string; to?: string; status?: string };
 
-    let whereClause: any = {};
+    const whereClause: any = {};
     if (user.role !== 'admin') {
       whereClause.employerId = user.employerId;
     }
@@ -105,7 +105,7 @@ export async function reportRoutes(app: FastifyInstance) {
     const user = (request as any).user;
     const query = request.query as { eventId?: string; status?: string };
 
-    let whereClause: any = {};
+    const whereClause: any = {};
     if (query.eventId) {
       whereClause.eventId = query.eventId;
     } else if (user.role !== 'admin') {
@@ -158,7 +158,7 @@ export async function reportRoutes(app: FastifyInstance) {
     const user = (request as any).user;
     const query = request.query as { from?: string; to?: string };
 
-    let whereClause: any = {};
+    const whereClause: any = {};
     if (user.role !== 'admin') {
       whereClause.employerId = user.employerId;
     }
