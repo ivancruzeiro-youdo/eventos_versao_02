@@ -324,7 +324,7 @@ export async function uerpRoutes(app: FastifyInstance) {
   app.get('/venues', { preHandler: requireAuth }, async (request, reply) => {
     const user = (request as any).user;
     
-    let whereClause: any = {};
+    const whereClause: any = {};
     if (user.role !== 'admin' && user.employerId) {
       whereClause.employerId = user.employerId;
     }
