@@ -106,6 +106,15 @@ export const adminApi = {
   deleteEmployer: (id: string) => fetchApi(`/api/v2/admin/employers/${id}`, { method: 'DELETE' }),
   auditLog: () => fetchApi('/api/v2/admin/audit-log'),
   penalties: () => fetchApi('/api/v2/admin/penalties'),
+  teams: () => fetchApi('/api/v2/admin/teams'),
+  createTeam: (data: any) => fetchApi('/api/v2/admin/teams', { method: 'POST', body: JSON.stringify(data) }),
+  updateTeam: (id: string, data: any) => fetchApi(`/api/v2/admin/teams/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteTeam: (id: string) => fetchApi(`/api/v2/admin/teams/${id}`, { method: 'DELETE' }),
+};
+
+// Teams API (for selection in forms)
+export const teamsApi = {
+  list: () => fetchApi('/api/v2/teams'),
 };
 
 // Venues API (extended)

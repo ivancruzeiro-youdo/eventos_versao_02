@@ -24,6 +24,7 @@ import { checklistTemplateRoutes } from './routes/checklist-templates.js';
 import { briefingRoutes } from './routes/briefings.js';
 import { commentRoutes } from './routes/comments.js';
 import { scheduleRoutes } from './routes/schedules.js';
+import { teamRoutes } from './routes/teams.js';
 import { productQuestionRoutes } from './routes/product-questions.js';
 import { servicesRoutes } from './routes/services.js';
 import { syncEventsRoutes } from './routes/sync-events.js';
@@ -138,6 +139,7 @@ const start = async () => {
     await app.register(briefingRoutes, { prefix: '/api/v2' });
     await app.register(commentRoutes, { prefix: '/api/v2' });
     await app.register(scheduleRoutes, { prefix: '/api/v2' });
+    await app.register(teamRoutes, { prefix: '/api/v2' });
     await app.register(productQuestionRoutes, { prefix: '/api/v2' });
     await app.register(servicesRoutes, { prefix: '/api/v2' });
   await app.register(syncEventsRoutes, { prefix: '/api/v2' });

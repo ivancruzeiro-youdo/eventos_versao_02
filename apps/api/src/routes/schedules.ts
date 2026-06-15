@@ -5,6 +5,7 @@ import { requireAuth } from '../middleware/auth.js';
 
 const createScheduleSchema = z.object({
   name: z.string().min(1),
+  teamId: z.string().min(1, 'Selecione um time'),
   scheduledAt: z.string(),
   description: z.string().optional(),
   fileId: z.string().nullable().optional(),
@@ -20,6 +21,7 @@ export async function scheduleRoutes(app: FastifyInstance) {
     const schedules = await prisma.eventSchedule.findMany({
       where: { eventId },
       include: {
+        team: { select: { id: true, name: true } },
         file: {
           select: {
             id: true,
@@ -43,12 +45,14 @@ export async function scheduleRoutes(app: FastifyInstance) {
     const schedule = await prisma.eventSchedule.create({
       data: {
         eventId,
+        teamId: data.teamId,
         name: data.name,
         scheduledAt: new Date(data.scheduledAt),
         description: data.description,
         fileId: data.fileId,
       },
       include: {
+        team: { select: { id: true, name: true } },
         file: {
           select: {
             id: true,
@@ -71,11 +75,13 @@ export async function scheduleRoutes(app: FastifyInstance) {
       where: { id },
       data: {
         ...(data.name && { name: data.name }),
+        ...(data.teamId && { teamId: data.teamId }),
         ...(data.scheduledAt && { scheduledAt: new Date(data.scheduledAt) }),
         ...(data.description !== undefined && { description: data.description }),
         ...(data.fileId !== undefined && { fileId: data.fileId }),
       },
       include: {
+        team: { select: { id: true, name: true } },
         file: {
           select: {
             id: true,

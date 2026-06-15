@@ -589,6 +589,7 @@ model EventNPS {
 model EventSchedule {
   id          String   @id @default(uuid())
   eventId     String
+  teamId      String?
   name        String
   scheduledAt DateTime
   description String?
@@ -597,10 +598,22 @@ model EventSchedule {
   updatedAt   DateTime @updatedAt
 
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  team  Team? @relation(fields: [teamId], references: [id])
   file  File? @relation("ScheduleFile", fields: [fileId], references: [id])
 
   @@index([eventId])
+  @@index([teamId])
   @@index([scheduledAt])
+}
+
+model Team {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  schedules EventSchedule[]
 }
 
 // ============================================
