@@ -11,7 +11,8 @@ interface Team {
 interface Schedule {
   id: string;
   name: string;
-  scheduledAt: string;
+  startAt: string;
+  endAt: string;
   description: string | null;
   team: {
     id: string;
@@ -34,10 +35,12 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
+  const [formError, setFormError] = useState('');
   const [formData, setFormData] = useState({
     name: '',
     teamId: '',
-    scheduledAt: '',
+    startAt: '',
+    endAt: '',
     description: '',
     fileId: '',
   });
@@ -69,7 +72,7 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
       if (res.ok) {
         const data = await res.json();
         const sortedSchedules = (data.schedules || []).sort((a: Schedule, b: Schedule) => 
-          new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()
+          new Date(a.startAt).getTime() - new Date(b.startAt).getTime()
         );
         setSchedules(sortedSchedules);
       }
@@ -81,12 +84,14 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setFormError('');
 
     try {
       const payload = {
         name: formData.name,
         teamId: formData.teamId,
-        scheduledAt: formData.scheduledAt,
+        startAt: formData.startAt,
+        endAt: formData.endAt,
         description: formData.description || null,
         fileId: formData.fileId || null,
       };
@@ -102,29 +107,39 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
         body: JSON.stringify(payload),
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        const newSchedule = data.schedule;
-        const sortedSchedules = [...schedules, newSchedule].sort((a: Schedule, b: Schedule) => 
-          new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()
-        );
-        setSchedules(sortedSchedules);
-        setShowForm(false);
-        setFormData({ name: '', teamId: '', scheduledAt: '', description: '', fileId: '' });
-        setEditingId(null);
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setFormError(data.error || 'Erro ao salvar atividade');
+        return;
       }
+
+      const saved = data.schedule;
+      const next = editingId
+        ? schedules.map((s) => (s.id === saved.id ? saved : s))
+        : [...schedules, saved];
+      const sortedSchedules = next.sort((a: Schedule, b: Schedule) => 
+        new Date(a.startAt).getTime() - new Date(b.startAt).getTime()
+      );
+      setSchedules(sortedSchedules);
+      setShowForm(false);
+      setFormData({ name: '', teamId: '', startAt: '', endAt: '', description: '', fileId: '' });
+      setEditingId(null);
     } catch (error) {
       console.error('Error saving schedule:', error);
+      setFormError('Erro ao salvar atividade');
     } finally {
       setLoading(false);
     }
   };
 
   const handleEdit = (schedule: Schedule) => {
+    setFormError('');
     setFormData({
       name: schedule.name,
       teamId: schedule.team?.id || '',
-      scheduledAt: schedule.scheduledAt.slice(0, 16), // Format for datetime-local input
+      startAt: schedule.startAt.slice(0, 16), // Format for datetime-local input
+      endAt: schedule.endAt.slice(0, 16),
       description: schedule.description || '',
       fileId: schedule.file?.id || '',
     });
@@ -182,7 +197,7 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
       {/* Add Button */}
       {!showForm && (
         <button
-          onClick={() => setShowForm(true)}
+          onClick={() => { setFormError(''); setShowForm(true); }}
           className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition"
         >
           <Plus size={16} />
@@ -222,15 +237,28 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
                 ))}
               </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Horário</label>
-              <input
-                type="datetime-local"
-                value={formData.scheduledAt}
-                onChange={(e) => setFormData({ ...formData, scheduledAt: e.target.value })}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                required
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium mb-1">Data e Hora de Início</label>
+                <input
+                  type="datetime-local"
+                  value={formData.startAt}
+                  onChange={(e) => setFormData({ ...formData, startAt: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Data e Hora de Fim</label>
+                <input
+                  type="datetime-local"
+                  value={formData.endAt}
+                  min={formData.startAt || undefined}
+                  onChange={(e) => setFormData({ ...formData, endAt: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  required
+                />
+              </div>
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Descrição</label>
@@ -252,12 +280,16 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
                 {/* TODO: Load files from API */}
               </select>
             </div>
+            {formError && (
+              <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{formError}</p>
+            )}
             <div className="flex gap-2 justify-end">
               <button
                 type="button"
                 onClick={() => {
                   setShowForm(false);
-                  setFormData({ name: '', teamId: '', scheduledAt: '', description: '', fileId: '' });
+                  setFormError('');
+                  setFormData({ name: '', teamId: '', startAt: '', endAt: '', description: '', fileId: '' });
                   setEditingId(null);
                 }}
                 className="px-4 py-2 border rounded-lg hover:bg-gray-50 transition"
@@ -301,7 +333,11 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
                       </button>
                     </div>
                     <div className="text-sm text-muted-foreground mb-1">
-                      {formatTimeOnly(schedule.scheduledAt)} {formatDateOnly(schedule.scheduledAt)}
+                      {formatDateOnly(schedule.startAt)} · {formatTimeOnly(schedule.startAt)} – {
+                        formatDateOnly(schedule.startAt) === formatDateOnly(schedule.endAt)
+                          ? formatTimeOnly(schedule.endAt)
+                          : `${formatDateOnly(schedule.endAt)} ${formatTimeOnly(schedule.endAt)}`
+                      }
                     </div>
                     {schedule.team && (
                       <span className="inline-flex items-center gap-1 text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full mb-1">

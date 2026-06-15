@@ -591,7 +591,8 @@ model EventSchedule {
   eventId     String
   teamId      String?
   name        String
-  scheduledAt DateTime
+  startAt     DateTime
+  endAt       DateTime
   description String?
   fileId      String?
   createdAt   DateTime @default(now())
@@ -603,7 +604,7 @@ model EventSchedule {
 
   @@index([eventId])
   @@index([teamId])
-  @@index([scheduledAt])
+  @@index([startAt])
 }
 
 model Team {
