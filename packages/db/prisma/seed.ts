@@ -71,6 +71,18 @@ async function main() {
   });
   console.log('✅ Created freelancer:', freelancer2.name);
 
+  // Create default teams (times)
+  const teams = await prisma.team.createMany({
+    data: [
+      { name: 'Cozinha' },
+      { name: 'Salão' },
+      { name: 'Bar' },
+      { name: 'Montagem' },
+    ],
+    skipDuplicates: true,
+  });
+  console.log('✅ Created', teams.count, 'teams');
+
   // Create venues
   const venue1 = await prisma.venue.create({
     data: {

@@ -1,13 +1,22 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Clock, Plus, Trash2, Edit2, FileText, Calendar } from 'lucide-react';
+import { Clock, Plus, Trash2, Edit2, FileText, Calendar, Users } from 'lucide-react';
+
+interface Team {
+  id: string;
+  name: string;
+}
 
 interface Schedule {
   id: string;
   name: string;
   scheduledAt: string;
   description: string | null;
+  team: {
+    id: string;
+    name: string;
+  } | null;
   file: {
     id: string;
     name: string;
@@ -24,8 +33,10 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [teams, setTeams] = useState<Team[]>([]);
   const [formData, setFormData] = useState({
     name: '',
+    teamId: '',
     scheduledAt: '',
     description: '',
     fileId: '',
@@ -33,7 +44,22 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
 
   useEffect(() => {
     fetchSchedules();
+    fetchTeams();
   }, [eventId]);
+
+  const fetchTeams = async () => {
+    try {
+      const res = await fetch(`/api/v2/teams`, {
+        credentials: 'include',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTeams(data.teams || []);
+      }
+    } catch (error) {
+      console.error('Error fetching teams:', error);
+    }
+  };
 
   const fetchSchedules = async () => {
     try {
@@ -59,6 +85,7 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
     try {
       const payload = {
         name: formData.name,
+        teamId: formData.teamId,
         scheduledAt: formData.scheduledAt,
         description: formData.description || null,
         fileId: formData.fileId || null,
@@ -83,7 +110,7 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
         );
         setSchedules(sortedSchedules);
         setShowForm(false);
-        setFormData({ name: '', scheduledAt: '', description: '', fileId: '' });
+        setFormData({ name: '', teamId: '', scheduledAt: '', description: '', fileId: '' });
         setEditingId(null);
       }
     } catch (error) {
@@ -96,6 +123,7 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
   const handleEdit = (schedule: Schedule) => {
     setFormData({
       name: schedule.name,
+      teamId: schedule.team?.id || '',
       scheduledAt: schedule.scheduledAt.slice(0, 16), // Format for datetime-local input
       description: schedule.description || '',
       fileId: schedule.file?.id || '',
@@ -181,6 +209,20 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
               />
             </div>
             <div>
+              <label className="block text-sm font-medium mb-1">Time</label>
+              <select
+                value={formData.teamId}
+                onChange={(e) => setFormData({ ...formData, teamId: e.target.value })}
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                required
+              >
+                <option value="">Selecione um time</option>
+                {teams.map((team) => (
+                  <option key={team.id} value={team.id}>{team.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
               <label className="block text-sm font-medium mb-1">Horário</label>
               <input
                 type="datetime-local"
@@ -215,7 +257,7 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
                 type="button"
                 onClick={() => {
                   setShowForm(false);
-                  setFormData({ name: '', scheduledAt: '', description: '', fileId: '' });
+                  setFormData({ name: '', teamId: '', scheduledAt: '', description: '', fileId: '' });
                   setEditingId(null);
                 }}
                 className="px-4 py-2 border rounded-lg hover:bg-gray-50 transition"
@@ -261,6 +303,12 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
                     <div className="text-sm text-muted-foreground mb-1">
                       {formatTimeOnly(schedule.scheduledAt)} {formatDateOnly(schedule.scheduledAt)}
                     </div>
+                    {schedule.team && (
+                      <span className="inline-flex items-center gap-1 text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full mb-1">
+                        <Users size={12} />
+                        {schedule.team.name}
+                      </span>
+                    )}
                     {schedule.description && (
                       <p className="text-sm text-foreground mt-2">{schedule.description}</p>
                     )}
