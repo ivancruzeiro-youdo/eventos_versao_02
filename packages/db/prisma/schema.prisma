@@ -57,6 +57,7 @@ model Freelancer {
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
 
+  fotoBase64   String?
   applications FreelancerApplication[]
   penalties    FreelancerPenalty[]
   services     FreelancerServiceLink[]

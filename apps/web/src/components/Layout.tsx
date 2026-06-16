@@ -32,6 +32,7 @@ const adminNavigation = [
   { name: 'Templates de Checklist', href: '/admin/checklist-templates' },
   { name: 'Relatórios', href: '/admin/reports' },
   { name: 'Logs', href: '/admin/audit-log' },
+  { name: 'Acessos por Serviço', href: '/admin/acessos' },
   { name: 'Integrações', href: '/admin/integrations/userp' },
 ];
 

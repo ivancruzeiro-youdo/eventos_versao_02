@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Layout from '@/components/Layout';
-import { User, Plus, Search, ChevronLeft, ChevronRight, Pencil, Trash2, X, Check, AlertCircle, AlertTriangle, Calendar } from 'lucide-react';
+import { User, Plus, Search, ChevronLeft, ChevronRight, Pencil, Trash2, X, Check, AlertCircle, AlertTriangle, Camera } from 'lucide-react';
 
 interface Service { id: string; name: string; hourlyRate: number; description?: string | null; startOffsetMinutes: number; endOffsetMinutes: number; }
 interface FreelancerItem {
@@ -25,7 +25,7 @@ interface Penalty {
   createdAt: string;
 }
 
-const EMPTY_FORM = { name: '', email: '', cpf: '', phone: '', birthDate: '', status: 'active' };
+const EMPTY_FORM = { name: '', email: '', cpf: '', phone: '', birthDate: '', status: 'active', fotoBase64: '' };
 
 function calcAge(birthDate: string | null) {
   if (!birthDate) return null;
@@ -251,7 +251,7 @@ export default function FreelancersPage() {
   }
   function openEdit(f: FreelancerItem) {
     setSelected(f);
-    setForm({ name: f.name, email: f.email, cpf: fmtCpf(f.cpf), phone: f.phone || '', birthDate: f.birthDate ? f.birthDate.slice(0, 10) : '', status: f.status });
+    setForm({ name: f.name, email: f.email, cpf: fmtCpf(f.cpf), phone: f.phone || '', birthDate: f.birthDate ? f.birthDate.slice(0, 10) : '', status: f.status, fotoBase64: (f as any).fotoBase64 || '' });
     setFormError(''); setModal('edit');
   }
   async function openServices(f: FreelancerItem) {
@@ -543,6 +543,44 @@ export default function FreelancersPage() {
                   <option value="active">Ativo</option>
                   <option value="suspended">Inativo</option>
                 </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Foto (para sistema de acessos)</label>
+                <div className="flex items-center gap-4">
+                  <div className="w-20 h-20 rounded-lg border-2 border-dashed border-input flex items-center justify-center bg-muted/30 shrink-0 overflow-hidden">
+                    {form.fotoBase64 ? (
+                      <img src={form.fotoBase64} alt="Foto" className="w-full h-full object-cover" />
+                    ) : (
+                      <Camera className="size-6 text-muted-foreground" />
+                    )}
+                  </div>
+                  <div className="flex-1 space-y-2">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      id="foto-upload"
+                      onChange={e => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onload = (ev) => setForm(f => ({ ...f, fotoBase64: ev.target?.result as string }));
+                        reader.readAsDataURL(file);
+                      }}
+                    />
+                    <label htmlFor="foto-upload"
+                      className="cursor-pointer inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded border hover:bg-muted transition">
+                      <Camera className="size-3.5" /> {form.fotoBase64 ? 'Trocar foto' : 'Selecionar foto'}
+                    </label>
+                    {form.fotoBase64 && (
+                      <button type="button" onClick={() => setForm(f => ({ ...f, fotoBase64: '' }))}
+                        className="block text-xs text-destructive hover:underline">
+                        Remover foto
+                      </button>
+                    )}
+                    <p className="text-xs text-muted-foreground">JPG ou PNG. Usada no cadastro do sistema de acessos.</p>
+                  </div>
+                </div>
               </div>
             </div>
             <div className="flex justify-end gap-2 px-6 py-4 border-t">
