@@ -407,6 +407,9 @@ export async function freelancerRoutes(app: FastifyInstance) {
           data: { freelancerId: user.id, eventId: slot.eventId, role: slot.service.name, status: 'approved' },
         });
 
+    // Concede acesso físico assim que aprovado (fire-and-forget)
+    handleAcessoGrant(application.id).catch(() => {});
+
     return reply.status(201).send({ success: true, application });
   });
 
@@ -590,7 +593,10 @@ export async function freelancerRoutes(app: FastifyInstance) {
         orderBy: { name: 'asc' },
         skip,
         take: limit,
-        include: {
+        select: {
+          id: true, name: true, email: true, cpf: true, phone: true,
+          birthDate: true, status: true, strikeCount: true,
+          createdAt: true, updatedAt: true,
           services: { include: { service: true } },
           _count: { select: { penalties: true, applications: { where: { status: 'approved' } } } },
         },
