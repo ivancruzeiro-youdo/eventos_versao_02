@@ -60,6 +60,7 @@ model Freelancer {
   applications FreelancerApplication[]
   penalties    FreelancerPenalty[]
   services     FreelancerServiceLink[]
+  acessoLogs   AcessoLog[]
 
   @@index([email])
   @@index([cpf])
@@ -78,6 +79,7 @@ model FreelancerService {
   freelancers    FreelancerServiceLink[]
   products       ProductServiceLink[]
   eventServices  EventService[]
+  acessoMappings ServiceAcessoMapping[]
 }
 
 model FreelancerServiceLink {
@@ -327,9 +329,45 @@ model FreelancerApplication {
 
   freelancer Freelancer @relation(fields: [freelancerId], references: [id])
   event      Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  acessoLogs AcessoLog[]
 
   @@index([freelancerId])
   @@index([eventId])
+  @@index([status])
+}
+
+// ============================================
+// Integração com Sistema de Acessos
+// ============================================
+
+model ServiceAcessoMapping {
+  id         String   @id @default(uuid())
+  serviceId  String
+  acessoId   String
+  acessoNome String?
+  createdAt  DateTime @default(now())
+
+  service FreelancerService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceId, acessoId])
+  @@index([serviceId])
+}
+
+model AcessoLog {
+  id              String   @id @default(uuid())
+  freelancerId    String
+  applicationId   String
+  acessoExternoId String?
+  status          String
+  payload         Json?
+  response        Json?
+  createdAt       DateTime @default(now())
+
+  freelancer  Freelancer            @relation(fields: [freelancerId], references: [id])
+  application FreelancerApplication @relation(fields: [applicationId], references: [id])
+
+  @@index([freelancerId])
+  @@index([applicationId])
   @@index([status])
 }
 
