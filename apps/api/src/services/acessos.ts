@@ -5,33 +5,39 @@ const BASE_URL = process.env.ACESSOS_API_URL || 'https://acessos.youdobrasil.com
 let cachedToken: string | null = null;
 let tokenExpiresAt = 0;
 
-async function getCredentials(): Promise<{ email: string; password: string }> {
+async function getCredentials(): Promise<{ email: string; senha: string; userpBaseUrl: string }> {
   const rows = await (prisma as any).uerpConfig.findMany();
   const map: Record<string, string> = {};
   for (const r of rows) map[r.key] = r.value;
   return {
     email: map['userpEmail'] || '',
-    password: map['userpSenha'] || '',
+    senha: map['userpSenha'] || '',
+    userpBaseUrl: map['userpBaseUrl'] || 'https://userpweb.youdobrasil.com.br',
   };
 }
 
 async function getToken(): Promise<string> {
   if (cachedToken && Date.now() < tokenExpiresAt) return cachedToken;
 
-  const { email, password } = await getCredentials();
-  if (!email || !password) throw new Error('Credenciais de acesso não configuradas. Acesse Admin → Integrações.');
+  const { email, senha, userpBaseUrl } = await getCredentials();
+  if (!email || !senha) throw new Error('Credenciais Userp não configuradas. Acesse Admin → Integrações.');
 
-  const res = await fetch(`${BASE_URL}/api/auth/login`, {
+  const res = await fetch(`${userpBaseUrl}/api/userp-satelite/auth/token.php`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, senha }),
   });
 
-  if (!res.ok) throw new Error(`Acessos auth failed: ${res.status}`);
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Userp auth failed: ${res.status} — ${body}`);
+  }
 
-  const data = (await res.json()) as { token: string };
-  cachedToken = data.token;
-  tokenExpiresAt = Date.now() + 23 * 60 * 60 * 1000; // 23h (token válido 24h)
+  const data = (await res.json()) as { access_token: string };
+  if (!data.access_token) throw new Error('Userp auth: access_token não retornado');
+
+  cachedToken = data.access_token;
+  tokenExpiresAt = Date.now() + 23 * 60 * 60 * 1000; // renovar antes de expirar
   return cachedToken;
 }
 
