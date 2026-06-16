@@ -35,11 +35,14 @@ async function handleAcessoGrant(applicationId: string): Promise<void> {
     data_fim: slot.endAt ? slot.endAt.toISOString().split('T')[0] : undefined,
   }));
 
-  const payload = {
+  const payload: any = {
     nome: application.freelancer.name,
     cpf: application.freelancer.cpf,
     acessos,
   };
+  if ((application.freelancer as any).fotoBase64) {
+    payload.foto_base64 = (application.freelancer as any).fotoBase64;
+  }
 
   let acessoExternoId: string | null = null;
   let status = 'granted';
@@ -625,11 +628,13 @@ export async function freelancerRoutes(app: FastifyInstance) {
     const existing = await prisma.freelancer.findFirst({ where: { OR: [{ email }, { cpf: cleanCpf }] } });
     if (existing) return reply.status(400).send({ error: 'E-mail ou CPF já cadastrado' });
 
+    const { fotoBase64 } = request.body as { fotoBase64?: string };
     const freelancer = await (prisma.freelancer.create as any)({
       data: {
         name, email, cpf: cleanCpf, phone: phone || null,
         birthDate: birthDate ? new Date(birthDate) : null,
         status: status || 'active',
+        fotoBase64: fotoBase64 || null,
       },
     });
     return reply.status(201).send({ success: true, freelancer });
@@ -638,7 +643,7 @@ export async function freelancerRoutes(app: FastifyInstance) {
   // Update freelancer
   app.patch('/freelancers/:id', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const { name, email, cpf, phone, birthDate, status } = request.body as any;
+    const { name, email, cpf, phone, birthDate, status, fotoBase64 } = request.body as any;
     const data: any = {};
     if (name !== undefined) data.name = name;
     if (email !== undefined) data.email = email;
@@ -646,6 +651,7 @@ export async function freelancerRoutes(app: FastifyInstance) {
     if (phone !== undefined) data.phone = phone;
     if (birthDate !== undefined) data.birthDate = birthDate ? new Date(birthDate) : null;
     if (status !== undefined) data.status = status;
+    if (fotoBase64 !== undefined) data.fotoBase64 = fotoBase64 || null;
     const freelancer = await prisma.freelancer.update({ where: { id }, data });
     return { success: true, freelancer };
   });
