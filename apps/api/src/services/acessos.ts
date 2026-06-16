@@ -1,17 +1,30 @@
+import { prisma } from '../server.js';
+
 const BASE_URL = process.env.ACESSOS_API_URL || 'https://acessos.youdobrasil.com.br';
-const API_EMAIL = process.env.ACESSOS_API_EMAIL || '';
-const API_PASSWORD = process.env.ACESSOS_API_PASSWORD || '';
 
 let cachedToken: string | null = null;
 let tokenExpiresAt = 0;
 
+async function getCredentials(): Promise<{ email: string; password: string }> {
+  const rows = await (prisma as any).uerpConfig.findMany();
+  const map: Record<string, string> = {};
+  for (const r of rows) map[r.key] = r.value;
+  return {
+    email: map['userpEmail'] || '',
+    password: map['userpSenha'] || '',
+  };
+}
+
 async function getToken(): Promise<string> {
   if (cachedToken && Date.now() < tokenExpiresAt) return cachedToken;
+
+  const { email, password } = await getCredentials();
+  if (!email || !password) throw new Error('Credenciais de acesso não configuradas. Acesse Admin → Integrações.');
 
   const res = await fetch(`${BASE_URL}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: API_EMAIL, password: API_PASSWORD }),
+    body: JSON.stringify({ email, password }),
   });
 
   if (!res.ok) throw new Error(`Acessos auth failed: ${res.status}`);
