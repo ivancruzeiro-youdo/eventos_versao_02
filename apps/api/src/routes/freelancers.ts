@@ -3,6 +3,87 @@ import { z } from 'zod';
 import { prisma } from '../server.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import bcrypt from 'bcryptjs';
+import * as acessosClient from '../services/acessos.js';
+
+async function handleAcessoGrant(applicationId: string): Promise<void> {
+  const application = await prisma.freelancerApplication.findUnique({
+    where: { id: applicationId },
+    include: {
+      freelancer: true,
+      event: {
+        include: {
+          services: {
+            include: { service: { include: { acessoMappings: true } } },
+          },
+        },
+      },
+    },
+  });
+
+  if (!application) return;
+
+  // Encontra o slot do serviço com as datas e mapeamentos de acesso
+  const slot = application.event.services.find(
+    (s: any) => s.service.name === application.role,
+  );
+
+  if (!slot || !slot.service.acessoMappings.length) return;
+
+  const acessos = slot.service.acessoMappings.map((m: any) => ({
+    acesso_id: m.acessoId,
+    data_inicio: slot.startAt ? slot.startAt.toISOString().split('T')[0] : undefined,
+    data_fim: slot.endAt ? slot.endAt.toISOString().split('T')[0] : undefined,
+  }));
+
+  const payload = {
+    nome: application.freelancer.name,
+    cpf: application.freelancer.cpf,
+    acessos,
+  };
+
+  let acessoExternoId: string | null = null;
+  let status = 'granted';
+  let response: any = null;
+
+  try {
+    const result = await acessosClient.grantAccess(payload);
+    acessoExternoId = result.id;
+    response = result;
+  } catch (err: any) {
+    status = 'error';
+    response = { error: err.message };
+  }
+
+  await (prisma as any).acessoLog.create({
+    data: {
+      freelancerId: application.freelancerId,
+      applicationId,
+      acessoExternoId,
+      status,
+      payload,
+      response,
+    },
+  });
+}
+
+async function handleAcessoRevoke(applicationId: string): Promise<void> {
+  const log = await (prisma as any).acessoLog.findFirst({
+    where: { applicationId, status: 'granted' },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  if (!log?.acessoExternoId) return;
+
+  try {
+    await acessosClient.revokeAccess(log.acessoExternoId);
+    await (prisma as any).acessoLog.update({
+      where: { id: log.id },
+      data: { status: 'revoked' },
+    });
+  } catch {
+    // falha silenciosa — o acesso expira pela data_fim de qualquer forma
+  }
+}
 
 const applySchema = z.object({
   role: z.string().min(1),
@@ -378,6 +459,8 @@ export async function freelancerRoutes(app: FastifyInstance) {
       data: { status: 'cancelled' },
     });
 
+    handleAcessoRevoke(id).catch(() => {});
+
     return { success: true, application: updated };
   });
 
@@ -467,7 +550,12 @@ export async function freelancerRoutes(app: FastifyInstance) {
       data: { status },
     });
 
-    // TODO: Queue notification to freelancer
+    // Integração com sistema de acessos (fire-and-forget)
+    if (status === 'approved') {
+      handleAcessoGrant(id).catch(() => {});
+    } else if (status === 'rejected') {
+      handleAcessoRevoke(id).catch(() => {});
+    }
 
     return { success: true, application: updated };
   });
