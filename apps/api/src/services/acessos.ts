@@ -1,4 +1,4 @@
-import { prisma } from '../server.js';
+import { prisma } from '@youdo/db';
 
 const BASE_URL = process.env.ACESSOS_API_URL || 'https://acessos.youdobrasil.com.br';
 
