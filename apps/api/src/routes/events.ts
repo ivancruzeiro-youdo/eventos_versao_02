@@ -194,7 +194,7 @@ export async function eventRoutes(app: FastifyInstance) {
   });
 
   // Update event status (state machine)
-  app.patch('/:id/status', { preHandler: [requireAuth, requireRole(['admin', 'event_owner'])] }, async (request, reply) => {
+  app.patch('/:id/status', { preHandler: [requireAuth, requireRole(['admin', 'event_owner', 'operator'])] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const { status, reason } = statusTransitionSchema.parse(request.body);
     const user = (request as any).user;
@@ -213,11 +213,12 @@ export async function eventRoutes(app: FastifyInstance) {
 
     // State machine validation
     const validTransitions: Record<string, string[]> = {
-      draft: ['confirmed', 'cancelled'],
+      draft: ['confirmed', 'in_progress', 'cancelled'],
       confirmed: ['in_progress', 'cancelled'],
       in_progress: ['completed', 'cancelled'],
       completed: [],
       cancelled: [],
+      encerrado: [],
     };
 
     if (!validTransitions[event.status].includes(status)) {
