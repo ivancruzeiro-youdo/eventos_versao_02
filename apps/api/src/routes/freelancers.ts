@@ -425,9 +425,15 @@ export async function freelancerRoutes(app: FastifyInstance) {
       where: { freelancerId: user.id, status: { not: 'cancelled' } },
       include: {
         event: {
-          include: {
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            startAt: true,
             venues: { include: { venue: { select: { name: true, city: true } } } },
             services: { include: { service: { select: { name: true } } } },
+            employer: { select: { name: true } },
+            npsOrganizador: { select: { score: true, submittedAt: true } },
           },
         },
       },

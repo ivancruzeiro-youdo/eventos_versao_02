@@ -31,6 +31,7 @@ import { syncEventsRoutes } from './routes/sync-events.js';
 import { kitchenRoutes } from './routes/kitchen.js';
 import { kitchenPlanRoutes } from './routes/kitchen-plan.js';
 import { acessosRoutes } from './routes/acessos.js';
+import { closureRoutes } from './routes/closure.js';
 
 const logger = pino({
   transport: {
@@ -147,6 +148,7 @@ const start = async () => {
   await app.register(kitchenRoutes, { prefix: '/api/v2' });
   await app.register(kitchenPlanRoutes, { prefix: '/api/v2' });
   await app.register(acessosRoutes, { prefix: '/api/v2' });
+  await app.register(closureRoutes, { prefix: '/api/v2' });
 
     const port = parseInt(process.env.PORT || '3001', 10);
     const host = process.env.HOST || '0.0.0.0';

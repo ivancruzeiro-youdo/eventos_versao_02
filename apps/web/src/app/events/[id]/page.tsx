@@ -18,7 +18,7 @@ import { formatDateTime, getStatusColor, getStatusLabel, formatPhone, formatCpf 
 import {
   MessageCircle, FileText, Clock, CheckSquare, Users,
   ClipboardList, Briefcase, UtensilsCrossed, HardHat, Trash2, ChevronDown,
-  Calendar, MapPin, Pencil, Check, X, Copy, UserCog, ChefHat
+  Calendar, MapPin, Pencil, Check, X, Copy, UserCog, ChefHat, LogOut, Star
 } from 'lucide-react';
 
 interface Event {
@@ -278,6 +278,24 @@ export default function EventDetailPage() {
               <Copy size={14} />
               <span className="hidden sm:inline">Recepcionista</span>
             </button>
+            {(event.status === 'in_progress' || event.status === 'completed') && (
+              <Link
+                href={`/events/${eventId}/encerrar`}
+                className="px-3 py-1 border border-orange-400 rounded-lg text-sm bg-orange-50 text-orange-700 hover:bg-orange-100 flex items-center gap-1 font-medium"
+              >
+                <LogOut size={14} />
+                Encerrar Evento
+              </Link>
+            )}
+            {event.status === 'encerrado' && (
+              <Link
+                href={`/events/${eventId}/closure`}
+                className="px-3 py-1 border border-blue-400 rounded-lg text-sm bg-blue-50 text-blue-700 hover:bg-blue-100 flex items-center gap-1"
+              >
+                <Star size={14} />
+                Ver NPS
+              </Link>
+            )}
             <select onChange={(e) => handleStatusChange(e.target.value)} className="px-3 py-1 border rounded-lg text-sm bg-background" value="">
               <option value="" disabled>Mudar Status</option>
               <option value="confirmed">Confirmar</option>
