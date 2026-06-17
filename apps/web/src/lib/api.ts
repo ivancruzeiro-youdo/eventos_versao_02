@@ -94,6 +94,7 @@ export const reportsApi = {
     return fetchApi(`/api/v2/reports/events${query}`);
   },
   freelancers: () => fetchApi('/api/v2/reports/freelancers'),
+  nps: () => fetchApi('/api/v2/reports/nps'),
 };
 
 // Admin API
