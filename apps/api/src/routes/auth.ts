@@ -122,118 +122,133 @@ export async function authRoutes(app: FastifyInstance) {
   // SSO via YouDO Hub (Employer/Admin/Operator)
   // Reads youdo_token + youdo_user cookies set by hub.youdobrasil.com.br on .youdobrasil.com.br
   app.post('/userp-sso', async (request, reply) => {
-    const youdoToken = request.cookies['youdo_token'];
-    const youdoUserRaw = request.cookies['youdo_user'];
+    try {
+      const youdoToken    = request.cookies['youdo_token'];
+      const youdoUserRaw  = request.cookies['youdo_user'];
 
-    if (!youdoToken) {
-      return reply.status(401).send({ error: 'Cookie youdo_token ausente. Faça login em hub.youdobrasil.com.br primeiro.' });
-    }
-
-    // Validate token via Userp verify-token
-    const rows = await (prisma as any).uerpConfig.findMany();
-    const cfg: Record<string, string> = {};
-    for (const r of rows) cfg[r.key] = r.value;
-    const userpBaseUrl = cfg['userpBaseUrl'] || 'https://userpweb.youdobrasil.com.br';
-
-    const verifyRes = await fetch(`${userpBaseUrl}/api/userp-satelite/verify-token/index.php`, {
-      headers: { Authorization: `Bearer ${youdoToken}` },
-    });
-
-    if (!verifyRes.ok) {
-      return reply.status(401).send({ error: 'Token Userp inválido ou expirado. Faça login novamente em hub.youdobrasil.com.br.' });
-    }
-
-    const verified = (await verifyRes.json()) as { valid: boolean; user?: { tipo: string; codigo: string } };
-
-    if (!verified.valid) {
-      return reply.status(401).send({ error: 'Token Userp inválido.' });
-    }
-
-    const userpCodigo = verified.user?.codigo ?? null;
-    const userpTipo   = verified.user?.tipo ?? null;
-
-    // Parse youdo_user cookie for name/email fallback
-    let hubName  = 'Usuário YouDO';
-    let hubEmail = `${userpCodigo}@youdobrasil.com.br`;
-    if (youdoUserRaw) {
-      try {
-        const parsed = JSON.parse(decodeURIComponent(youdoUserRaw));
-        if (parsed.nome)  hubName  = parsed.nome;
-        if (parsed.email) hubEmail = parsed.email;
-      } catch { /* ignore parse errors */ }
-    }
-
-    // Map Userp tipo → local role
-    function tipoToRole(tipo: string | null): 'admin' | 'event_owner' | 'operator' {
-      if (!tipo) return 'operator';
-      const t = tipo.toLowerCase();
-      if (t.includes('admin') || t === 'super') return 'admin';
-      if (t.includes('gerente') || t.includes('manager') || t.includes('owner')) return 'event_owner';
-      return 'operator';
-    }
-
-    const role = tipoToRole(userpTipo);
-
-    // Find or create User by userpCodigo or email
-    let user = userpCodigo
-      ? await prisma.user.findFirst({ where: { userpCodigo } as any })
-      : null;
-
-    if (!user && hubEmail) {
-      user = await prisma.user.findFirst({ where: { email: hubEmail } });
-    }
-
-    if (!user) {
-      // Auto-create on first SSO login
-      const employer = await prisma.employer.findFirst();
-      if (!employer) {
-        return reply.status(500).send({ error: 'Nenhum employer cadastrado. Configure a empresa primeiro.' });
+      if (!youdoToken) {
+        return reply.status(401).send({ error: 'Cookie youdo_token ausente. Faça login em hub.youdobrasil.com.br primeiro.' });
       }
-      user = await prisma.user.create({
-        data: {
-          email: hubEmail,
-          name: hubName,
-          role,
-          employerId: employer.id,
-          userpCodigo: userpCodigo ?? undefined,
-          userpTipo: userpTipo ?? undefined,
-        } as any,
-      });
-    } else {
-      // Update userp metadata on each login
-      await (prisma.user.update as any)({
-        where: { id: user.id },
-        data: {
-          userpCodigo: userpCodigo ?? undefined,
-          userpTipo: userpTipo ?? undefined,
-        },
-      });
-    }
 
-    const localToken = app.jwt.sign({
-      sub: user.id,
-      role: user.role,
-      email: user.email,
-      employerId: (user as any).employerId,
-    }, { expiresIn: '24h' });
+      // Load Userp base URL from DB config
+      const rows = await (prisma as any).uerpConfig.findMany();
+      const cfg: Record<string, string> = {};
+      for (const r of rows) cfg[r.key] = r.value;
+      const userpBaseUrl = cfg['userpBaseUrl'] || 'https://userpweb.youdobrasil.com.br';
 
-    reply.setCookie('token', localToken, {
-      path: '/',
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 24 * 60 * 60,
-    });
+      // Validate token via Userp verify-token
+      let verifyRes: Response;
+      try {
+        verifyRes = await fetch(`${userpBaseUrl}/api/userp-satelite/verify-token/index.php`, {
+          headers: { Authorization: `Bearer ${youdoToken}` },
+        });
+      } catch (fetchErr: any) {
+        app.log.error({ fetchErr }, 'userp-sso: erro ao chamar verify-token');
+        return reply.status(502).send({ error: 'Não foi possível conectar ao Userp para validar o token.' });
+      }
 
-    return {
-      success: true,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
+      if (!verifyRes.ok) {
+        return reply.status(401).send({ error: 'Token Userp inválido ou expirado. Faça login novamente em hub.youdobrasil.com.br.' });
+      }
+
+      let verified: { valid: boolean; user?: { tipo: string; codigo: string } };
+      try {
+        verified = await verifyRes.json();
+      } catch {
+        const raw = await verifyRes.text().catch(() => '(unreadable)');
+        app.log.error({ raw }, 'userp-sso: verify-token retornou corpo não-JSON');
+        return reply.status(502).send({ error: 'Resposta inesperada do Userp.' });
+      }
+
+      if (!verified.valid) {
+        return reply.status(401).send({ error: 'Token Userp inválido.' });
+      }
+
+      const userpCodigo = verified.user?.codigo ?? null;
+      const userpTipo   = verified.user?.tipo ?? null;
+
+      // Parse youdo_user cookie for name/email
+      let hubName  = 'Usuário YouDO';
+      let hubEmail = userpCodigo ? `${userpCodigo}@youdobrasil.com.br` : `sso-${Date.now()}@youdobrasil.com.br`;
+      if (youdoUserRaw) {
+        try {
+          const parsed = JSON.parse(decodeURIComponent(youdoUserRaw));
+          if (parsed.nome)  hubName  = parsed.nome;
+          if (parsed.email) hubEmail = parsed.email;
+        } catch { /* ignore */ }
+      }
+
+      // Map Userp tipo → local role
+      function tipoToRole(tipo: string | null): 'admin' | 'event_owner' | 'operator' {
+        if (!tipo) return 'operator';
+        const t = tipo.toLowerCase();
+        if (t.includes('admin') || t === 'super') return 'admin';
+        if (t.includes('gerente') || t.includes('manager') || t.includes('owner')) return 'event_owner';
+        return 'operator';
+      }
+      const role = tipoToRole(userpTipo);
+
+      const userDelegate = (prisma.user as any);
+
+      // Find by userpCodigo first, then by email
+      let user = userpCodigo
+        ? await userDelegate.findFirst({ where: { userpCodigo } })
+        : null;
+
+      if (!user) {
+        user = await userDelegate.findFirst({ where: { email: hubEmail } });
+      }
+
+      if (!user) {
+        // Auto-create on first SSO login
+        const employer = await prisma.employer.findFirst();
+        if (!employer) {
+          return reply.status(500).send({ error: 'Nenhum employer cadastrado. Configure a empresa primeiro.' });
+        }
+        user = await userDelegate.create({
+          data: {
+            email: hubEmail,
+            name: hubName,
+            role,
+            employerId: employer.id,
+            userpCodigo: userpCodigo ?? undefined,
+            userpTipo: userpTipo ?? undefined,
+          },
+        });
+      } else {
+        // Update Userp metadata on each login
+        await userDelegate.update({
+          where: { id: user.id },
+          data: {
+            userpCodigo: userpCodigo ?? undefined,
+            userpTipo: userpTipo ?? undefined,
+          },
+        });
+      }
+
+      const localToken = app.jwt.sign({
+        sub: user.id,
         role: user.role,
-      },
-    };
+        email: user.email,
+        employerId: user.employerId,
+      }, { expiresIn: '24h' });
+
+      reply.setCookie('token', localToken, {
+        path: '/',
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 24 * 60 * 60,
+      });
+
+      return {
+        success: true,
+        user: { id: user.id, name: user.name, email: user.email, role: user.role },
+      };
+    } catch (err: any) {
+      app.log.error({ err: err?.message, stack: err?.stack }, 'userp-sso: erro inesperado');
+      return reply.status(500).send({ error: err?.message || 'Erro interno no SSO.' });
+    }
   });
 
   // Refresh token
