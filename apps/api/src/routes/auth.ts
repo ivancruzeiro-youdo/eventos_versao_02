@@ -119,6 +119,39 @@ export async function authRoutes(app: FastifyInstance) {
     };
   });
 
+  // Debug endpoint: diagnose SSO state (cookies + verify-token response)
+  app.get('/sso-debug', async (request, reply) => {
+    const youdoToken   = request.cookies['youdo_token'];
+    const youdoUserRaw = request.cookies['youdo_user'];
+
+    const result: Record<string, any> = {
+      hasYoudoToken: !!youdoToken,
+      hasYoudoUser: !!youdoUserRaw,
+      tokenPreview: youdoToken ? youdoToken.slice(0, 20) + '…' : null,
+    };
+
+    if (youdoToken) {
+      try {
+        const rows = await (prisma as any).uerpConfig.findMany();
+        const cfg: Record<string, string> = {};
+        for (const r of rows) cfg[r.key] = r.value;
+        const userpBaseUrl = cfg['userpBaseUrl'] || 'https://userpweb.youdobrasil.com.br';
+        result.userpBaseUrl = userpBaseUrl;
+
+        const verifyRes = await fetch(`${userpBaseUrl}/api/userp-satelite/verify-token/index.php`, {
+          headers: { Authorization: `Bearer ${youdoToken}` },
+        });
+        result.verifyStatus = verifyRes.status;
+        const body = await verifyRes.text();
+        try { result.verifyBody = JSON.parse(body); } catch { result.verifyBody = body.slice(0, 200); }
+      } catch (e: any) {
+        result.error = e?.message;
+      }
+    }
+
+    return result;
+  });
+
   // SSO via YouDO Hub (Employer/Admin/Operator)
   // Reads youdo_token + youdo_user cookies set by hub.youdobrasil.com.br on .youdobrasil.com.br
   app.post('/userp-sso', async (request, reply) => {
