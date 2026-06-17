@@ -14,7 +14,7 @@ import EventMaoDeObraTab from '@/components/EventMaoDeObraTab';
 import EventKitchenTab from '@/components/EventKitchenTab';
 import UserpStatusBanner from '@/components/UserpStatusBanner';
 import { eventsApi, guestsApi } from '@/lib/api';
-import { formatDateTime, getStatusColor, getStatusLabel, formatPhone, formatCpf } from '@/lib/utils';
+import { formatDateTime, getStatusColor, getStatusLabel, getEventDisplayStatus, formatPhone, formatCpf } from '@/lib/utils';
 import {
   MessageCircle, FileText, Clock, CheckSquare, Users,
   ClipboardList, Briefcase, UtensilsCrossed, HardHat, Trash2, ChevronDown,
@@ -267,8 +267,8 @@ export default function EventDetailPage() {
             <h1 className="text-2xl font-bold text-foreground">{event.name}</h1>
           </div>
           <div className="flex items-center gap-2">
-            <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(event.status)}`}>
-              {getStatusLabel(event.status)}
+            <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(getEventDisplayStatus(event))}`}>
+              {getStatusLabel(getEventDisplayStatus(event))}
             </span>
             <button
               onClick={copyReceptionistUrl}
