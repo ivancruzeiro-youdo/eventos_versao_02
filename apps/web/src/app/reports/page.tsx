@@ -5,7 +5,63 @@ import { useRouter } from 'next/navigation';
 import Layout from '@/components/Layout';
 import { reportsApi } from '@/lib/api';
 import { formatDate, formatCurrency } from '@/lib/utils';
-import { Calendar, Users, TrendingUp, Download, FileText } from 'lucide-react';
+import { Calendar, Users, TrendingUp, Download, FileText, Star, ChevronDown, ChevronUp } from 'lucide-react';
+
+interface NpsEntry {
+  id: string;
+  score: number;
+  comentario: string | null;
+  respondenteName: string | null;
+  submittedAt: string;
+  event: { id: string; name: string; clientName: string; startAt: string | null };
+}
+
+interface NpsMonth {
+  key: string;   // "2026-06"
+  label: string; // "Junho 2026"
+  avg: number;
+  count: number;
+  entries: NpsEntry[];
+}
+
+function npsScoreStyle(score: number) {
+  if (score >= 9) return 'bg-green-100 text-green-700 border-green-300';
+  if (score === 8) return 'bg-blue-100 text-blue-700 border-blue-300';
+  if (score === 7) return 'bg-yellow-100 text-yellow-700 border-yellow-300';
+  return 'bg-red-100 text-red-700 border-red-300';
+}
+
+function npsBarColor(score: number) {
+  if (score >= 9) return 'bg-green-500';
+  if (score === 8) return 'bg-blue-500';
+  if (score === 7) return 'bg-yellow-500';
+  return 'bg-red-500';
+}
+
+const PT_MONTHS = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+
+function monthLabel(key: string) {
+  const [y, m] = key.split('-');
+  return `${PT_MONTHS[parseInt(m) - 1]} ${y}`;
+}
+
+function groupByMonth(entries: NpsEntry[]): NpsMonth[] {
+  const map: Record<string, NpsEntry[]> = {};
+  for (const e of entries) {
+    const key = e.submittedAt.slice(0, 7);
+    if (!map[key]) map[key] = [];
+    map[key].push(e);
+  }
+  return Object.entries(map)
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([key, items]) => ({
+      key,
+      label: monthLabel(key),
+      avg: Math.round((items.reduce((s, i) => s + i.score, 0) / items.length) * 10) / 10,
+      count: items.length,
+      entries: items,
+    }));
+}
 
 interface ReportSummary {
   totalEvents: number;
@@ -21,9 +77,13 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [dateRange, setDateRange] = useState('last30');
+  const [npsMonths, setNpsMonths] = useState<NpsMonth[]>([]);
+  const [npsLoading, setNpsLoading] = useState(true);
+  const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
 
   useEffect(() => {
     loadReports();
+    loadNps();
   }, [dateRange]);
 
   async function loadReports() {
@@ -33,7 +93,7 @@ export default function ReportsPage() {
       setSummary({
         totalEvents: response.summary.totalEvents,
         totalGuests: response.summary.totalGuests,
-        totalRevenue: 125000, // Mock until billing integration
+        totalRevenue: 125000,
         eventsByStatus: response.summary.eventsByStatus,
         eventsByMonth: [
           { month: 'Jan', count: 2 },
@@ -51,6 +111,18 @@ export default function ReportsPage() {
       setError(err.message || 'Erro ao carregar relatórios');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadNps() {
+    try {
+      setNpsLoading(true);
+      const res = await reportsApi.nps();
+      setNpsMonths(groupByMonth(res.entries || []));
+    } catch {
+      // NPS section fails silently
+    } finally {
+      setNpsLoading(false);
     }
   }
 
@@ -185,6 +257,86 @@ export default function ReportsPage() {
               </div>
             ) : null}
           </div>
+        </div>
+      </div>
+
+      {/* NPS por Mês */}
+      <div className="mt-8 bg-card rounded-lg border shadow-sm">
+        <div className="px-6 py-4 border-b flex items-center gap-2">
+          <Star className="size-5 text-yellow-500" />
+          <h2 className="text-lg font-medium text-card-foreground">NPS dos Organizadores por Mês</h2>
+        </div>
+        <div className="divide-y">
+          {npsLoading ? (
+            <div className="p-6 text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto" />
+            </div>
+          ) : npsMonths.length === 0 ? (
+            <div className="p-6 text-center text-muted-foreground text-sm">
+              Nenhum NPS respondido ainda.
+            </div>
+          ) : (
+            npsMonths.map((month) => (
+              <div key={month.key}>
+                {/* Month header row */}
+                <button
+                  onClick={() => setExpandedMonth(expandedMonth === month.key ? null : month.key)}
+                  className="w-full px-6 py-4 flex items-center justify-between hover:bg-muted/40 transition text-left"
+                >
+                  <div className="flex items-center gap-4">
+                    <span className="font-medium text-card-foreground w-40">{month.label}</span>
+                    <span className={`px-2.5 py-0.5 rounded-full text-sm font-bold border ${npsScoreStyle(month.avg)}`}>
+                      {month.avg.toFixed(1)} / 10
+                    </span>
+                    <div className="hidden sm:flex items-center gap-2">
+                      <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${npsBarColor(month.avg)}`}
+                          style={{ width: `${(month.avg / 10) * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                    <span className="text-sm text-muted-foreground">{month.count} {month.count === 1 ? 'resposta' : 'respostas'}</span>
+                  </div>
+                  {expandedMonth === month.key ? <ChevronUp size={16} className="text-muted-foreground shrink-0" /> : <ChevronDown size={16} className="text-muted-foreground shrink-0" />}
+                </button>
+
+                {/* Expanded entries */}
+                {expandedMonth === month.key && (
+                  <div className="bg-muted/20 border-t">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-muted-foreground border-b">
+                          <th className="px-6 py-2 font-medium">Evento</th>
+                          <th className="px-4 py-2 font-medium">Contratante</th>
+                          <th className="px-4 py-2 font-medium">Respondente</th>
+                          <th className="px-4 py-2 font-medium">Nota</th>
+                          <th className="px-4 py-2 font-medium">Comentário</th>
+                          <th className="px-4 py-2 font-medium">Data</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {month.entries.map((entry) => (
+                          <tr key={entry.id} className="hover:bg-muted/30">
+                            <td className="px-6 py-3 font-medium">{entry.event.name}</td>
+                            <td className="px-4 py-3 text-muted-foreground">{entry.event.clientName}</td>
+                            <td className="px-4 py-3 text-muted-foreground">{entry.respondenteName || '—'}</td>
+                            <td className="px-4 py-3">
+                              <span className={`px-2 py-0.5 rounded-full text-xs font-bold border ${npsScoreStyle(entry.score)}`}>
+                                {entry.score}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-muted-foreground max-w-xs truncate">{entry.comentario || '—'}</td>
+                            <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{formatDate(entry.submittedAt)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            ))
+          )}
         </div>
       </div>
 

@@ -153,6 +153,31 @@ export async function reportRoutes(app: FastifyInstance) {
     return { success: true, freelancers };
   });
 
+  // NPS report — all submitted NPS entries with event info
+  app.get('/nps', { preHandler: requireAuth }, async (request, reply) => {
+    const user = (request as any).user;
+
+    const whereClause: any = {
+      score: { not: null },
+      submittedAt: { not: null },
+    };
+    if (user.role !== 'admin') {
+      whereClause.event = { employerId: user.employerId };
+    }
+
+    const entries = await (prisma as any).eventNPSOrganizador.findMany({
+      where: whereClause,
+      include: {
+        event: {
+          select: { id: true, name: true, clientName: true, startAt: true },
+        },
+      },
+      orderBy: { submittedAt: 'desc' },
+    });
+
+    return { success: true, entries };
+  });
+
   // Get financial report
   app.get('/financial', { preHandler: requireAuth }, async (request, reply) => {
     const user = (request as any).user;
