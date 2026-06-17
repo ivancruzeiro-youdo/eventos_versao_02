@@ -23,37 +23,53 @@ export function formatDateTime(date: string | Date) {
   return `${datePart} às ${timePart}`;
 }
 
+// Calcula o status visual de um evento levando em conta se o NPS foi respondido
+export function getEventDisplayStatus(event: { status: string; npsOrganizador?: { submittedAt: string | null } | null }): string {
+  if (event.status === 'encerrado') {
+    return event.npsOrganizador?.submittedAt ? 'nps_done' : 'awaiting_nps';
+  }
+  return event.status;
+}
+
 export function getStatusColor(status: string) {
-  /* YouDO Design System - Semantic tokens */
   const colors: Record<string, string> = {
-    draft: 'bg-muted text-muted-foreground',
-    confirmed: 'bg-success/10 text-success',
-    in_progress: 'bg-primary/10 text-primary',
-    completed: 'bg-kanban-done text-success',
-    encerrado: 'bg-blue-500/10 text-blue-600',
-    cancelled: 'bg-destructive/10 text-destructive',
-    pending: 'bg-warning/10 text-warning',
-    checked_in: 'bg-success/10 text-success',
-    confirmed_guest: 'bg-success/10 text-success',
-    declined: 'bg-muted text-muted-foreground',
-    waitlisted: 'bg-warning/10 text-warning',
+    // Verde — antes de iniciar
+    draft:        'bg-green-100 text-green-700',
+    confirmed:    'bg-green-100 text-green-700',
+    // Amarelo — evento rodando
+    in_progress:  'bg-amber-100 text-amber-700',
+    completed:    'bg-amber-100 text-amber-700',
+    // Roxo — encerrado aguardando NPS
+    awaiting_nps: 'bg-purple-100 text-purple-700',
+    encerrado:    'bg-purple-100 text-purple-700',
+    // Cinza — NPS respondido
+    nps_done:     'bg-gray-100 text-gray-600',
+    // Outros
+    cancelled:    'bg-red-100 text-red-600',
+    pending:      'bg-amber-100 text-amber-700',
+    checked_in:   'bg-green-100 text-green-700',
+    confirmed_guest: 'bg-green-100 text-green-700',
+    declined:     'bg-gray-100 text-gray-600',
+    waitlisted:   'bg-amber-100 text-amber-700',
   };
-  return colors[status] || 'bg-muted text-muted-foreground';
+  return colors[status] || 'bg-gray-100 text-gray-600';
 }
 
 export function getStatusLabel(status: string) {
   const labels: Record<string, string> = {
-    draft: 'Rascunho',
-    confirmed: 'Confirmado',
-    in_progress: 'Em Andamento',
-    completed: 'Concluído',
-    encerrado: 'Encerrado',
-    cancelled: 'Cancelado',
-    pending: 'Pendente',
+    draft:        'A Iniciar',
+    confirmed:    'A Iniciar',
+    in_progress:  'Em Andamento',
+    completed:    'Em Andamento',
+    awaiting_nps: 'Aguardando NPS',
+    encerrado:    'Aguardando NPS',
+    nps_done:     'NPS Respondido',
+    cancelled:    'Cancelado',
+    pending:      'Pendente',
     confirmed_guest: 'Confirmado',
-    declined: 'Recusado',
-    waitlisted: 'Lista de Espera',
-    checked_in: 'Check-in Realizado',
+    declined:     'Recusado',
+    waitlisted:   'Lista de Espera',
+    checked_in:   'Check-in Realizado',
   };
   return labels[status] || status;
 }

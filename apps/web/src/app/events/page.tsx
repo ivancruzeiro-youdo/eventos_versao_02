@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
 import { eventsApi } from '@/lib/api';
-import { formatDate, formatDateTime, getStatusColor, getStatusLabel } from '@/lib/utils';
+import { formatDate, formatDateTime, getStatusColor, getStatusLabel, getEventDisplayStatus } from '@/lib/utils';
 import { 
   Calendar as CalendarIcon, 
   List, 
@@ -336,8 +336,8 @@ export default function EventsPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-3 mb-1 flex-wrap">
                         <h3 className="font-semibold text-card-foreground">{event.name}</h3>
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(event.status)}`}>
-                          {getStatusLabel(event.status)}
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(getEventDisplayStatus(event))}`}>
+                          {getStatusLabel(getEventDisplayStatus(event))}
                         </span>
                       </div>
                       <div className="flex items-center gap-1.5 text-sm text-muted-foreground mb-2">
@@ -434,7 +434,7 @@ export default function EventsPage() {
                       <Link
                         key={event.id}
                         href={`/events/${event.id}`}
-                        className={`block text-xs p-1 rounded truncate ${getStatusColor(event.status)}`}
+                        className={`block text-xs p-1 rounded truncate ${getStatusColor(getEventDisplayStatus(event))}`}
                       >
                         {event.name}
                       </Link>

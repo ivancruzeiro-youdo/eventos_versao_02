@@ -40,6 +40,7 @@ export async function eventRoutes(app: FastifyInstance) {
       include: {
         venues: { include: { venue: true } },
         _count: { select: { guests: true } },
+        npsOrganizador: { select: { submittedAt: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
