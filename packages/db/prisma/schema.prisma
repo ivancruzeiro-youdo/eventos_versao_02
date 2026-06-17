@@ -23,6 +23,8 @@ model User {
   name        String
   role        UserRole
   employerId  String?
+  userpCodigo String?  @unique
+  userpTipo   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -42,6 +44,7 @@ model User {
 
   @@index([email])
   @@index([employerId])
+  @@index([userpCodigo])
 }
 
 model Freelancer {

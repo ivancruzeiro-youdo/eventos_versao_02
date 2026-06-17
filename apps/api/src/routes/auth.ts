@@ -8,10 +8,6 @@ const loginSchema = z.object({
   cpf: z.string(),
 });
 
-const ssoCallbackSchema = z.object({
-  code: z.string(),
-});
-
 const receptionistLoginSchema = z.object({
   cpf: z.string(),
 });
@@ -123,49 +119,110 @@ export async function authRoutes(app: FastifyInstance) {
     };
   });
 
-  // Dev login (Employer/Admin/Operator) - for development only
-  app.post('/dev-login', async (request, reply) => {
-    const { email } = request.body as { email: string };
-    
-    // Find or create user based on email
-    let user = await prisma.user.findFirst({
-      where: { email },
+  // SSO via YouDO Hub (Employer/Admin/Operator)
+  // Reads youdo_token + youdo_user cookies set by hub.youdobrasil.com.br on .youdobrasil.com.br
+  app.post('/userp-sso', async (request, reply) => {
+    const youdoToken = request.cookies['youdo_token'];
+    const youdoUserRaw = request.cookies['youdo_user'];
+
+    if (!youdoToken) {
+      return reply.status(401).send({ error: 'Cookie youdo_token ausente. Faça login em hub.youdobrasil.com.br primeiro.' });
+    }
+
+    // Validate token via Userp verify-token
+    const rows = await (prisma as any).uerpConfig.findMany();
+    const cfg: Record<string, string> = {};
+    for (const r of rows) cfg[r.key] = r.value;
+    const userpBaseUrl = cfg['userpBaseUrl'] || 'https://userpweb.youdobrasil.com.br';
+
+    const verifyRes = await fetch(`${userpBaseUrl}/api/userp-satelite/verify-token/index.php`, {
+      headers: { Authorization: `Bearer ${youdoToken}` },
     });
 
+    if (!verifyRes.ok) {
+      return reply.status(401).send({ error: 'Token Userp inválido ou expirado. Faça login novamente em hub.youdobrasil.com.br.' });
+    }
+
+    const verified = (await verifyRes.json()) as { valid: boolean; user?: { tipo: string; codigo: string } };
+
+    if (!verified.valid) {
+      return reply.status(401).send({ error: 'Token Userp inválido.' });
+    }
+
+    const userpCodigo = verified.user?.codigo ?? null;
+    const userpTipo   = verified.user?.tipo ?? null;
+
+    // Parse youdo_user cookie for name/email fallback
+    let hubName  = 'Usuário YouDO';
+    let hubEmail = `${userpCodigo}@youdobrasil.com.br`;
+    if (youdoUserRaw) {
+      try {
+        const parsed = JSON.parse(decodeURIComponent(youdoUserRaw));
+        if (parsed.nome)  hubName  = parsed.nome;
+        if (parsed.email) hubEmail = parsed.email;
+      } catch { /* ignore parse errors */ }
+    }
+
+    // Map Userp tipo → local role
+    function tipoToRole(tipo: string | null): 'admin' | 'event_owner' | 'operator' {
+      if (!tipo) return 'operator';
+      const t = tipo.toLowerCase();
+      if (t.includes('admin') || t === 'super') return 'admin';
+      if (t.includes('gerente') || t.includes('manager') || t.includes('owner')) return 'event_owner';
+      return 'operator';
+    }
+
+    const role = tipoToRole(userpTipo);
+
+    // Find or create User by userpCodigo or email
+    let user = userpCodigo
+      ? await prisma.user.findFirst({ where: { userpCodigo } as any })
+      : null;
+
+    if (!user && hubEmail) {
+      user = await prisma.user.findFirst({ where: { email: hubEmail } });
+    }
+
     if (!user) {
-      // Create a mock user for development
+      // Auto-create on first SSO login
       const employer = await prisma.employer.findFirst();
       if (!employer) {
-        return reply.status(500).send({ error: 'No employer found. Run db:seed first.' });
+        return reply.status(500).send({ error: 'Nenhum employer cadastrado. Configure a empresa primeiro.' });
       }
-
-      const role = email.includes('admin') ? 'admin' 
-        : email.includes('owner') ? 'event_owner' 
-        : 'operator';
-
       user = await prisma.user.create({
         data: {
-          email,
-          name: email.split('@')[0],
+          email: hubEmail,
+          name: hubName,
           role,
           employerId: employer.id,
+          userpCodigo: userpCodigo ?? undefined,
+          userpTipo: userpTipo ?? undefined,
+        } as any,
+      });
+    } else {
+      // Update userp metadata on each login
+      await (prisma.user.update as any)({
+        where: { id: user.id },
+        data: {
+          userpCodigo: userpCodigo ?? undefined,
+          userpTipo: userpTipo ?? undefined,
         },
       });
     }
 
-    const token = app.jwt.sign({
+    const localToken = app.jwt.sign({
       sub: user.id,
       role: user.role,
       email: user.email,
-      employerId: user.employerId,
+      employerId: (user as any).employerId,
     }, { expiresIn: '24h' });
 
-    reply.setCookie('token', token, {
+    reply.setCookie('token', localToken, {
       path: '/',
       httpOnly: true,
-      secure: false, // Allow HTTP in dev
+      secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 24 * 60 * 60, // 24 hours in seconds
+      maxAge: 24 * 60 * 60,
     });
 
     return {
@@ -177,21 +234,6 @@ export async function authRoutes(app: FastifyInstance) {
         role: user.role,
       },
     };
-  });
-
-  // SSO Callback (Employer/Admin/Operator)
-  app.get('/sso/callback', async (request, reply) => {
-    const { code } = ssoCallbackSchema.parse(request.query);
-    
-    // TODO: Implement SSO Hub bridge
-    // 1. Exchange code with SSO Hub
-    // 2. Get user data from Hub
-    // 3. Create/update user in local DB
-    // 4. Generate JWT
-    
-    return reply.status(501).send({
-      error: 'SSO bridge not yet implemented',
-    });
   });
 
   // Refresh token

@@ -1,110 +1,81 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
+const HUB_URL = 'https://hub.youdobrasil.com.br';
+
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [checking, setChecking] = useState(true);
   const [error, setError] = useState('');
 
-  async function handleLogin(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
+  // On mount: try to exchange youdo_token cookie for local session automatically
+  useEffect(() => {
+    tryAutoLogin();
+  }, []);
 
+  async function tryAutoLogin() {
     try {
-      // Para dev: mock login que cria um JWT válido
-      const res = await fetch('/api/v2/auth/dev-login', {
+      const res = await fetch('/api/v2/auth/userp-sso', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
         credentials: 'include',
       });
-
-      const data = await res.json();
-      console.log('Login response:', data);
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Login failed');
+      if (res.ok) {
+        router.replace('/dashboard');
+        return;
       }
-
-      if (data.success) {
-        router.push('/dashboard');
-      } else {
-        throw new Error('Login failed');
-      }
-    } catch (err: any) {
-      console.error('Login error:', err);
-      setError(err.message || 'Erro ao fazer login');
-    } finally {
-      setLoading(false);
+    } catch {
+      // No token available — show login button
     }
+    setChecking(false);
+  }
+
+  if (checking) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary mx-auto mb-4" />
+          <p className="text-sm text-muted-foreground">Verificando sessão...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full">
+    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="bg-card border rounded-2xl shadow-sm p-8 max-w-sm w-full">
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-gray-900">YOUDO Experience</h1>
-          <p className="text-gray-600 mt-2">Login do Employer/Admin</p>
+          <h1 className="text-2xl font-bold">YOUDO Experience</h1>
+          <p className="text-sm text-muted-foreground mt-1">Gestão de Eventos</p>
         </div>
 
         {error && (
-          <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm">
+          <div className="mb-5 p-3 bg-destructive/10 text-destructive rounded-lg text-sm">
             {error}
           </div>
         )}
 
-        <form onSubmit={handleLogin} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Email
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@youdo.com"
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-              required
-            />
-          </div>
+        <a
+          href={HUB_URL}
+          className="flex items-center justify-center gap-2 w-full py-3 px-4 rounded-xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-colors"
+        >
+          Entrar via YouDO Hub
+        </a>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Senha (dev: qualquer)
-            </label>
-            <input
-              type="password"
-              placeholder="••••••"
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-            />
-          </div>
+        <p className="text-xs text-muted-foreground text-center mt-4">
+          Após o login no Hub, volte a esta página.
+        </p>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition disabled:opacity-50"
-          >
-            {loading ? 'Entrando...' : 'Entrar'}
-          </button>
-        </form>
-
-        <div className="mt-6 pt-6 border-t text-center">
-          <p className="text-sm text-gray-500 mb-2">É freelancer?</p>
-          <Link 
+        <div className="mt-8 pt-6 border-t text-center">
+          <p className="text-xs text-muted-foreground mb-2">Acesso para freelancers</p>
+          <Link
             href="/freelancer/login"
-            className="text-primary-600 hover:underline text-sm"
+            className="text-sm text-primary hover:underline"
           >
-            Acessar Portal do Freelancer →
+            Portal do Freelancer →
           </Link>
-        </div>
-
-        <div className="mt-4 text-center text-xs text-gray-400">
-          <p>Dev users: admin@youdo.com, owner@youdo.com, operator@youdo.com</p>
         </div>
       </div>
     </div>
