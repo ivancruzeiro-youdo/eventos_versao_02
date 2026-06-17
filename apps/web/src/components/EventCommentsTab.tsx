@@ -31,7 +31,7 @@ export default function EventCommentsTab({ eventId }: EventCommentsTabProps) {
 
   const fetchComments = async () => {
     try {
-      const res = await fetch(`http://localhost:3001/api/v2/events/${eventId}/comments`, {
+      const res = await fetch(`/api/v2/events/${eventId}/comments`, {
         credentials: 'include',
       });
       if (res.ok) {
@@ -49,7 +49,7 @@ export default function EventCommentsTab({ eventId }: EventCommentsTabProps) {
 
     setLoading(true);
     try {
-      const res = await fetch(`http://localhost:3001/api/v2/events/${eventId}/comments`, {
+      const res = await fetch(`/api/v2/events/${eventId}/comments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -75,7 +75,7 @@ export default function EventCommentsTab({ eventId }: EventCommentsTabProps) {
 
   const handleUpdate = async (commentId: string) => {
     try {
-      const res = await fetch(`http://localhost:3001/api/v2/comments/${commentId}`, {
+      const res = await fetch(`/api/v2/comments/${commentId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -97,7 +97,7 @@ export default function EventCommentsTab({ eventId }: EventCommentsTabProps) {
     if (!confirm('Tem certeza que deseja excluir este comentário?')) return;
 
     try {
-      const res = await fetch(`http://localhost:3001/api/v2/comments/${commentId}`, {
+      const res = await fetch(`/api/v2/comments/${commentId}`, {
         method: 'DELETE',
         credentials: 'include',
       });

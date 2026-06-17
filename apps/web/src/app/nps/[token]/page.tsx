@@ -30,7 +30,7 @@ export default function NPSPage() {
 
   async function loadNPS() {
     try {
-      const res = await fetch(`http://localhost:3001/api/v2/nps/${token}`);
+      const res = await fetch(`/api/v2/nps/${token}`);
       if (!res.ok) throw new Error('Pesquisa não encontrada');
       const data = await res.json();
       setData(data);
@@ -46,7 +46,7 @@ export default function NPSPage() {
     if (score === null) return;
 
     try {
-      const res = await fetch(`http://localhost:3001/api/v2/nps/${token}`, {
+      const res = await fetch(`/api/v2/nps/${token}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ score, comment }),

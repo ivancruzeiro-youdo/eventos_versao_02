@@ -34,7 +34,7 @@ export default function EventFilesTab({ eventId }: EventFilesTabProps) {
 
   const fetchFiles = async () => {
     try {
-      const res = await fetch(`http://localhost:3001/api/v2/events/${eventId}/files`, {
+      const res = await fetch(`/api/v2/events/${eventId}/files`, {
         credentials: 'include',
       });
       if (res.ok) {
@@ -71,7 +71,7 @@ export default function EventFilesTab({ eventId }: EventFilesTabProps) {
         formData.append('comment', comment);
       }
 
-      const res = await fetch(`http://localhost:3001/api/v2/events/${eventId}/files/upload`, {
+      const res = await fetch(`/api/v2/events/${eventId}/files/upload`, {
         method: 'POST',
         credentials: 'include',
         body: formData,
@@ -98,7 +98,7 @@ export default function EventFilesTab({ eventId }: EventFilesTabProps) {
     if (!confirm('Tem certeza que deseja excluir este arquivo?')) return;
 
     try {
-      const res = await fetch(`http://localhost:3001/api/v2/files/${fileId}`, {
+      const res = await fetch(`/api/v2/files/${fileId}`, {
         method: 'DELETE',
         credentials: 'include',
       });
@@ -116,7 +116,7 @@ export default function EventFilesTab({ eventId }: EventFilesTabProps) {
 
   const handleDownload = async (fileId: string, filename: string) => {
     try {
-      const res = await fetch(`http://localhost:3001/api/v2/files/${fileId}/download`, {
+      const res = await fetch(`/api/v2/files/${fileId}/download`, {
         credentials: 'include',
       });
 

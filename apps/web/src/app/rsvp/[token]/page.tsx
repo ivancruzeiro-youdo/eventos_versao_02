@@ -29,7 +29,7 @@ export default function RSVPPage() {
 
   async function loadRSVP() {
     try {
-      const res = await fetch(`http://localhost:3001/api/v2/rsvp/${token}`);
+      const res = await fetch(`/api/v2/rsvp/${token}`);
       if (!res.ok) throw new Error('Convite não encontrado');
       const data = await res.json();
       setData(data);
@@ -42,7 +42,7 @@ export default function RSVPPage() {
 
   async function handleResponse(status: 'confirmed' | 'declined') {
     try {
-      const res = await fetch(`http://localhost:3001/api/v2/rsvp/${token}`, {
+      const res = await fetch(`/api/v2/rsvp/${token}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),

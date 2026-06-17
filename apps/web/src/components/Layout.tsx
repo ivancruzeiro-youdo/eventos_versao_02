@@ -44,7 +44,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   async function handleLogout() {
     try {
-      await fetch('http://localhost:3001/api/v2/auth/logout', {
+      await fetch('/api/v2/auth/logout', {
         method: 'DELETE',
         credentials: 'include',
       });
