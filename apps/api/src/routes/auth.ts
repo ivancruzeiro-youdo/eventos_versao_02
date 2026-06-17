@@ -184,7 +184,7 @@ export async function authRoutes(app: FastifyInstance) {
         return reply.status(401).send({ error: 'Token Userp inválido ou expirado. Faça login novamente em hub.youdobrasil.com.br.' });
       }
 
-      let verified: { valid: boolean; user?: { tipo: string; codigo: string } };
+      let verified: { valid: boolean; user?: { tipo: string; codigo: string | number } };
       try {
         verified = await verifyRes.json();
       } catch {
@@ -197,7 +197,7 @@ export async function authRoutes(app: FastifyInstance) {
         return reply.status(401).send({ error: 'Token Userp inválido.' });
       }
 
-      const userpCodigo = verified.user?.codigo ?? null;
+      const userpCodigo = verified.user?.codigo != null ? String(verified.user.codigo) : null;
       const userpTipo   = verified.user?.tipo ?? null;
 
       // Parse youdo_user cookie for name/email
