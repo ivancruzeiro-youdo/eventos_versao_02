@@ -26,8 +26,16 @@ export default function LoginPage() {
         router.replace('/dashboard');
         return;
       }
-    } catch {
-      // No token available — show login button
+      // Show the actual API error so we can diagnose
+      try {
+        const data = await res.json();
+        const msg = data?.error || data?.message || `HTTP ${res.status}`;
+        setError(msg);
+      } catch {
+        setError(`Falha no login (HTTP ${res.status})`);
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Erro de rede');
     }
     setChecking(false);
   }
