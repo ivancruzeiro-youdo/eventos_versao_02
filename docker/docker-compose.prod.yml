@@ -48,7 +48,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-youdo}:${POSTGRES_PASSWORD:-youdo123}@postgres:5432/${POSTGRES_DB:-youdo_v2}
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET}
-      WEB_URL: http://web:3000
+      WEB_URL: https://eventos.youdobrasil.com.br
     ports:
       - "3001:3001"
     depends_on:
