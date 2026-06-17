@@ -129,6 +129,22 @@ export const venuesApiExtended = {
 // Event Applications API
 export const applicationsApi = {
   list: (eventId: string) => fetchApi(`/api/v2/events/${eventId}/applications`),
-  updateStatus: (id: string, status: 'approved' | 'rejected') => 
+  updateStatus: (id: string, status: 'approved' | 'rejected') =>
     fetchApi(`/api/v2/applications/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+};
+
+// Closure & NPS Organiz API
+export const closureApi = {
+  encerrar: (eventId: string, data: any) =>
+    fetchApi(`/api/v2/events/${eventId}/encerrar`, { method: 'POST', body: JSON.stringify(data) }),
+  getClosure: (eventId: string) => fetchApi(`/api/v2/events/${eventId}/closure`),
+  getAttachment: (id: string) => fetchApi(`/api/v2/closure/attachments/${id}`),
+  getNps: (eventId: string) => fetchApi(`/api/v2/events/${eventId}/nps-org`),
+};
+
+// Public NPS API (no auth)
+export const npsOrgApi = {
+  get: (token: string) => fetchApi(`/api/v2/nps-org/${token}`),
+  submit: (token: string, data: any) =>
+    fetchApi(`/api/v2/nps-org/${token}`, { method: 'POST', body: JSON.stringify(data) }),
 };

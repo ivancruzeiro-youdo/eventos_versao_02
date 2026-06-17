@@ -13,12 +13,38 @@ interface Application {
     id: string;
     name: string;
     startAt: string | null;
+    status: string;
     venues: { venue: { name: string; city: string } }[];
     employer: { name: string };
+    npsOrganizador?: { score: number | null; submittedAt: string | null } | null;
   };
   role: string;
   status: 'pending' | 'approved' | 'rejected';
   appliedAt: string;
+}
+
+function NpsBadge({ nps, eventStatus }: { nps?: { score: number | null; submittedAt: string | null } | null; eventStatus: string }) {
+  if (!nps && eventStatus !== 'encerrado') return null;
+  if (!nps || nps.score === null || !nps.submittedAt) {
+    if (eventStatus === 'encerrado') {
+      return (
+        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-50 text-yellow-700 border border-yellow-200">
+          NPS pendente
+        </span>
+      );
+    }
+    return null;
+  }
+  const score = nps.score;
+  let cls = 'bg-red-50 text-red-700 border-red-200';
+  if (score >= 9) cls = 'bg-green-50 text-green-700 border-green-200';
+  else if (score === 8) cls = 'bg-blue-50 text-blue-700 border-blue-200';
+  else if (score === 7) cls = 'bg-yellow-50 text-yellow-700 border-yellow-200';
+  return (
+    <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${cls}`}>
+      NPS {score}/10
+    </span>
+  );
 }
 
 export default function FreelancerApplicationsPage() {
@@ -137,6 +163,7 @@ export default function FreelancerApplicationsPage() {
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(app.status)}`}>
                           {app.status === 'pending' ? 'Pendente' : app.status === 'approved' ? 'Aprovado' : 'Rejeitado'}
                         </span>
+                        <NpsBadge nps={app.event.npsOrganizador} eventStatus={app.event.status || ''} />
                       </div>
                       <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
                         <span className="flex items-center gap-1">
