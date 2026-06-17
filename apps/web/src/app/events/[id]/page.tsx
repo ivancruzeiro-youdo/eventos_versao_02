@@ -278,6 +278,19 @@ export default function EventDetailPage() {
               <Copy size={14} />
               <span className="hidden sm:inline">Recepcionista</span>
             </button>
+
+            {/* Iniciar Evento: visível em draft e confirmed */}
+            {(event.status === 'draft' || event.status === 'confirmed') && (
+              <button
+                onClick={() => handleStatusChange('in_progress')}
+                className="px-3 py-1 border border-green-500 rounded-lg text-sm bg-green-50 text-green-700 hover:bg-green-100 flex items-center gap-1 font-medium"
+              >
+                <Check size={14} />
+                Iniciar Evento
+              </button>
+            )}
+
+            {/* Encerrar Evento: visível em in_progress e completed */}
             {(event.status === 'in_progress' || event.status === 'completed') && (
               <Link
                 href={`/events/${eventId}/encerrar`}
@@ -287,22 +300,17 @@ export default function EventDetailPage() {
                 Encerrar Evento
               </Link>
             )}
+
+            {/* Informar NPS: visível após encerrado */}
             {event.status === 'encerrado' && (
               <Link
                 href={`/events/${eventId}/closure`}
-                className="px-3 py-1 border border-blue-400 rounded-lg text-sm bg-blue-50 text-blue-700 hover:bg-blue-100 flex items-center gap-1"
+                className="px-3 py-1 border border-blue-400 rounded-lg text-sm bg-blue-50 text-blue-700 hover:bg-blue-100 flex items-center gap-1 font-medium"
               >
                 <Star size={14} />
-                Ver NPS
+                Informar NPS
               </Link>
             )}
-            <select onChange={(e) => handleStatusChange(e.target.value)} className="px-3 py-1 border rounded-lg text-sm bg-background" value="">
-              <option value="" disabled>Mudar Status</option>
-              <option value="confirmed">Confirmar</option>
-              <option value="in_progress">Iniciar</option>
-              <option value="completed">Concluir</option>
-              <option value="cancelled">Cancelar</option>
-            </select>
           </div>
         </div>
 
