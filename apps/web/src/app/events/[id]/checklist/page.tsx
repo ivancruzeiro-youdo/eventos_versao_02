@@ -33,7 +33,7 @@ export default function EventChecklistPage() {
 
   async function loadChecklist() {
     try {
-      const response = await fetch(`http://localhost:3001/api/v2/events/${eventId}/checklist`, {
+      const response = await fetch(`/api/v2/events/${eventId}/checklist`, {
         credentials: 'include',
       });
       if (response.ok) {
@@ -49,7 +49,7 @@ export default function EventChecklistPage() {
 
   async function toggleItem(itemId: string) {
     try {
-      await fetch(`http://localhost:3001/api/v2/checklist/items/${itemId}/toggle`, {
+      await fetch(`/api/v2/checklist/items/${itemId}/toggle`, {
         method: 'POST',
         credentials: 'include',
       });
@@ -64,7 +64,7 @@ export default function EventChecklistPage() {
     if (!newItem.trim()) return;
 
     try {
-      await fetch(`http://localhost:3001/api/v2/events/${eventId}/checklist/items`, {
+      await fetch(`/api/v2/events/${eventId}/checklist/items`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
