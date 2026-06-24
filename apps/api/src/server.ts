@@ -7,6 +7,7 @@ import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import pino from 'pino';
+import { ZodError } from 'zod';
 import { prisma } from '@youdo/db';
 
 import { authRoutes } from './routes/auth.js';
@@ -61,7 +62,14 @@ app.get('/health', async () => {
 // Error handler
 app.setErrorHandler((error, request, reply) => {
   app.log.error(error);
-  
+
+  if (error instanceof ZodError) {
+    return reply.status(400).send({
+      error: 'Dados inválidos',
+      message: error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join('; '),
+    });
+  }
+
   if (error.statusCode === 429) {
     return reply.status(429).send({
       error: 'Too many requests',
