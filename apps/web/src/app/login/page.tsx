@@ -3,15 +3,15 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-
-const HUB_URL = 'https://hub.youdobrasil.com.br';
+import { redirectToLogin, clearLoginRedirectGuard, HUB_LOGIN_URL } from '@/lib/sso';
 
 export default function LoginPage() {
   const router = useRouter();
   const [checking, setChecking] = useState(true);
   const [error, setError] = useState('');
 
-  // On mount: try to exchange youdo_token cookie for local session automatically
+  // On mount: try to exchange youdo_token cookie for a local session. If there
+  // is no valid Hub session, send the user to the Hub login automatically.
   useEffect(() => {
     tryAutoLogin();
   }, []);
@@ -23,10 +23,18 @@ export default function LoginPage() {
         credentials: 'include',
       });
       if (res.ok) {
+        clearLoginRedirectGuard();
         router.replace('/dashboard');
         return;
       }
-      // Show the actual API error so we can diagnose
+
+      // 401 = no/invalid Hub cookie → bounce to the Hub (guarded against loops).
+      // The guard short-circuits if we just came back from the Hub, in which
+      // case we fall through and show the manual login UI below.
+      if (res.status === 401) {
+        redirectToLogin();
+      }
+
       try {
         const data = await res.json();
         const msg = data?.error || data?.message || `HTTP ${res.status}`;
@@ -65,15 +73,16 @@ export default function LoginPage() {
           </div>
         )}
 
-        <a
-          href={HUB_URL}
+        <button
+          onClick={() => redirectToLogin(true)}
           className="flex items-center justify-center gap-2 w-full py-3 px-4 rounded-xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-colors"
         >
           Entrar via YouDO Hub
-        </a>
+        </button>
 
         <p className="text-xs text-muted-foreground text-center mt-4">
-          Após o login no Hub, volte a esta página.
+          Você será redirecionado para o {' '}
+          <a href={HUB_LOGIN_URL} className="underline">YouDO Hub</a> para autenticar.
         </p>
 
         <div className="mt-8 pt-6 border-t text-center">

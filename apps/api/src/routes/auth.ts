@@ -212,13 +212,13 @@ export async function authRoutes(app: FastifyInstance) {
       }
 
       // Map Userp tipo → local role
-      function tipoToRole(tipo: string | null): 'admin' | 'event_owner' | 'operator' {
+      const tipoToRole = (tipo: string | null): 'admin' | 'event_owner' | 'operator' => {
         if (!tipo) return 'operator';
         const t = tipo.toLowerCase();
         if (t.includes('admin') || t === 'super') return 'admin';
         if (t.includes('gerente') || t.includes('manager') || t.includes('owner')) return 'event_owner';
         return 'operator';
-      }
+      };
       const role = tipoToRole(userpTipo);
 
       const userDelegate = (prisma.user as any);
