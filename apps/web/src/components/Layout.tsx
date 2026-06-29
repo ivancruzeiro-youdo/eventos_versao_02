@@ -1,9 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { ChevronDown, ChevronRight, LayoutDashboard, Calendar, MapPin, Users, FileText, Settings, LogOut, ChefHat, Package, UtensilsCrossed, ShoppingCart, ClipboardList, BrainCircuit, SlidersHorizontal } from 'lucide-react';
+import { logoutHub } from '@/lib/sso';
 
 const mainNavigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -38,11 +39,11 @@ const adminNavigation = [
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const router = useRouter();
   const [adminOpen, setAdminOpen] = useState(pathname.startsWith('/admin'));
   const [kitchenOpen, setKitchenOpen] = useState(pathname.startsWith('/cozinha'));
 
   async function handleLogout() {
+    // Clear the local session cookie, then clear the Hub cookies and bounce to the Hub.
     try {
       await fetch('/api/v2/auth/logout', {
         method: 'DELETE',
@@ -51,7 +52,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     } catch (err) {
       console.error('Logout error:', err);
     }
-    router.push('/login');
+    await logoutHub();
   }
 
   return (
