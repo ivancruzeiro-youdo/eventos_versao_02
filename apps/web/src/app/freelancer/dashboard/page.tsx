@@ -45,6 +45,16 @@ function calcTotal(valuePerHour: number, startAt: string | null, endAt: string |
   return `R$ ${(valuePerHour * hours).toFixed(2)}`;
 }
 
+function fmtSlotRange(startAt: string | null, endAt: string | null): string {
+  if (!startAt && !endAt) return 'Horário a definir';
+  const start = startAt ? new Date(startAt) : null;
+  const end = endAt ? new Date(endAt) : null;
+  const dateStr = start ? start.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : '';
+  const startTime = start ? fmtTime(startAt) : '—';
+  const endTime = end ? fmtTime(endAt) : '—';
+  return `${dateStr ? dateStr + ' ' : ''}${startTime}–${endTime}`;
+}
+
 export default function FreelancerDashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
@@ -210,6 +220,7 @@ export default function FreelancerDashboardPage() {
                                 <p className="text-sm font-medium text-[#1a1f2e]">{slot.service.name}</p>
                                 <span className="text-xs text-gray-400 font-semibold">{calcTotal(slot.valuePerHour, slot.startAt, slot.endAt)}</span>
                               </div>
+                              <p className="text-xs text-gray-500 mb-1 flex items-center gap-1">🕐 {fmtSlotRange(slot.startAt, slot.endAt)}</p>
                               <p className="text-xs text-gray-400 mb-1.5">{slot.filledSlots}/{slot.maxSlots} preenchidas</p>
                               <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
                                 <div
@@ -220,9 +231,17 @@ export default function FreelancerDashboardPage() {
                             </div>
                             <div className="flex-shrink-0">
                               {isApproved ? (
-                                <span className="inline-flex items-center gap-1 px-3 py-1.5 bg-green-50 text-green-700 rounded-full text-xs font-semibold border border-green-200">
-                                  ✓ Inscrito
-                                </span>
+                                <div className="flex flex-col items-end gap-1">
+                                  <span className="inline-flex items-center gap-1 px-3 py-1.5 bg-green-50 text-green-700 rounded-full text-xs font-semibold border border-green-200">
+                                    ✓ Inscrito
+                                  </span>
+                                  <button
+                                    onClick={() => slot.myApplicationId && handleCancel(slot.myApplicationId, slot.service.name)}
+                                    className="text-xs text-gray-400 hover:text-red-600 underline transition-colors"
+                                  >
+                                    Cancelar
+                                  </button>
+                                </div>
                               ) : isPending ? (
                                 <button
                                   onClick={() => slot.myApplicationId && handleCancel(slot.myApplicationId, slot.service.name)}

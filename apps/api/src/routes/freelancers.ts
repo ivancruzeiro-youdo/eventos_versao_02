@@ -456,14 +456,26 @@ export async function freelancerRoutes(app: FastifyInstance) {
 
     const application = await prisma.freelancerApplication.findFirst({
       where: { id, freelancerId: user.id },
+      include: { event: { select: { startAt: true } } },
     });
 
     if (!application) {
       return reply.status(404).send({ error: 'Candidatura não encontrada' });
     }
 
-    if (application.status !== 'pending') {
-      return reply.status(400).send({ error: 'Apenas candidaturas pendentes podem ser canceladas' });
+    if (!['pending', 'approved'].includes(application.status)) {
+      return reply.status(400).send({ error: 'Esta candidatura não pode ser cancelada' });
+    }
+
+    // Only allow cancelling up to 48h before the event starts
+    if (application.event.startAt) {
+      const hoursUntilEvent =
+        (application.event.startAt.getTime() - Date.now()) / 3_600_000;
+      if (hoursUntilEvent < 48) {
+        return reply.status(400).send({
+          error: 'Cancelamento permitido somente até 48h antes do evento',
+        });
+      }
     }
 
     const updated = await prisma.freelancerApplication.update({
