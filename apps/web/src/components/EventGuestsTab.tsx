@@ -101,13 +101,44 @@ export default function EventGuestsTab({ eventId }: EventGuestsTabProps) {
     }
   }
 
+  async function setGuestStatus(guestId: string, status: Guest['status']) {
+    try {
+      await fetch(`/api/v2/guests/${guestId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ status }),
+      });
+      loadGuests();
+    } catch (err) {
+      alert('Erro ao atualizar status do convidado');
+    }
+  }
+
+  function handleCsvFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setCsvText(String(reader.result ?? ''));
+    reader.readAsText(file);
+  }
+
   async function importCsv() {
     try {
-      const lines = csvText.trim().split('\n');
+      const lines = csvText.trim().split(/\r?\n/);
+      // Skip a header row if present (e.g. "nome,email,...")
+      if (lines.length > 0 && /nome|name|e-?mail|telefone|phone|cpf/i.test(lines[0])) {
+        lines.shift();
+      }
       const guests = lines.map(line => {
-        const [name, email, phone, cpf] = line.split(',').map(s => s.trim());
-        return { name, email, phone, cpf };
+        const [name, email, phone, cpf, status] = line.split(/[,;]/).map(s => s.trim());
+        return { name, email, phone, cpf, status: status || undefined };
       }).filter(g => g.name);
+
+      if (guests.length === 0) {
+        alert('Nenhum convidado válido encontrado no arquivo.');
+        return;
+      }
 
       const response = await fetch(`/api/v2/events/${eventId}/guests/import`, {
         method: 'POST',
@@ -308,8 +339,19 @@ export default function EventGuestsTab({ eventId }: EventGuestsTabProps) {
         <div className="bg-card rounded-lg border p-4 space-y-3">
           <h4 className="font-medium">Importar CSV</h4>
           <p className="text-sm text-muted-foreground">
-            Formato: nome, email, telefone, cpf (um por linha)
+            Colunas: nome, email, telefone, cpf (status opcional). Uma linha por convidado; a primeira linha pode ser o cabeçalho.
           </p>
+          <label className="flex items-center gap-2 px-4 py-2 border rounded-lg cursor-pointer hover:bg-accent w-fit">
+            <Upload className="size-4" />
+            <span className="text-sm">Selecionar arquivo .csv</span>
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              onChange={handleCsvFile}
+              className="hidden"
+            />
+          </label>
+          <p className="text-xs text-muted-foreground">Ou cole o conteúdo abaixo:</p>
           <textarea
             value={csvText}
             onChange={(e) => setCsvText(e.target.value)}
@@ -383,10 +425,28 @@ export default function EventGuestsTab({ eventId }: EventGuestsTabProps) {
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
+                  {guest.status !== 'confirmed' && guest.status !== 'checked_in' && (
+                    <button
+                      onClick={() => setGuestStatus(guest.id, 'confirmed')}
+                      className="p-2 hover:bg-green-100 text-green-600 rounded-lg"
+                      title="Marcar como confirmado"
+                    >
+                      <CheckCircle className="size-4" />
+                    </button>
+                  )}
+                  {guest.status !== 'declined' && guest.status !== 'checked_in' && (
+                    <button
+                      onClick={() => setGuestStatus(guest.id, 'declined')}
+                      className="p-2 hover:bg-red-100 text-red-600 rounded-lg"
+                      title="Marcar como recusado"
+                    >
+                      <XCircle className="size-4" />
+                    </button>
+                  )}
                   {guest.status !== 'checked_in' && (
                     <button
                       onClick={() => checkInGuest(guest.id)}
-                      className="p-2 hover:bg-green-100 text-green-600 rounded-lg"
+                      className="p-2 hover:bg-blue-100 text-blue-600 rounded-lg"
                       title="Check-in"
                     >
                       <CheckCheck className="size-4" />
