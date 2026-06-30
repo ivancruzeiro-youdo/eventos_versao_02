@@ -2,9 +2,22 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronRight, LayoutDashboard, Calendar, MapPin, Users, FileText, Settings, LogOut, ChefHat, Package, UtensilsCrossed, ShoppingCart, ClipboardList, BrainCircuit, SlidersHorizontal } from 'lucide-react';
 import { logoutHub } from '@/lib/sso';
+import { authApi } from '@/lib/api';
+
+const roleLabels: Record<string, string> = {
+  admin: 'Administrador',
+  event_owner: 'Gestor de Eventos',
+  operator: 'Operador',
+};
+
+interface CurrentUser {
+  name: string | null;
+  email: string | null;
+  role: string | null;
+}
 
 const mainNavigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -41,6 +54,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [adminOpen, setAdminOpen] = useState(pathname.startsWith('/admin'));
   const [kitchenOpen, setKitchenOpen] = useState(pathname.startsWith('/cozinha'));
+  const [user, setUser] = useState<CurrentUser | null>(null);
+
+  useEffect(() => {
+    authApi
+      .me()
+      .then((res) => setUser(res.user ?? null))
+      .catch(() => setUser(null));
+  }, []);
 
   async function handleLogout() {
     // Clear the local session cookie, then clear the Hub cookies and bounce to the Hub.
@@ -171,11 +192,21 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
         {/* User */}
         <div className="p-4 border-t border-sidebar-border">
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-sidebar-foreground/70">Admin</span>
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-sidebar-foreground truncate">
+                {user?.name || user?.email || 'Carregando...'}
+              </p>
+              {user?.role && (
+                <p className="text-xs text-sidebar-foreground/60 truncate">
+                  {roleLabels[user.role] || user.role}
+                </p>
+              )}
+            </div>
             <button 
               onClick={handleLogout}
-              className="text-sm text-sidebar-foreground/70 hover:text-sidebar-foreground transition-colors flex items-center gap-2"
+              className="text-sm text-sidebar-foreground/70 hover:text-sidebar-foreground transition-colors flex items-center gap-2 shrink-0"
+              title="Sair"
             >
               <LogOut className="size-4" />
               Sair
