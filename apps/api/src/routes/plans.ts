@@ -131,22 +131,62 @@ export async function planRoutes(app: FastifyInstance) {
     return { success: true };
   });
 
-  // Update checklist item
+  // Add item to an event checklist
+  app.post('/checklists/:id/items', { preHandler: requireAuth }, async (request, reply) => {
+    const { id: checklistId } = request.params as { id: string };
+    const { text } = request.body as { text?: string };
+
+    if (!text || !text.trim()) {
+      return reply.status(400).send({ error: 'Texto do item é obrigatório' });
+    }
+
+    const last = await prisma.checklistItem.findFirst({
+      where: { checklistId },
+      orderBy: { order: 'desc' },
+      select: { order: true },
+    });
+
+    const item = await prisma.checklistItem.create({
+      data: {
+        checklistId,
+        text: text.trim(),
+        order: (last?.order ?? -1) + 1,
+      },
+    });
+
+    return reply.status(201).send({ success: true, item });
+  });
+
+  // Update checklist item (toggle done and/or edit text)
   app.patch('/checklist-items/:id', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const user = (request as any).user;
-    const { done } = request.body as { done: boolean };
+    const { done, text } = request.body as { done?: boolean; text?: string };
 
     const item = await prisma.checklistItem.update({
       where: { id },
       data: {
-        done,
-        doneAt: done ? new Date() : null,
-        doneByUserId: done ? user.id : null,
+        ...(typeof done === 'boolean'
+          ? {
+              done,
+              doneAt: done ? new Date() : null,
+              doneByUserId: done ? user.id : null,
+            }
+          : {}),
+        ...(typeof text === 'string' && text.trim() ? { text: text.trim() } : {}),
       },
     });
 
     return { success: true, item };
+  });
+
+  // Delete a single checklist item
+  app.delete('/checklist-items/:id', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    await prisma.checklistItem.delete({ where: { id } });
+
+    return { success: true };
   });
 
   // Apply plan template to event

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Layout from '@/components/Layout';
-import { Plus, Trash2, Copy, CheckSquare, GripVertical, ListTodo } from 'lucide-react';
+import { Plus, Trash2, Copy, CheckSquare, GripVertical, ListTodo, ChevronUp, ChevronDown } from 'lucide-react';
 
 interface ChecklistTemplate {
   id: string;
@@ -105,6 +105,26 @@ export default function AdminChecklistTemplatesPage() {
       }
     } catch (err) {
       setError('Erro ao adicionar item');
+    }
+  }
+
+  async function moveItem(index: number, direction: -1 | 1) {
+    if (!selectedTemplate) return;
+    const target = index + direction;
+    if (target < 0 || target >= items.length) return;
+    const reordered = [...items];
+    [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+    setItems(reordered);
+    try {
+      await fetch(`/api/v2/checklist-templates/${selectedTemplate.id}/reorder`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ itemIds: reordered.map((i) => i.id) }),
+      });
+    } catch (err) {
+      setError('Erro ao reordenar itens');
+      loadTemplateDetails(selectedTemplate.id);
     }
   }
 
@@ -326,6 +346,24 @@ export default function AdminChecklistTemplatesPage() {
                           </div>
                           <div className="flex-1">
                             <p className="text-sm">{item.text}</p>
+                          </div>
+                          <div className="flex items-center gap-0.5">
+                            <button
+                              onClick={() => moveItem(index, -1)}
+                              disabled={index === 0}
+                              className="p-1.5 hover:bg-accent rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                              title="Mover para cima"
+                            >
+                              <ChevronUp className="size-4" />
+                            </button>
+                            <button
+                              onClick={() => moveItem(index, 1)}
+                              disabled={index === items.length - 1}
+                              className="p-1.5 hover:bg-accent rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                              title="Mover para baixo"
+                            >
+                              <ChevronDown className="size-4" />
+                            </button>
                           </div>
                           <button
                             onClick={() => deleteItem(item.id)}
