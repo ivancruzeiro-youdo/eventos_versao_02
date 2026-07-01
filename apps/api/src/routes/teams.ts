@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../server.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth } from '../middleware/auth.js';
 
 const createTeamSchema = z.object({
   name: z.string().min(1),
@@ -21,8 +21,8 @@ export async function teamRoutes(app: FastifyInstance) {
     return { success: true, teams };
   });
 
-  // List all teams (admin)
-  app.get('/admin/teams', { preHandler: [requireAuth, requireRole(['admin'])] }, async () => {
+  // List all teams (any authenticated user)
+  app.get('/admin/teams', { preHandler: requireAuth }, async () => {
     const teams = await prisma.team.findMany({
       orderBy: { name: 'asc' },
       include: { _count: { select: { schedules: true } } },
@@ -31,8 +31,8 @@ export async function teamRoutes(app: FastifyInstance) {
     return { success: true, teams };
   });
 
-  // Create team (admin)
-  app.post('/admin/teams', { preHandler: [requireAuth, requireRole(['admin'])] }, async (request, reply) => {
+  // Create team (any authenticated user)
+  app.post('/admin/teams', { preHandler: requireAuth }, async (request, reply) => {
     const data = createTeamSchema.parse(request.body);
 
     const existing = await prisma.team.findUnique({ where: { name: data.name } });
@@ -47,8 +47,8 @@ export async function teamRoutes(app: FastifyInstance) {
     return reply.status(201).send({ success: true, team });
   });
 
-  // Update team (admin)
-  app.patch('/admin/teams/:id', { preHandler: [requireAuth, requireRole(['admin'])] }, async (request, reply) => {
+  // Update team (any authenticated user)
+  app.patch('/admin/teams/:id', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const data = updateTeamSchema.parse(request.body);
 
@@ -70,8 +70,8 @@ export async function teamRoutes(app: FastifyInstance) {
     return { success: true, team };
   });
 
-  // Delete team (admin)
-  app.delete('/admin/teams/:id', { preHandler: [requireAuth, requireRole(['admin'])] }, async (request, reply) => {
+  // Delete team (any authenticated user)
+  app.delete('/admin/teams/:id', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
     await prisma.team.delete({ where: { id } });

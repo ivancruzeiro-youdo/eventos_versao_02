@@ -5,7 +5,12 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { freelancerApi } from '@/lib/api';
 import { formatDate, getStatusColor } from '@/lib/utils';
-import { Briefcase, Calendar, MapPin, ArrowLeft, User } from 'lucide-react';
+import { Briefcase, Calendar, MapPin, ArrowLeft, User, Clock, X } from 'lucide-react';
+
+interface Slot {
+  startAt: string | null;
+  endAt: string | null;
+}
 
 interface Application {
   id: string;
@@ -18,9 +23,20 @@ interface Application {
     employer: { name: string };
     npsOrganizador?: { score: number | null; submittedAt: string | null } | null;
   };
+  slot?: Slot | null;
   role: string;
   status: 'pending' | 'approved' | 'rejected';
   appliedAt: string;
+}
+
+function fmtSlotRange(startAt: string | null | undefined, endAt: string | null | undefined): string | null {
+  if (!startAt && !endAt) return null;
+  const fmt = (dt: string) =>
+    new Date(dt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const dateStr = startAt
+    ? new Date(startAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+    : '';
+  return `${dateStr ? dateStr + ' ' : ''}${startAt ? fmt(startAt) : '—'}–${endAt ? fmt(endAt) : '—'}`;
 }
 
 function NpsBadge({ nps, eventStatus }: { nps?: { score: number | null; submittedAt: string | null } | null; eventStatus: string }) {
@@ -70,6 +86,16 @@ export default function FreelancerApplicationsPage() {
       setError(err.message || 'Erro ao carregar candidaturas');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleCancel(applicationId: string, role: string) {
+    if (!confirm(`Cancelar candidatura para ${role}?`)) return;
+    try {
+      await freelancerApi.cancelApplication(applicationId);
+      loadApplications();
+    } catch (err: any) {
+      alert(err.message || 'Erro ao cancelar candidatura');
     }
   }
 
@@ -180,6 +206,12 @@ export default function FreelancerApplicationsPage() {
                             {app.event.venues[0].venue.city}
                           </span>
                         )}
+                        {fmtSlotRange(app.slot?.startAt, app.slot?.endAt) && (
+                          <span className="flex items-center gap-1">
+                            <Clock className="size-4" />
+                            {fmtSlotRange(app.slot?.startAt, app.slot?.endAt)}
+                          </span>
+                        )}
                       </div>
                       <p className="text-sm text-primary mt-2">
                         Função: {app.role}
@@ -188,6 +220,15 @@ export default function FreelancerApplicationsPage() {
                         Candidatou em {formatDate(app.appliedAt)}
                       </p>
                     </div>
+                    {(app.status === 'pending' || app.status === 'approved') && (
+                      <button
+                        onClick={() => handleCancel(app.id, app.role)}
+                        className="flex items-center gap-1 px-3 py-1.5 text-sm border rounded-lg text-muted-foreground hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-colors self-start"
+                      >
+                        <X className="size-4" />
+                        Cancelar
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
