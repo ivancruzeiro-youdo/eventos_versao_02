@@ -13,6 +13,10 @@ const createGuestSchema = z.object({
   responsibleName: z.string().optional(),
 });
 
+const updateGuestSchema = createGuestSchema.partial().extend({
+  status: z.enum(['pending', 'confirmed', 'declined', 'checked_in']).optional(),
+});
+
 const rsvpResponseSchema = z.object({
   response: z.enum(['confirmed', 'declined']),
   additionalGuests: z.number().int().min(0).max(3).optional(),
@@ -117,11 +121,17 @@ export async function guestRoutes(app: FastifyInstance) {
   // Update guest
   app.patch('/guests/:id', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const data = createGuestSchema.partial().parse(request.body);
+    const data = updateGuestSchema.parse(request.body);
 
     const guest = await prisma.guest.update({
       where: { id },
-      data,
+      data: {
+        ...data,
+        ...(data.status ? { status: data.status as GuestStatus } : {}),
+        ...(data.status && data.status !== 'checked_in'
+          ? { rsvpRespondedAt: new Date() }
+          : {}),
+      },
     });
 
     return { success: true, guest };
