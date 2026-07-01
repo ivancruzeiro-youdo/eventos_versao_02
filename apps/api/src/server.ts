@@ -90,6 +90,13 @@ const start = async () => {
       crossOriginResourcePolicy: { policy: 'cross-origin' },
     });
 
+    // A stable JWT secret is required in production: without it the server would
+    // silently fall back to a dev secret, invalidating every existing session
+    // cookie (and rotating the secret on each deploy) → "Invalid token" on /me.
+    if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
+      throw new Error('JWT_SECRET must be set in production');
+    }
+
     await app.register(jwt, {
       secret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
       cookie: {

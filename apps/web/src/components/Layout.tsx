@@ -1,11 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronRight, LayoutDashboard, Calendar, MapPin, Users, FileText, Settings, LogOut, ChefHat, Package, UtensilsCrossed, ShoppingCart, ClipboardList, BrainCircuit, SlidersHorizontal } from 'lucide-react';
 import { logoutHub } from '@/lib/sso';
-import { authApi } from '@/lib/api';
+import { authApi, ApiError } from '@/lib/api';
 
 const roleLabels: Record<string, string> = {
   admin: 'Administrador',
@@ -52,6 +52,7 @@ const adminNavigation = [
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [adminOpen, setAdminOpen] = useState(pathname.startsWith('/admin'));
   const [kitchenOpen, setKitchenOpen] = useState(pathname.startsWith('/cozinha'));
   const [user, setUser] = useState<CurrentUser | null>(null);
@@ -60,8 +61,17 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     authApi
       .me()
       .then((res) => setUser(res.user ?? null))
-      .catch(() => setUser(null));
-  }, []);
+      .catch((err) => {
+        // Stale/invalid session cookie: the API already cleared it, so send the
+        // user back to /login to re-run the SSO exchange instead of rendering a
+        // half-loaded dashboard with no user.
+        if (err instanceof ApiError && err.status === 401) {
+          router.replace('/login');
+          return;
+        }
+        setUser(null);
+      });
+  }, [router]);
 
   async function handleLogout() {
     // Clear the local session cookie, then clear the Hub cookies and bounce to the Hub.
