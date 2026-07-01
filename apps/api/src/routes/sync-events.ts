@@ -740,9 +740,16 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       const existing = await (prisma as any).eventItemChoice.findFirst({ where: { eventItemId: itemId, label: c.label } });
       if (!existing) continue;
       const before: string[] = existing.chosen ?? [];
+      // Making a selection auto-confirms the choice (no separate confirm step);
+      // clearing the selection reverts it to pending.
+      const hasSelection = (c.chosen?.length ?? 0) > 0;
       await (prisma as any).eventItemChoice.update({
         where: { id: existing.id },
-        data: { chosen: c.chosen, confirmedAt: null, confirmedById: null },
+        data: {
+          chosen: c.chosen,
+          confirmedAt: hasSelection ? new Date() : null,
+          confirmedById: hasSelection ? (user?.id ?? null) : null,
+        },
       });
       await (prisma as any).eventItemChoiceHistory.create({
         data: { choiceId: existing.id, before, after: c.chosen, userId: user?.id ?? null },

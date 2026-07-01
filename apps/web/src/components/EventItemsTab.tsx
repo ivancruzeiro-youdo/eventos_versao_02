@@ -125,6 +125,35 @@ export default function EventItemsTab({ eventId, category }: Props) {
     });
   }
 
+  // Selecting an option auto-saves and auto-confirms (no separate confirm step).
+  async function selectOption(item: EventItem, choice: Choice, opt: string) {
+    const cur = drafts[choice.id] ?? choice.chosen;
+    let next: string[];
+    if (cur.includes(opt)) {
+      next = cur.filter(x => x !== opt);
+    } else if (choice.maxChoices && cur.length >= choice.maxChoices) {
+      return;
+    } else {
+      next = [...cur, opt];
+    }
+    setDrafts(prev => ({ ...prev, [choice.id]: next }));
+    setSaving(prev => ({ ...prev, [item.id]: true }));
+    try {
+      const choices = item.choices.map(c => ({
+        label: c.label,
+        chosen: c.id === choice.id ? next : (drafts[c.id] ?? c.chosen),
+      }));
+      await fetch(`/api/v2/events/${eventId}/items/${item.id}/choices`, {
+        method: 'PATCH', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ choices }),
+      });
+      await load();
+    } finally {
+      setSaving(prev => ({ ...prev, [item.id]: false }));
+    }
+  }
+
   async function saveChoices(item: EventItem) {
     setSaving(prev => ({ ...prev, [item.id]: true }));
     try {
@@ -267,16 +296,29 @@ export default function EventItemsTab({ eventId, category }: Props) {
                             {openAcc && (
                               <div className="px-4 pb-3">
                                 {options.length > 0 ? (
-                                  <ul className="space-y-0.5">
-                                    {options.map((opt: string) => (
-                                      <li key={opt} className="text-sm text-foreground/80 flex items-center gap-2">
-                                        <span className="w-1 h-1 rounded-full bg-muted-foreground/50 shrink-0" />
-                                        {opt}
-                                      </li>
-                                    ))}
-                                  </ul>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {options.map((opt: string) => {
+                                      const sel = drafts[choice.id] ?? choice.chosen;
+                                      const isSelected = sel.includes(opt);
+                                      return (
+                                        <button
+                                          key={opt}
+                                          disabled={saving[item.id]}
+                                          onClick={e => { e.stopPropagation(); selectOption(item, choice, opt); }}
+                                          className={`text-xs px-2.5 py-1 rounded-full border transition disabled:opacity-50 ${isSelected ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted text-muted-foreground hover:bg-muted/80'}`}
+                                        >
+                                          {opt}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
                                 ) : (
                                   <p className="text-xs text-muted-foreground italic">Sem opções cadastradas</p>
+                                )}
+                                {choice.confirmedAt && (
+                                  <p className="text-xs text-green-600 flex items-center gap-1 mt-2">
+                                    <CheckCircle2 size={11} /> Confirmado{choice.confirmedBy?.name ? ` por ${choice.confirmedBy.name}` : ''}
+                                  </p>
                                 )}
                               </div>
                             )}
