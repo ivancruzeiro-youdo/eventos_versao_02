@@ -58,19 +58,34 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<CurrentUser | null>(null);
 
   useEffect(() => {
+    let active = true;
     authApi
       .me()
-      .then((res) => setUser(res.user ?? null))
-      .catch((err) => {
-        // Stale/invalid session cookie: the API already cleared it, so send the
-        // user back to /login to re-run the SSO exchange instead of rendering a
-        // half-loaded dashboard with no user.
+      .then((res) => { if (active) setUser(res.user ?? null); })
+      .catch(async (err) => {
+        if (!active) return;
         if (err instanceof ApiError && err.status === 401) {
-          router.replace('/login');
+          // The middleware validated the JWT signature, but the token may have
+          // just expired (race) or the DB user was removed. Try a silent SSO
+          // refresh using the Hub cookie before bouncing the user anywhere.
+          try {
+            const sso = await fetch('/api/v2/auth/userp-sso', {
+              method: 'POST',
+              credentials: 'include',
+            });
+            if (sso.ok && active) {
+              const me = await authApi.me();
+              if (active) setUser(me.user ?? null);
+              return;
+            }
+          } catch { /* ignore */ }
+          // Hub token also gone — let the login page handle the full SSO flow.
+          if (active) router.replace('/login');
           return;
         }
-        setUser(null);
+        if (active) setUser(null);
       });
+    return () => { active = false; };
   }, [router]);
 
   async function handleLogout() {

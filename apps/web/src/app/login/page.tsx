@@ -33,6 +33,7 @@ export default function LoginPage() {
       // case we fall through and show the manual login UI below.
       if (res.status === 401) {
         redirectToLogin();
+        // Don't fall through to setError if we just navigated to the Hub.
       }
 
       try {
