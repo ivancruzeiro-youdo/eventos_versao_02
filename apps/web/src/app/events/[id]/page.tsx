@@ -18,7 +18,7 @@ import { formatDateTime, getStatusColor, getStatusLabel, getEventDisplayStatus, 
 import {
   MessageCircle, FileText, Clock, CheckSquare, Users,
   ClipboardList, Briefcase, UtensilsCrossed, HardHat, Trash2, ChevronDown,
-  Calendar, MapPin, Pencil, Check, X, Copy, UserCog, ChefHat, LogOut, Star
+  Calendar, MapPin, Pencil, Check, X, Copy, UserCog, ChefHat, LogOut, Star, Plus
 } from 'lucide-react';
 
 interface Event {
@@ -76,6 +76,8 @@ export default function EventDetailPage() {
   const [checklistLoading, setChecklistLoading] = useState(false);
   const [templates, setTemplates] = useState<{id: string; title: string}[]>([]);
   const [expandedChecklistId, setExpandedChecklistId] = useState<string | null>(null);
+  const [newItemTexts, setNewItemTexts] = useState<Record<string, string>>({});
+  const [editingItem, setEditingItem] = useState<{ id: string; text: string } | null>(null);
 
   // Briefing state
   const [briefing, setBriefing] = useState<any>(null);
@@ -196,6 +198,52 @@ export default function EventDetailPage() {
       loadChecklist();
     } catch (err) {
       alert('Erro ao atualizar item');
+    }
+  }
+
+  async function addChecklistItem(checklistId: string) {
+    const text = (newItemTexts[checklistId] || '').trim();
+    if (!text) return;
+    try {
+      await fetch(`/api/v2/checklists/${checklistId}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ text }),
+      });
+      setNewItemTexts((prev) => ({ ...prev, [checklistId]: '' }));
+      loadChecklist();
+    } catch (err) {
+      alert('Erro ao adicionar item');
+    }
+  }
+
+  async function saveChecklistItemText(itemId: string, text: string) {
+    if (!text.trim()) return;
+    try {
+      await fetch(`/api/v2/checklist-items/${itemId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ text: text.trim() }),
+      });
+      setEditingItem(null);
+      loadChecklist();
+    } catch (err) {
+      alert('Erro ao editar item');
+    }
+  }
+
+  async function deleteChecklistItem(itemId: string) {
+    if (!confirm('Remover este item?')) return;
+    try {
+      await fetch(`/api/v2/checklist-items/${itemId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      loadChecklist();
+    } catch (err) {
+      alert('Erro ao remover item');
     }
   }
 
@@ -553,18 +601,87 @@ export default function EventDetailPage() {
                       {checklist.items.map((item: any) => (
                         <div
                           key={item.id}
-                          onClick={() => toggleChecklistItem(item.id, !item.done)}
-                          className="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-accent/50 transition"
+                          className="flex items-center gap-3 p-3 border rounded-lg hover:bg-accent/50 transition group"
                         >
-                          <input
-                            type="checkbox"
-                            checked={item.done}
-                            onChange={(e) => e.stopPropagation()}
-                            className="mt-1"
-                          />
-                          <span className={item.done ? 'line-through text-muted-foreground' : ''}>{item.text}</span>
+                          {editingItem && editingItem.id === item.id ? (
+                            <>
+                              <input
+                                type="text"
+                                value={editingItem.text}
+                                onChange={(e) => setEditingItem({ id: item.id, text: e.target.value })}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') saveChecklistItemText(item.id, editingItem.text);
+                                  if (e.key === 'Escape') setEditingItem(null);
+                                }}
+                                autoFocus
+                                className="flex-1 px-2 py-1 border rounded bg-background"
+                              />
+                              <button
+                                onClick={() => saveChecklistItemText(item.id, editingItem.text)}
+                                className="p-1 text-green-600 hover:bg-green-100 rounded"
+                                title="Salvar"
+                              >
+                                <Check size={16} />
+                              </button>
+                              <button
+                                onClick={() => setEditingItem(null)}
+                                className="p-1 text-muted-foreground hover:bg-accent rounded"
+                                title="Cancelar"
+                              >
+                                <X size={16} />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <input
+                                type="checkbox"
+                                checked={item.done}
+                                onChange={() => toggleChecklistItem(item.id, !item.done)}
+                                className="cursor-pointer"
+                              />
+                              <span
+                                onClick={() => toggleChecklistItem(item.id, !item.done)}
+                                className={`flex-1 cursor-pointer ${item.done ? 'line-through text-muted-foreground' : ''}`}
+                              >
+                                {item.text}
+                              </span>
+                              <button
+                                onClick={() => setEditingItem({ id: item.id, text: item.text })}
+                                className="p-1 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition"
+                                title="Editar item"
+                              >
+                                <Pencil size={14} />
+                              </button>
+                              <button
+                                onClick={() => deleteChecklistItem(item.id)}
+                                className="p-1 text-muted-foreground hover:text-red-500 opacity-0 group-hover:opacity-100 transition"
+                                title="Remover item"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </>
+                          )}
                         </div>
                       ))}
+
+                      {/* Add new item */}
+                      <div className="flex items-center gap-2 pt-2">
+                        <input
+                          type="text"
+                          value={newItemTexts[checklist.id] || ''}
+                          onChange={(e) => setNewItemTexts((prev) => ({ ...prev, [checklist.id]: e.target.value }))}
+                          onKeyDown={(e) => { if (e.key === 'Enter') addChecklistItem(checklist.id); }}
+                          placeholder="Adicionar item específico deste evento..."
+                          className="flex-1 px-3 py-2 border rounded-lg bg-background text-sm"
+                        />
+                        <button
+                          onClick={() => addChecklistItem(checklist.id)}
+                          className="flex items-center gap-1 px-3 py-2 bg-primary text-primary-foreground rounded-lg text-sm hover:bg-primary/90 transition"
+                        >
+                          <Plus size={16} />
+                          Adicionar
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
