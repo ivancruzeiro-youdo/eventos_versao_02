@@ -18,7 +18,8 @@ import { formatDateTime, getStatusColor, getStatusLabel, getEventDisplayStatus, 
 import {
   MessageCircle, FileText, Clock, CheckSquare, Users,
   ClipboardList, Briefcase, UtensilsCrossed, HardHat, Trash2, ChevronDown,
-  Calendar, MapPin, Pencil, Check, X, Copy, UserCog, ChefHat, LogOut, Star, Plus
+  Calendar, MapPin, Pencil, Check, X, Copy, UserCog, ChefHat, LogOut, Star, Plus,
+  GripVertical, Printer
 } from 'lucide-react';
 
 interface Event {
@@ -78,6 +79,8 @@ export default function EventDetailPage() {
   const [expandedChecklistId, setExpandedChecklistId] = useState<string | null>(null);
   const [newItemTexts, setNewItemTexts] = useState<Record<string, string>>({});
   const [editingItem, setEditingItem] = useState<{ id: string; text: string } | null>(null);
+  const [dragItemId, setDragItemId] = useState<string | null>(null);
+  const [dragOverItemId, setDragOverItemId] = useState<string | null>(null);
 
   // Briefing state
   const [briefing, setBriefing] = useState<any>(null);
@@ -245,6 +248,72 @@ export default function EventDetailPage() {
     } catch (err) {
       alert('Erro ao remover item');
     }
+  }
+
+  async function handleDrop(checklistId: string) {
+    if (!dragItemId || !dragOverItemId || dragItemId === dragOverItemId) {
+      setDragItemId(null);
+      setDragOverItemId(null);
+      return;
+    }
+    const checklist = checklists.find(c => c.id === checklistId);
+    if (!checklist) return;
+
+    const items = [...checklist.items];
+    const fromIdx = items.findIndex(i => i.id === dragItemId);
+    const toIdx   = items.findIndex(i => i.id === dragOverItemId);
+    const [moved] = items.splice(fromIdx, 1);
+    items.splice(toIdx, 0, moved);
+    const reordered = items.map((item, idx) => ({ ...item, order: idx }));
+
+    setChecklists(prev => prev.map(c => c.id === checklistId ? { ...c, items: reordered } : c));
+    setDragItemId(null);
+    setDragOverItemId(null);
+
+    await fetch(`/api/v2/checklists/${checklistId}/reorder`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ items: reordered.map(i => ({ id: i.id, order: i.order })) }),
+    });
+  }
+
+  function printChecklist(checklist: EventChecklist) {
+    const done  = checklist.items.filter(i => i.done).length;
+    const total = checklist.items.length;
+    const rows  = checklist.items.map((item, i) => `
+      <div class="item ${item.done ? 'done' : ''}">
+        <span class="num">${i + 1}.</span>
+        <span class="box">${item.done ? '✓' : ''}</span>
+        <div class="text">
+          ${item.text}
+          ${item.done && (item as any).doneAt
+            ? `<div class="by">Concluído por ${(item as any).doneBy?.name || '—'} em ${new Date((item as any).doneAt).toLocaleString('pt-BR')}</div>`
+            : ''}
+        </div>
+      </div>`).join('');
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+      <title>${checklist.title}</title>
+      <style>
+        body{font-family:Arial,sans-serif;max-width:720px;margin:32px auto;padding:0 20px;color:#111}
+        h1{font-size:18px;font-weight:bold;border-bottom:2px solid #000;padding-bottom:6px;margin-bottom:4px}
+        .meta{color:#666;font-size:12px;margin-bottom:16px}
+        .item{display:flex;align-items:flex-start;gap:8px;padding:7px 0;border-bottom:1px solid #eee}
+        .num{min-width:22px;color:#888;font-size:12px;padding-top:1px}
+        .box{min-width:16px;height:16px;border:1.5px solid #999;display:inline-flex;align-items:center;justify-content:center;font-size:11px;margin-top:1px;font-weight:bold;color:#16a34a}
+        .text{flex:1;font-size:13px;line-height:1.4}
+        .done .text{text-decoration:line-through;color:#999}
+        .by{font-size:10px;color:#2563eb;margin-top:2px}
+        @media print{body{margin:0}}
+      </style></head><body>
+      <h1>${checklist.title}</h1>
+      <p class="meta">${done} de ${total} itens concluídos &nbsp;·&nbsp; Impresso em ${new Date().toLocaleString('pt-BR')}</p>
+      ${rows}
+    </body></html>`;
+
+    const win = window.open('', '_blank');
+    if (win) { win.document.write(html); win.document.close(); win.focus(); win.print(); }
   }
 
   async function loadEvent() {
@@ -575,20 +644,24 @@ export default function EventDetailPage() {
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-4">
-                      <div className="w-32">
+                    <div className="flex items-center gap-2">
+                      <div className="w-24 hidden sm:block">
                         <div className="h-2 bg-secondary rounded-full overflow-hidden">
-                          <div 
+                          <div
                             className="h-full bg-primary transition-all"
-                            style={{ width: `${(checklist.items.filter((i: any) => i.done).length / checklist.items.length) * 100}%` }}
+                            style={{ width: `${checklist.items.length ? (checklist.items.filter((i: any) => i.done).length / checklist.items.length) * 100 : 0}%` }}
                           />
                         </div>
                       </div>
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteChecklist(checklist.id);
-                        }}
+                        onClick={(e) => { e.stopPropagation(); printChecklist(checklist); }}
+                        className="p-2 text-muted-foreground hover:text-foreground transition"
+                        title="Imprimir checklist"
+                      >
+                        <Printer size={16} />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); deleteChecklist(checklist.id); }}
                         className="p-2 text-muted-foreground hover:text-red-500 transition"
                         title="Excluir Checklist"
                       >
@@ -601,8 +674,18 @@ export default function EventDetailPage() {
                       {checklist.items.map((item: any) => (
                         <div
                           key={item.id}
-                          className="flex items-center gap-3 p-3 border rounded-lg hover:bg-accent/50 transition group"
+                          draggable
+                          onDragStart={() => setDragItemId(item.id)}
+                          onDragOver={(e) => { e.preventDefault(); setDragOverItemId(item.id); }}
+                          onDrop={() => handleDrop(checklist.id)}
+                          onDragEnd={() => { setDragItemId(null); setDragOverItemId(null); }}
+                          className={`flex items-center gap-2 p-3 border rounded-lg transition group
+                            ${dragItemId === item.id ? 'opacity-40' : ''}
+                            ${dragOverItemId === item.id && dragItemId !== item.id ? 'border-primary bg-primary/5' : 'hover:bg-accent/50'}`}
                         >
+                          <span className="cursor-grab text-muted-foreground hover:text-foreground touch-none shrink-0" title="Arrastar para reordenar">
+                            <GripVertical size={14} />
+                          </span>
                           {editingItem && editingItem.id === item.id ? (
                             <>
                               <input
@@ -614,21 +697,13 @@ export default function EventDetailPage() {
                                   if (e.key === 'Escape') setEditingItem(null);
                                 }}
                                 autoFocus
-                                className="flex-1 px-2 py-1 border rounded bg-background"
+                                className="flex-1 px-2 py-1 border rounded bg-background text-sm"
                               />
-                              <button
-                                onClick={() => saveChecklistItemText(item.id, editingItem.text)}
-                                className="p-1 text-green-600 hover:bg-green-100 rounded"
-                                title="Salvar"
-                              >
-                                <Check size={16} />
+                              <button onClick={() => saveChecklistItemText(item.id, editingItem.text)} className="p-1 text-green-600 hover:bg-green-100 rounded" title="Salvar">
+                                <Check size={15} />
                               </button>
-                              <button
-                                onClick={() => setEditingItem(null)}
-                                className="p-1 text-muted-foreground hover:bg-accent rounded"
-                                title="Cancelar"
-                              >
-                                <X size={16} />
+                              <button onClick={() => setEditingItem(null)} className="p-1 text-muted-foreground hover:bg-accent rounded" title="Cancelar">
+                                <X size={15} />
                               </button>
                             </>
                           ) : (
@@ -637,27 +712,27 @@ export default function EventDetailPage() {
                                 type="checkbox"
                                 checked={item.done}
                                 onChange={() => toggleChecklistItem(item.id, !item.done)}
-                                className="cursor-pointer"
+                                className="cursor-pointer shrink-0"
                               />
                               <span
                                 onClick={() => toggleChecklistItem(item.id, !item.done)}
-                                className={`flex-1 cursor-pointer ${item.done ? 'line-through text-muted-foreground' : ''}`}
+                                className={`flex-1 cursor-pointer text-sm ${item.done ? 'line-through text-muted-foreground' : ''}`}
                               >
                                 {item.text}
                               </span>
                               <button
                                 onClick={() => setEditingItem({ id: item.id, text: item.text })}
                                 className="p-1 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition"
-                                title="Editar item"
+                                title="Editar"
                               >
-                                <Pencil size={14} />
+                                <Pencil size={13} />
                               </button>
                               <button
                                 onClick={() => deleteChecklistItem(item.id)}
                                 className="p-1 text-muted-foreground hover:text-red-500 opacity-0 group-hover:opacity-100 transition"
-                                title="Remover item"
+                                title="Remover"
                               >
-                                <Trash2 size={14} />
+                                <Trash2 size={13} />
                               </button>
                             </>
                           )}
