@@ -180,6 +180,18 @@ export async function planRoutes(app: FastifyInstance) {
     return { success: true, item };
   });
 
+  // Reorder items within a checklist
+  app.patch('/checklists/:id/reorder', { preHandler: requireAuth }, async (request, reply) => {
+    const { items } = request.body as { items: { id: string; order: number }[] };
+
+    await Promise.all(
+      items.map(({ id, order }) =>
+        prisma.checklistItem.update({ where: { id }, data: { order } })
+      )
+    );
+    return { success: true };
+  });
+
   // Delete a single checklist item
   app.delete('/checklist-items/:id', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
