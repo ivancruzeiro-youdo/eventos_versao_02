@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
 import StatCard from '@/components/StatCard';
@@ -19,7 +18,6 @@ interface Event {
 }
 
 export default function DashboardPage() {
-  const router = useRouter();
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -35,10 +33,6 @@ export default function DashboardPage() {
       const response = await eventsApi.list();
       setEvents(response.events || []);
     } catch (err: any) {
-      if (err.message?.includes('401') || err.message?.includes('Unauthorized') || err.message?.includes('Authentication')) {
-        router.push('/login');
-        return;
-      }
       setError(err.message || 'Erro ao carregar eventos');
     } finally {
       setLoading(false);

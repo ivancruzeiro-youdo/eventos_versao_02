@@ -1,10 +1,63 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
-import { ArrowLeft, Plus, Trash2, GripVertical, Save, Sparkles } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, GripVertical, Save, Sparkles, X } from 'lucide-react';
+
+// Tag input: press Enter or comma to add an item, × to remove, Backspace to delete last
+function TagsInput({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+  const [draft, setDraft] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function commit(raw: string) {
+    const incoming = raw.split(',').map(s => s.trim()).filter(Boolean);
+    if (!incoming.length) return;
+    onChange([...value, ...incoming.filter(item => !value.includes(item))]);
+    setDraft('');
+  }
+
+  function remove(idx: number) {
+    onChange(value.filter((_, i) => i !== idx));
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      commit(draft);
+    } else if (e.key === 'Backspace' && draft === '' && value.length > 0) {
+      remove(value.length - 1);
+    }
+  }
+
+  return (
+    <div
+      className="min-h-10 px-3 py-2 bg-background border border-input rounded-md text-sm focus-within:ring-2 focus-within:ring-ring flex flex-wrap gap-1.5 items-center cursor-text"
+      onClick={() => inputRef.current?.focus()}
+    >
+      {value.map((tag, i) => (
+        <span key={i} className="flex items-center gap-1 bg-muted text-foreground pl-2 pr-1 py-0.5 rounded-full text-xs">
+          {tag}
+          <button type="button" onClick={(e) => { e.stopPropagation(); remove(i); }}
+            className="text-muted-foreground hover:text-foreground transition">
+            <X size={11} />
+          </button>
+        </span>
+      ))}
+      <input
+        ref={inputRef}
+        type="text"
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onKeyDown={handleKeyDown}
+        onBlur={() => { if (draft.trim()) commit(draft); }}
+        placeholder={value.length === 0 ? 'Digite e pressione Enter ou vírgula para adicionar…' : ''}
+        className="flex-1 min-w-[180px] outline-none bg-transparent text-sm placeholder:text-muted-foreground"
+      />
+    </div>
+  );
+}
 
 type QType = 'text' | 'textarea' | 'number' | 'select' | 'multiselect' | 'checkbox' | 'date';
 
@@ -236,22 +289,10 @@ export default function ProductQuestionsPage() {
                     </label>
                   </div>
                   {(q.type === 'select' || q.type === 'multiselect') && (
-                    <div>
-                      <input
-                        type="text"
-                        value={(q.options || []).join(', ')}
-                        onChange={e => updateQuestion(q.id, { options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
-                        placeholder="Opções separadas por vírgula: Opção A, Opção B, Opção C"
-                        className="w-full px-3 py-2 bg-background border border-input rounded-md text-sm focus:ring-2 focus:ring-ring"
-                      />
-                      {(q.options || []).length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-1.5">
-                          {(q.options || []).map((opt, oi) => (
-                            <span key={oi} className="text-xs bg-muted px-2 py-0.5 rounded-full">{opt}</span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                    <TagsInput
+                      value={q.options || []}
+                      onChange={opts => updateQuestion(q.id, { options: opts })}
+                    />
                   )}
                 </div>
                 <button onClick={() => removeQuestion(q.id)}

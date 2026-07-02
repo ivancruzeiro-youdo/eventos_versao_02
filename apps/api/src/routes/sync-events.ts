@@ -422,7 +422,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
         }
       }
 
-      // Upsert contracts
+      // Upsert contracts (main + their secondaries)
       for (const rc of relatedRaw) {
         const extId = String(rc.codlocacontrato || '');
         if (!extId) continue;
@@ -433,6 +433,20 @@ export async function syncEventsRoutes(app: FastifyInstance) {
           await (prisma as any).eventContract.create({
             data: { eventId, externalId: extId, clientCode, startDate, rawJson: rc },
           });
+        }
+        // Also upsert secondary contracts — they don't appear in the paginated list and
+        // can't be fetched individually, so they must be tracked via their parent's details.
+        for (const sec of (rc._secondary || [])) {
+          const secExtId = String(sec.codlocacontrato || '');
+          if (!secExtId) continue;
+          const secExists = await (prisma as any).eventContract.findFirst({ where: { externalId: secExtId } });
+          if (secExists) {
+            await (prisma as any).eventContract.update({ where: { id: secExists.id }, data: { rawJson: sec } });
+          } else {
+            await (prisma as any).eventContract.create({
+              data: { eventId, externalId: secExtId, clientCode, startDate, rawJson: sec },
+            });
+          }
         }
       }
 
@@ -585,7 +599,23 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     // 4. Find IDs not yet in DB at all
     const unknownIds = userpIds.filter(id => !globalImportedIds.has(String(id)));
 
-    if (unknownIds.length === 0) {
+    // 4b. Check secondaries of already-imported event contracts for new entries.
+    // Secondary contracts never appear in the paginated list — they're only accessible
+    // via their parent main contract's details endpoint. We re-fetch each main contract
+    // to detect secondaries added after the original import.
+    const secondaryPending: { secId: string; mainDetail: any }[] = [];
+    for (const ec of eventContracts) {
+      const detail = await fetchContratoDetails(baseUrl, Number(ec.externalId));
+      if (!detail?.secondary?.length) continue;
+      for (const sec of detail.secondary) {
+        const secId = String(sec.codlocacontrato || '');
+        if (secId && !globalImportedIds.has(secId)) {
+          secondaryPending.push({ secId, mainDetail: detail });
+        }
+      }
+    }
+
+    if (unknownIds.length === 0 && secondaryPending.length === 0) {
       return { success: true, status: 'up_to_date' };
     }
 
@@ -603,6 +633,15 @@ export async function syncEventsRoutes(app: FastifyInstance) {
         if (contractClientCode === clientCode && contractStartDate === startDate) {
           pendingContracts.push({ ...main, _secondary: d.secondary || [] });
         }
+      }
+    }
+
+    // 5b. For secondary-triggered updates, push the parent main contract (with full secondary list)
+    // so buildItemsSnapshot sees all products. Secondary contracts can't be fetched individually.
+    for (const { mainDetail } of secondaryPending) {
+      const mainId = String(mainDetail.main?.codlocacontrato || '');
+      if (!pendingContracts.find((p: any) => String(p.codlocacontrato) === mainId)) {
+        pendingContracts.push({ ...mainDetail.main, _secondary: mainDetail.secondary });
       }
     }
 
@@ -694,14 +733,31 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       blockingReasons,
     };
 
+    // Build display list: new main contracts + newly-discovered secondary contracts
+    const mainContractDisplayIds = new Set(
+      pendingContracts
+        .filter((c: any) => !secondaryPending.some(s => String(s.mainDetail.main?.codlocacontrato) === String(c.codlocacontrato)))
+        .map((c: any) => String(c.codlocacontrato))
+    );
+    const displayContracts = [
+      ...pendingContracts
+        .filter((c: any) => mainContractDisplayIds.has(String(c.codlocacontrato)))
+        .map((c: any) => ({
+          id: String(c.codlocacontrato),
+          clientName: c.razaosocial || c.cliente_info?.razaosocial || clientCode,
+          startDate: c.data_checkin || startDate,
+        })),
+      ...secondaryPending.map(({ secId, mainDetail }) => ({
+        id: secId,
+        clientName: `Complemento do contrato #${mainDetail.main?.codlocacontrato}`,
+        startDate,
+      })),
+    ];
+
     return {
       success: true,
       status: 'pending',
-      pendingContracts: pendingContracts.map((c: any) => ({
-        id: String(c.codlocacontrato),
-        clientName: c.razaosocial || c.cliente_info?.razaosocial || clientCode,
-        startDate: c.data_checkin || '',
-      })),
+      pendingContracts: displayContracts,
       preview,
     };
   });
