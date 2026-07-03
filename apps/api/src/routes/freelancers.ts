@@ -596,10 +596,11 @@ export async function freelancerRoutes(app: FastifyInstance) {
     const where: any = {};
     if (query.status && query.status !== 'all') where.status = query.status;
     if (query.search) {
+      const cpfSearch = query.search.replace(/\D/g, '');
       where.OR = [
         { name: { contains: query.search, mode: 'insensitive' } },
         { email: { contains: query.search, mode: 'insensitive' } },
-        { cpf: { contains: query.search.replace(/\D/g, '') } },
+        ...(cpfSearch ? [{ cpf: { contains: cpfSearch } }] : []),
         { phone: { contains: query.search } },
       ];
     }
