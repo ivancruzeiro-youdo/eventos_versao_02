@@ -296,36 +296,35 @@ export async function guestRoutes(app: FastifyInstance) {
   });
 
   // Check-in by CPF (for QR/code entry)
-  app.post('/checkin/cpf/:cpf', { preHandler: requireAuth }, async (request, reply) => {
+  // Search guest by CPF within the active event window (4h before → 8h after startAt).
+  // UTC arithmetic is correct here: DB timestamps and Date() are both UTC.
+  app.get('/checkin/cpf/:cpf', { preHandler: requireAuth }, async (request, reply) => {
     const { cpf } = request.params as { cpf: string };
-    const user = (request as any).user;
 
-    const guest = await prisma.guest.findFirst({
-      where: { cpf },
+    const now = new Date();
+    const windowStart = new Date(now.getTime() - 8 * 60 * 60 * 1000); // 8h ago
+    const windowEnd   = new Date(now.getTime() + 4 * 60 * 60 * 1000); // 4h from now
+
+    const guests = await prisma.guest.findMany({
+      where: {
+        cpf,
+        event: { startAt: { gte: windowStart, lte: windowEnd } },
+      },
       include: { event: true },
     });
 
-    if (!guest) {
-      return reply.status(404).send({ error: 'Guest not found' });
+    if (guests.length === 0) {
+      return reply.status(404).send({ error: 'Convidado não encontrado em nenhum evento ativo no momento' });
     }
 
-    if (guest.status !== 'confirmed' && guest.status !== 'pending') {
-      return reply.status(400).send({
-        error: 'Guest cannot be checked in',
-        status: guest.status,
-      });
-    }
+    // Among matched events pick the one whose startAt is closest to now
+    const guest = guests.sort((a, b) => {
+      const da = Math.abs(new Date(a.event.startAt).getTime() - now.getTime());
+      const db = Math.abs(new Date(b.event.startAt).getTime() - now.getTime());
+      return da - db;
+    })[0];
 
-    const updated = await prisma.guest.update({
-      where: { id: guest.id },
-      data: {
-        status: 'checked_in',
-        checkedInAt: new Date(),
-        checkedInByUserId: user.id,
-      },
-    });
-
-    return { success: true, guest: updated };
+    return { success: true, guest };
   });
 
   // Generate RSVP token for guest
