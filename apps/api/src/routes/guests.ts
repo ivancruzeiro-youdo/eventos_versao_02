@@ -394,8 +394,9 @@ export async function guestRoutes(app: FastifyInstance) {
   // Import guests from CSV
   app.post('/events/:id/guests/import', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId } = request.params as { id: string };
-    const { guests } = request.body as { 
-      guests: { name: string; email?: string; phone?: string; cpf?: string; status?: string }[] 
+    const { guests, forceStatus } = request.body as {
+      guests: { name: string; email?: string; phone?: string; cpf?: string; status?: string }[];
+      forceStatus?: string;
     };
 
     if (!Array.isArray(guests) || guests.length === 0) {
@@ -404,6 +405,7 @@ export async function guestRoutes(app: FastifyInstance) {
 
     const results = {
       created: 0,
+      updated: 0,
       skipped: 0,
       errors: [] as string[],
     };
@@ -415,20 +417,27 @@ export async function guestRoutes(app: FastifyInstance) {
           continue;
         }
 
-        // Check if guest with same email or CPF already exists
-        const existingConditions: any[] = [{ eventId, name: guestData.name }];
-        if (guestData.email) existingConditions.push({ email: guestData.email });
-        if (guestData.cpf) existingConditions.push({ cpf: guestData.cpf });
+        const desiredStatus = (forceStatus || guestData.status || 'pending') as any;
 
-        const existing = await prisma.guest.findFirst({
-          where: {
-            OR: existingConditions,
-          },
-        });
+        // Deduplicate only by unique identifiers (email or CPF), never by name alone
+        const existingConditions: any[] = [];
+        if (guestData.email) existingConditions.push({ eventId, email: guestData.email });
+        if (guestData.cpf)   existingConditions.push({ eventId, cpf: guestData.cpf });
 
-        if (existing) {
-          results.skipped++;
-          continue;
+        if (existingConditions.length > 0) {
+          const existing = await prisma.guest.findFirst({ where: { OR: existingConditions } });
+          if (existing) {
+            if (forceStatus && existing.status !== forceStatus) {
+              await prisma.guest.update({
+                where: { id: existing.id },
+                data: { status: desiredStatus },
+              });
+              results.updated++;
+            } else {
+              results.skipped++;
+            }
+            continue;
+          }
         }
 
         await prisma.guest.create({
@@ -438,7 +447,7 @@ export async function guestRoutes(app: FastifyInstance) {
             email: guestData.email,
             phone: guestData.phone,
             cpf: guestData.cpf,
-            status: (guestData.status as any) || 'pending',
+            status: desiredStatus,
           },
         });
 
@@ -448,9 +457,6 @@ export async function guestRoutes(app: FastifyInstance) {
       }
     }
 
-    return reply.status(201).send({
-      success: true,
-      results,
-    });
+    return reply.status(201).send({ success: true, results });
   });
 }
