@@ -37,6 +37,7 @@ export default function EventGuestsTab({ eventId }: EventGuestsTabProps) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [showCsvModal, setShowCsvModal] = useState(false);
   const [csvText, setCsvText] = useState('');
+  const [importAsConfirmed, setImportAsConfirmed] = useState(false);
   const [selectedGuest, setSelectedGuest] = useState<Guest | null>(null);
   const [qrData, setQrData] = useState<string>('');
   const [showQrModal, setShowQrModal] = useState(false);
@@ -132,7 +133,7 @@ export default function EventGuestsTab({ eventId }: EventGuestsTabProps) {
       }
       const guests = lines.map(line => {
         const [name, email, phone, cpf, status] = line.split(/[,;]/).map(s => s.trim());
-        return { name, email, phone, cpf, status: status || undefined };
+        return { name, email, phone, cpf, status: importAsConfirmed ? 'confirmed' : (status || undefined) };
       }).filter(g => g.name);
 
       if (guests.length === 0) {
@@ -151,6 +152,7 @@ export default function EventGuestsTab({ eventId }: EventGuestsTabProps) {
       if (data.success) {
         alert(`Importação concluída: ${data.results.created} criados, ${data.results.skipped} ignorados`);
         setCsvText('');
+        setImportAsConfirmed(false);
         setShowCsvModal(false);
         loadGuests();
       }
@@ -358,11 +360,20 @@ export default function EventGuestsTab({ eventId }: EventGuestsTabProps) {
             placeholder="João Silva, joao@email.com, 11999999999, 12345678901&#10;Maria Souza, maria@email.com, 11888888888, 98765432109"
             className="w-full h-32 px-3 py-2 bg-background border rounded-lg font-mono text-sm"
           />
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={importAsConfirmed}
+              onChange={e => setImportAsConfirmed(e.target.checked)}
+              className="w-4 h-4"
+            />
+            <span className="text-sm">Importar todos como <strong>confirmados</strong></span>
+          </label>
           <div className="flex gap-2">
             <button onClick={importCsv} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg">
               Importar
             </button>
-            <button 
+            <button
               onClick={() => setShowCsvModal(false)}
               className="px-4 py-2 border rounded-lg"
             >
