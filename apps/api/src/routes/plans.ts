@@ -283,4 +283,61 @@ export async function planRoutes(app: FastifyInstance) {
 
     return { success: true };
   });
+
+  // ── Plan Template CRUD ──────────────────────────────────────────────────────
+
+  app.get('/plan-templates', { preHandler: requireAuth }, async () => {
+    const templates = await prisma.planTemplate.findMany({
+      include: { questions: { orderBy: { order: 'asc' } } },
+      orderBy: { createdAt: 'asc' },
+    });
+    return { success: true, templates };
+  });
+
+  app.post('/plan-templates', { preHandler: requireAuth }, async (request, reply) => {
+    const { title, description } = request.body as { title: string; description?: string };
+    if (!title?.trim()) return reply.status(400).send({ error: 'Título obrigatório' });
+    const template = await prisma.planTemplate.create({
+      data: { title: title.trim(), description: description?.trim() || null },
+      include: { questions: true },
+    });
+    return reply.status(201).send({ success: true, template });
+  });
+
+  app.delete('/plan-templates/:id', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    await prisma.planTemplate.delete({ where: { id } });
+    return { success: true };
+  });
+
+  app.post('/plan-templates/:id/questions', { preHandler: requireAuth }, async (request, reply) => {
+    const { id: templateId } = request.params as { id: string };
+    const { text, type, required, category, options } = request.body as {
+      text: string; type: string; required?: boolean; category?: string; options?: string[];
+    };
+    if (!text?.trim()) return reply.status(400).send({ error: 'Texto obrigatório' });
+
+    const last = await prisma.planTemplateQuestion.findFirst({
+      where: { templateId }, orderBy: { order: 'desc' },
+    });
+
+    const question = await prisma.planTemplateQuestion.create({
+      data: {
+        templateId,
+        text: text.trim(),
+        type: type as any,
+        required: required ?? false,
+        category: category?.trim() || null,
+        options: options ?? null,
+        order: (last?.order ?? -1) + 1,
+      },
+    });
+    return reply.status(201).send({ success: true, question });
+  });
+
+  app.delete('/plan-templates/:id/questions/:qid', { preHandler: requireAuth }, async (request, reply) => {
+    const { qid } = request.params as { id: string; qid: string };
+    await prisma.planTemplateQuestion.delete({ where: { id: qid } });
+    return { success: true };
+  });
 }

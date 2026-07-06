@@ -763,6 +763,40 @@ model BriefingTemplateQuestion {
 }
 
 // ============================================
+// Plan Templates
+// ============================================
+
+model PlanTemplate {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  employerId  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  questions PlanTemplateQuestion[]
+
+  @@index([employerId])
+}
+
+model PlanTemplateQuestion {
+  id         String       @id @default(uuid())
+  templateId String
+  text       String
+  type       QuestionType
+  required   Boolean      @default(false)
+  category   String?
+  options    Json?
+  order      Int          @default(0)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  template PlanTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId])
+}
+
+// ============================================
 // Produtos (importados do Userp-Satélite)
 // ============================================
 
