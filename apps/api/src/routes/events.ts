@@ -116,7 +116,7 @@ export async function eventRoutes(app: FastifyInstance) {
   });
 
   // Update event
-  app.patch('/:id', { preHandler: [requireAuth, requireRole(['admin', 'event_owner'])] }, async (request, reply) => {
+  app.patch('/:id', { preHandler: [requireAuth, requireRole(['admin', 'event_owner', 'operator'])] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const data = updateEventSchema.parse(request.body);
     const user = (request as any).user;

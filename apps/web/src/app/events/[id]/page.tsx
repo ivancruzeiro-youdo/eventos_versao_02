@@ -109,7 +109,7 @@ export default function EventDetailPage() {
     setSavingDates(true);
     try {
       const toUTC = (local: string) => local ? new Date(local + ':00-03:00').toISOString() : undefined;
-      await fetch(`/api/v2/events/${eventId}`, {
+      const response = await fetch(`/api/v2/events/${eventId}`, {
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -118,8 +118,15 @@ export default function EventDetailPage() {
           teardownAt: toUTC(dateForm.teardownAt),
         }),
       });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        alert(error.error || 'Erro ao salvar as datas do evento.');
+        return;
+      }
       await loadEvent();
       setEditingDates(false);
+    } catch (err) {
+      alert('Erro ao salvar as datas do evento.');
     } finally {
       setSavingDates(false);
     }

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../server.js';
 import { requireAuth } from '../middleware/auth.js';
 import multipart from '@fastify/multipart';
+import { uploadBufferToS3, createUploadPresignedUrl, createDownloadPresignedUrl, deleteS3Object } from '../lib/s3.js';
 
 const presignSchema = z.object({
   filename: z.string().min(1),
@@ -60,11 +61,7 @@ export async function fileRoutes(app: FastifyInstance) {
         return reply.status(400).send({ error: 'No file uploaded' });
       }
 
-      // Validate file size (128MB)
       const maxSize = 128 * 1024 * 1024;
-      if (data.file.bytesRead > maxSize) {
-        return reply.status(400).send({ error: 'File too large. Maximum size is 128MB' });
-      }
 
       // Get comment from fields
       let comment: string | null = null;
@@ -75,12 +72,21 @@ export async function fileRoutes(app: FastifyInstance) {
         comment = field?.value || null;
       }
 
+      const buffer = await data.toBuffer();
+
+      if (buffer.length > maxSize) {
+        return reply.status(400).send({ error: 'File too large. Maximum size is 128MB' });
+      }
+
       // Generate S3 key
       const s3Key = `events/${eventId}/${Date.now()}-${data.filename}`;
 
-      // TODO: Upload to S3
-      // For now, we'll just store the file metadata
-      // In production, use AWS SDK to upload to S3
+      try {
+        await uploadBufferToS3(s3Key, buffer, data.mimetype);
+      } catch (s3Error) {
+        console.error('S3 upload error:', s3Error);
+        return reply.status(502).send({ error: 'Falha ao enviar o arquivo para o armazenamento. Verifique a configuração do S3.' });
+      }
 
       const file = await prisma.file.create({
         data: {
@@ -88,7 +94,7 @@ export async function fileRoutes(app: FastifyInstance) {
           uploadedByUserId: user.id,
           name: data.filename,
           mimeType: data.mimetype,
-          sizeBytes: data.file.bytesRead,
+          sizeBytes: buffer.length,
           s3Key,
           comment,
         },
@@ -116,10 +122,15 @@ export async function fileRoutes(app: FastifyInstance) {
     const user = (request as any).user;
     const { filename, mimeType, sizeBytes } = presignSchema.parse(request.body);
 
-    // TODO: Implement actual S3 presigned URL generation
-    // For now, return mock URL
     const s3Key = `events/${eventId}/${Date.now()}-${filename}`;
-    const presignedUrl = `https://s3.amazonaws.com/${process.env.AWS_S3_BUCKET}/${s3Key}?X-Amz-Algorithm=AWS4-HMAC-SHA256&...`;
+
+    let presignedUrl: string;
+    try {
+      presignedUrl = await createUploadPresignedUrl(s3Key, mimeType);
+    } catch (s3Error) {
+      console.error('S3 presign error:', s3Error);
+      return reply.status(502).send({ error: 'Falha ao gerar URL de upload. Verifique a configuração do S3.' });
+    }
 
     return {
       success: true,
@@ -174,9 +185,13 @@ export async function fileRoutes(app: FastifyInstance) {
       return reply.status(404).send({ error: 'File not found' });
     }
 
-    // TODO: Generate presigned URL for S3 download
-    // For now, return mock URL
-    const downloadUrl = `https://s3.amazonaws.com/${process.env.AWS_S3_BUCKET}/${file.s3Key}?response-content-disposition=attachment`;
+    let downloadUrl: string;
+    try {
+      downloadUrl = await createDownloadPresignedUrl(file.s3Key, file.name);
+    } catch (s3Error) {
+      console.error('S3 download presign error:', s3Error);
+      return reply.status(502).send({ error: 'Falha ao gerar link de download. Verifique a configuração do S3.' });
+    }
 
     return {
       success: true,
@@ -204,8 +219,11 @@ export async function fileRoutes(app: FastifyInstance) {
       return reply.status(403).send({ error: 'Not authorized to delete this file' });
     }
 
-    // TODO: Delete from S3
-    // await s3.deleteObject({ Bucket: process.env.AWS_S3_BUCKET, Key: file.s3Key });
+    try {
+      await deleteS3Object(file.s3Key);
+    } catch (s3Error) {
+      console.error('S3 delete error:', s3Error);
+    }
 
     await prisma.file.delete({
       where: { id },

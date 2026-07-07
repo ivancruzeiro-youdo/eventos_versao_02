@@ -4,7 +4,7 @@ WORKDIR /app
 # Install OpenSSL 1.1 compatibility for Prisma
 RUN apk add --no-cache openssl1.1-compat || apk add --no-cache openssl
 
-RUN npm install -g pnpm@9
+RUN npm install -g pnpm@11
 
 # Copy package files for dependency installation
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
