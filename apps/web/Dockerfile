@@ -1,8 +1,8 @@
 # Build stage
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 
-RUN npm install -g pnpm@9
+RUN npm install -g pnpm@11
 
 # NEXT_PUBLIC_API_URL is baked into the client bundle at build time
 # Set to the public-facing URL so the browser can reach the API via nginx
@@ -25,10 +25,10 @@ COPY packages/config ./packages/config
 RUN pnpm --filter @youdo/web build
 
 # Production stage
-FROM node:20-alpine AS production
+FROM node:22-alpine AS production
 WORKDIR /app
 
-RUN npm install -g pnpm@9
+RUN npm install -g pnpm@11
 
 # Copy package files
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
