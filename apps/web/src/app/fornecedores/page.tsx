@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Layout from '@/components/Layout';
-import { Plus, Pencil, Trash2, X, Search, Phone, Clock, Truck, User, Package } from 'lucide-react';
+import { Plus, Pencil, Trash2, X, Search, Package } from 'lucide-react';
 
 interface Supplier {
   id: string;
@@ -134,7 +134,7 @@ export default function FornecedoresPage() {
           />
         </div>
 
-        {/* List */}
+        {/* Table */}
         {loading ? (
           <p className="text-center text-muted-foreground py-12">Carregando...</p>
         ) : filtered.length === 0 ? (
@@ -143,68 +143,58 @@ export default function FornecedoresPage() {
             <p>{search ? 'Nenhum fornecedor encontrado.' : 'Nenhum fornecedor cadastrado ainda.'}</p>
           </div>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {filtered.map(s => (
-              <div key={s.id} className="bg-white border rounded-xl p-4 space-y-3 shadow-sm hover:shadow transition">
-                {/* Name + actions */}
-                <div className="flex items-start justify-between gap-2">
-                  <h2 className="font-semibold text-base leading-tight">{s.name}</h2>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button onClick={() => openEdit(s)} className="p-1.5 text-muted-foreground hover:text-primary rounded transition">
-                      <Pencil size={14} />
-                    </button>
-                    <button onClick={() => remove(s.id, s.name)} className="p-1.5 text-muted-foreground hover:text-red-500 rounded transition">
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Insumos */}
-                {s.insumos && (
-                  <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-line border-l-2 border-primary/30 pl-2">
-                    {s.insumos}
-                  </p>
-                )}
-
-                {/* Details */}
-                <div className="space-y-1.5 text-xs text-muted-foreground">
-                  {s.responsavel && (
-                    <div className="flex items-center gap-2">
-                      <User size={12} className="shrink-0" />
-                      <span>{s.responsavel}</span>
-                    </div>
-                  )}
-                  {s.contato && (
-                    <div className="flex items-center gap-2">
-                      <Phone size={12} className="shrink-0" />
-                      {isUrl(s.contato) ? (
-                        <a href={s.contato} target="_blank" rel="noreferrer" className="text-primary hover:underline truncate">
-                          Ver link
-                        </a>
-                      ) : (
-                        <span>{s.contato}</span>
-                      )}
-                    </div>
-                  )}
-                  {s.atendimento && (
-                    <div className="flex items-center gap-2">
-                      <Clock size={12} className="shrink-0" />
-                      <span>{s.atendimento}</span>
-                    </div>
-                  )}
-                  {s.entrega && (
-                    <div className="flex items-center gap-2">
-                      <Truck size={12} className="shrink-0" />
-                      <span>Entrega: {s.entrega}</span>
-                    </div>
-                  )}
-                </div>
-
-                {s.notes && (
-                  <p className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1">{s.notes}</p>
-                )}
-              </div>
-            ))}
+          <div className="overflow-x-auto rounded-xl border bg-white shadow-sm">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-gray-50 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  <th className="px-4 py-3 text-left">Insumo</th>
+                  <th className="px-4 py-3 text-left">Fornecedor</th>
+                  <th className="px-4 py-3 text-left">Responsável</th>
+                  <th className="px-4 py-3 text-left">Contato</th>
+                  <th className="px-4 py-3 text-left">Atendimento</th>
+                  <th className="px-4 py-3 text-left">Entrega</th>
+                  <th className="px-4 py-3 text-left w-16"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {filtered.map(s => (
+                  <tr key={s.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-3 text-muted-foreground whitespace-pre-line leading-relaxed max-w-[220px]">
+                      {s.insumos || <span className="italic opacity-40">—</span>}
+                    </td>
+                    <td className="px-4 py-3 font-medium whitespace-nowrap">{s.name}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {s.responsavel || <span className="text-muted-foreground opacity-40">—</span>}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {s.contato ? (
+                        isUrl(s.contato) ? (
+                          <a href={s.contato} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                            Ver link
+                          </a>
+                        ) : s.contato
+                      ) : <span className="text-muted-foreground opacity-40">—</span>}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">
+                      {s.atendimento || <span className="opacity-40">—</span>}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">
+                      {s.entrega || <span className="opacity-40">—</span>}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => openEdit(s)} className="p-1.5 text-muted-foreground hover:text-primary rounded transition" title="Editar">
+                          <Pencil size={13} />
+                        </button>
+                        <button onClick={() => remove(s.id, s.name)} className="p-1.5 text-muted-foreground hover:text-red-500 rounded transition" title="Excluir">
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
