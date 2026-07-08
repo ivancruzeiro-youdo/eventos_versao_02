@@ -213,9 +213,12 @@ function GuestsTab({ token, jwt }: { token: string; jwt: string }) {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
+  const [showCsvModal, setShowCsvModal] = useState(false);
+  const [csvText, setCsvText] = useState('');
   const [editingGuest, setEditingGuest] = useState<Guest | null>(null);
   const [form, setForm] = useState({ name: '', email: '', phone: '', cpf: '' });
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [importAsConfirmed, setImportAsConfirmed] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -268,16 +271,13 @@ function GuestsTab({ token, jwt }: { token: string; jwt: string }) {
     load(search);
   }
 
-  async function importCsv(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const text = await file.text();
-    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  function parseGuestText(text: string) {
+    const lines = text.trim().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (lines.length === 0) return [];
     const headers = lines[0].split(/[,;]/).map(h => h.trim().toLowerCase().replace(/["']/g, ''));
     const isHeader = headers.some(h => ['nome', 'name', 'email', 'cpf'].includes(h));
     const dataLines = isHeader ? lines.slice(1) : lines;
-
-    const guestList = dataLines.map(line => {
+    return dataLines.map(line => {
       const cols = line.split(/[,;]/).map(c => c.trim().replace(/^["']|["']$/g, ''));
       if (isHeader) {
         const row: any = {};
@@ -285,21 +285,38 @@ function GuestsTab({ token, jwt }: { token: string; jwt: string }) {
         return { name: row.nome || row.name || cols[0], email: row.email || '', phone: row.telefone || row.phone || '', cpf: row.cpf || '' };
       }
       return { name: cols[0], email: cols[1] || '', phone: cols[2] || '', cpf: cols[3] || '' };
-    }).filter(g => g.name);
+    }).filter(g => g.name?.trim());
+  }
 
-    if (guestList.length === 0) { alert('Nenhum convidado encontrado no arquivo.'); return; }
-
-    const res = await fetch(`/api/v2/client/${token}/guests/import`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-client-auth': jwt },
-      body: JSON.stringify({ guests: guestList, forceStatus: importAsConfirmed ? 'confirmed' : undefined }),
-    });
-    const data = await res.json();
-    if (data.success) {
-      alert(`Importação concluída: ${data.results.created} criados, ${data.results.updated} atualizados, ${data.results.skipped} ignorados.`);
-      load(search);
+  async function doImport(text: string) {
+    const guestList = parseGuestText(text);
+    if (guestList.length === 0) { alert('Nenhum convidado válido encontrado.'); return; }
+    setImporting(true);
+    try {
+      const res = await fetch(`/api/v2/client/${token}/guests/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-client-auth': jwt },
+        body: JSON.stringify({ guests: guestList, forceStatus: importAsConfirmed ? 'confirmed' : undefined }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(`Importação concluída: ${data.results.created} criados, ${data.results.updated} atualizados, ${data.results.skipped} ignorados.`);
+        setCsvText('');
+        setShowCsvModal(false);
+        load(search);
+      }
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
-    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setCsvText(String(reader.result ?? ''));
+    reader.readAsText(file);
   }
 
   const confirmed = guests.filter(g => g.status === 'confirmed' || g.status === 'checked_in').length;
@@ -339,20 +356,58 @@ function GuestsTab({ token, jwt }: { token: string; jwt: string }) {
         >
           <Plus size={14} /> Adicionar
         </button>
-        <label className="flex items-center gap-1.5 px-3 py-2 border rounded-lg text-sm cursor-pointer hover:bg-gray-50">
-          <Upload size={14} /> CSV
-          <input ref={fileInputRef} type="file" accept=".csv,.txt" className="hidden" onChange={importCsv} />
-        </label>
-        <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={importAsConfirmed}
-            onChange={e => setImportAsConfirmed(e.target.checked)}
-            className="w-4 h-4"
-          />
-          Importar como confirmado
-        </label>
+        <button
+          onClick={() => { setCsvText(''); setShowCsvModal(true); }}
+          className="flex items-center gap-1.5 px-3 py-2 border rounded-lg text-sm hover:bg-gray-50"
+        >
+          <Upload size={14} /> CSV / Colar
+        </button>
       </div>
+
+      {/* CSV / Paste modal */}
+      {showCsvModal && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="font-medium text-sm text-blue-900">Importar lista de convidados</p>
+            <button onClick={() => setShowCsvModal(false)}><X size={16} className="text-gray-400" /></button>
+          </div>
+          <p className="text-xs text-gray-500">
+            Colunas: <strong>nome, email, telefone, cpf</strong> — separadas por vírgula ou ponto-e-vírgula. Uma linha por convidado. Pode colar diretamente ou selecionar um arquivo .csv.
+          </p>
+          <label className="flex items-center gap-2 px-3 py-2 border border-blue-300 rounded-lg cursor-pointer hover:bg-blue-100 w-fit text-sm text-blue-700 bg-white">
+            <Upload size={14} /> Selecionar arquivo .csv
+            <input ref={fileInputRef} type="file" accept=".csv,.txt" className="hidden" onChange={handleFileChange} />
+          </label>
+          <textarea
+            value={csvText}
+            onChange={e => setCsvText(e.target.value)}
+            placeholder={"João Silva, joao@email.com, 11999999999\nMaria Souza, maria@email.com, 11888888888\nPedro Costa"}
+            rows={6}
+            className="w-full px-3 py-2 border rounded-lg text-sm font-mono bg-white focus:ring-2 focus:ring-blue-300 outline-none resize-none"
+          />
+          <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={importAsConfirmed}
+              onChange={e => setImportAsConfirmed(e.target.checked)}
+              className="w-4 h-4"
+            />
+            Importar todos como <strong>confirmados</strong>
+          </label>
+          <div className="flex gap-2">
+            <button
+              onClick={() => doImport(csvText)}
+              disabled={importing || !csvText.trim()}
+              className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+            >
+              {importing ? 'Importando...' : 'Importar'}
+            </button>
+            <button onClick={() => setShowCsvModal(false)} className="px-4 py-2 border rounded-lg text-sm">
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Add/Edit form */}
       {showForm && (
