@@ -1381,3 +1381,18 @@ model EventNPSOrganizador {
   @@index([eventId])
   @@index([token])
 }
+
+model Supplier {
+  id          String   @id @default(uuid())
+  name        String
+  responsavel String?
+  contato     String?
+  atendimento String?
+  entrega     String?
+  insumos     String?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([name])
+}

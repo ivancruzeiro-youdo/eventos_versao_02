@@ -33,6 +33,7 @@ import { kitchenPlanRoutes } from './routes/kitchen-plan.js';
 import { acessosRoutes } from './routes/acessos.js';
 import { closureRoutes } from './routes/closure.js';
 import { clientRoutes } from './routes/client.js';
+import { supplierRoutes } from './routes/suppliers.js';
 
 const logger = pino({
   transport: {
@@ -158,6 +159,7 @@ const start = async () => {
   await app.register(acessosRoutes, { prefix: '/api/v2' });
   await app.register(closureRoutes, { prefix: '/api/v2' });
   await app.register(clientRoutes, { prefix: '/api/v2' });
+  await app.register(supplierRoutes, { prefix: '/api/v2' });
 
     const port = parseInt(process.env.PORT || '3001', 10);
     const host = process.env.HOST || '0.0.0.0';

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { ChevronDown, ChevronRight, LayoutDashboard, Calendar, MapPin, Users, FileText, Settings, LogOut, ChefHat, Package, UtensilsCrossed, ShoppingCart, ClipboardList, BrainCircuit, SlidersHorizontal, Menu, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, LayoutDashboard, Calendar, MapPin, Users, FileText, Settings, LogOut, ChefHat, Package, UtensilsCrossed, ShoppingCart, ClipboardList, BrainCircuit, SlidersHorizontal, Menu, X, Truck } from 'lucide-react';
 import { logoutHub } from '@/lib/sso';
 import { authApi, ApiError } from '@/lib/api';
 
@@ -24,6 +24,7 @@ const mainNavigation = [
   { name: 'Eventos', href: '/events', icon: Calendar },
   { name: 'Locais', href: '/venues', icon: MapPin },
   { name: 'Freelancers', href: '/freelancers', icon: Users },
+  { name: 'Fornecedores', href: '/fornecedores', icon: Truck },
   { name: 'Relatórios', href: '/reports', icon: FileText },
 ];
 
