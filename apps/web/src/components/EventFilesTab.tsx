@@ -234,18 +234,19 @@ export default function EventFilesTab({ eventId }: EventFilesTabProps) {
                     <span>{formatDate(file.createdAt)}</span>
                   </div>
                 </div>
-                <div className="flex-shrink-0 flex gap-1">
+                <div className="flex-shrink-0 flex items-center gap-4">
                   <button
                     onClick={() => handleDownload(file.id, file.name)}
-                    className="p-1 text-muted-foreground hover:text-primary transition"
-                    title="Baixar"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-primary-50 text-primary-700 hover:bg-primary-100 rounded-lg text-sm font-medium transition"
+                    title="Ver / Baixar arquivo"
                   >
-                    <Download size={16} />
+                    <Download size={14} />
+                    VER
                   </button>
                   <button
                     onClick={() => handleDelete(file.id)}
-                    className="p-1 text-muted-foreground hover:text-red-500 transition"
-                    title="Excluir"
+                    className="p-2 text-gray-300 hover:text-red-500 transition"
+                    title="Excluir arquivo"
                   >
                     <Trash2 size={16} />
                   </button>
