@@ -14,7 +14,7 @@ async function fetchApi(endpoint: string, options: RequestInit = {}) {
     ...options,
     credentials: 'include',
     headers: {
-      'Content-Type': 'application/json',
+      ...(options.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
       ...options.headers,
     },
   });
