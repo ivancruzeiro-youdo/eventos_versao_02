@@ -394,4 +394,31 @@ export async function eventRoutes(app: FastifyInstance) {
     await (prisma as any).venueQuestion.delete({ where: { id: qId } });
     return { success: true };
   });
+
+  // Generate (or regenerate) unique client portal link for an event
+  app.post('/:id/generate-client-token', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const clientToken = crypto.randomUUID();
+    const event = await prisma.event.update({
+      where: { id },
+      data: { clientToken },
+      select: { id: true, clientToken: true, reservationNumber: true },
+    });
+    return { success: true, event };
+  });
+
+  // Set or update the reservation number for an event
+  app.patch('/:id/reservation-number', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { reservationNumber } = request.body as { reservationNumber: string };
+    if (!reservationNumber?.trim()) {
+      return reply.status(400).send({ error: 'Número de reserva obrigatório' });
+    }
+    const event = await prisma.event.update({
+      where: { id },
+      data: { reservationNumber: reservationNumber.trim() },
+      select: { id: true, clientToken: true, reservationNumber: true },
+    });
+    return { success: true, event };
+  });
 }

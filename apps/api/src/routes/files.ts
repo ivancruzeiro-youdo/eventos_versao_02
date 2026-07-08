@@ -201,6 +201,22 @@ export async function fileRoutes(app: FastifyInstance) {
     };
   });
 
+  // Toggle client visibility for a file
+  app.patch('/files/:id/client-visibility', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { visibleToClient } = request.body as { visibleToClient: boolean };
+
+    const file = await prisma.file.findUnique({ where: { id } });
+    if (!file) return reply.status(404).send({ error: 'File not found' });
+
+    const updated = await prisma.file.update({
+      where: { id },
+      data: { visibleToClient: Boolean(visibleToClient) },
+    });
+
+    return { success: true, file: updated };
+  });
+
   // Delete file
   app.delete('/files/:id', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };

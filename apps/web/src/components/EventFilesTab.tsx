@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { FileText, Upload, Trash2, Download, Clock, User, FileImage, FileVideo, FileText as FilePdf } from 'lucide-react';
+import { FileText, Upload, Trash2, Download, Clock, User, FileImage, FileVideo, FileText as FilePdf, Eye, EyeOff } from 'lucide-react';
 
 interface File {
   id: string;
@@ -9,6 +9,7 @@ interface File {
   mimeType: string;
   sizeBytes: number;
   comment: string | null;
+  visibleToClient: boolean;
   createdAt: string;
   uploadedBy: {
     id: string;
@@ -91,6 +92,22 @@ export default function EventFilesTab({ eventId }: EventFilesTabProps) {
       alert('Erro ao fazer upload');
     } finally {
       setUploading(false);
+    }
+  };
+
+  const toggleClientVisibility = async (fileId: string, current: boolean) => {
+    try {
+      const res = await fetch(`/api/v2/files/${fileId}/client-visibility`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ visibleToClient: !current }),
+      });
+      if (res.ok) {
+        setFiles(files.map(f => f.id === fileId ? { ...f, visibleToClient: !current } : f));
+      }
+    } catch (error) {
+      console.error('Error toggling visibility:', error);
     }
   };
 
@@ -234,7 +251,19 @@ export default function EventFilesTab({ eventId }: EventFilesTabProps) {
                     <span>{formatDate(file.createdAt)}</span>
                   </div>
                 </div>
-                <div className="flex-shrink-0 flex items-center gap-4">
+                <div className="flex-shrink-0 flex items-center gap-3">
+                  <button
+                    onClick={() => toggleClientVisibility(file.id, file.visibleToClient)}
+                    className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition ${
+                      file.visibleToClient
+                        ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                        : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                    }`}
+                    title={file.visibleToClient ? 'Visível ao cliente — clique para ocultar' : 'Oculto ao cliente — clique para exibir'}
+                  >
+                    {file.visibleToClient ? <Eye size={12} /> : <EyeOff size={12} />}
+                    Cliente
+                  </button>
                   <button
                     onClick={() => handleDownload(file.id, file.name)}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-primary-50 text-primary-700 hover:bg-primary-100 rounded-lg text-sm font-medium transition"

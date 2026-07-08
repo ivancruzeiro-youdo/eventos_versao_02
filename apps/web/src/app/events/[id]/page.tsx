@@ -31,6 +31,8 @@ interface Event {
   startAt: string | null;
   teardownAt: string | null;
   notes: string | null;
+  clientToken: string | null;
+  reservationNumber: string | null;
   venues: { venue: { id: string; name: string; address: string | null } }[];
   guests: { id: string; name: string; phone: string | null; cpf: string | null; status: string }[];
   _count?: { guests: number };
@@ -90,6 +92,12 @@ export default function EventDetailPage() {
   const [editingDates, setEditingDates] = useState(false);
   const [dateForm, setDateForm] = useState({ startAt: '', teardownAt: '' });
   const [savingDates, setSavingDates] = useState(false);
+
+  // Client portal
+  const [showClientPanel, setShowClientPanel] = useState(false);
+  const [reservationInput, setReservationInput] = useState('');
+  const [savingReservation, setSavingReservation] = useState(false);
+  const [generatingToken, setGeneratingToken] = useState(false);
 
   function toLocalInput(iso: string | null): string {
     if (!iso) return '';
@@ -350,6 +358,37 @@ export default function EventDetailPage() {
     alert('URL da recepcionista copiada: ' + url);
   }
 
+  async function generateClientToken() {
+    setGeneratingToken(true);
+    try {
+      const res = await fetch(`/api/v2/events/${eventId}/generate-client-token`, {
+        method: 'POST', credentials: 'include',
+      });
+      if (res.ok) await loadEvent();
+    } finally { setGeneratingToken(false); }
+  }
+
+  async function saveReservationNumber() {
+    if (!reservationInput.trim()) return;
+    setSavingReservation(true);
+    try {
+      const res = await fetch(`/api/v2/events/${eventId}/reservation-number`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reservationNumber: reservationInput.trim() }),
+      });
+      if (res.ok) { await loadEvent(); setReservationInput(''); }
+    } finally { setSavingReservation(false); }
+  }
+
+  function copyClientUrl() {
+    if (!event?.clientToken) return;
+    const url = `${window.location.origin}/client/${event.clientToken}`;
+    navigator.clipboard.writeText(url);
+    alert('Link do cliente copiado!');
+  }
+
   if (loading) {
     return (
       <Layout>
@@ -402,6 +441,14 @@ export default function EventDetailPage() {
               <Copy size={14} />
               <span className="hidden sm:inline">Recepcionista</span>
             </button>
+            <button
+              onClick={() => { setShowClientPanel(v => !v); setReservationInput(event?.reservationNumber || ''); }}
+              className="px-3 py-1 border rounded-lg text-sm bg-background hover:bg-accent flex items-center gap-1"
+              title="Portal do cliente"
+            >
+              <UserCog size={14} />
+              <span className="hidden sm:inline">Cliente</span>
+            </button>
 
             {/* Iniciar Evento: visível em draft e confirmed */}
             {(event.status === 'draft' || event.status === 'confirmed') && (
@@ -437,6 +484,76 @@ export default function EventDetailPage() {
             )}
           </div>
         </div>
+
+        {/* Client portal panel */}
+        {showClientPanel && (
+          <div className="mt-3 bg-blue-50 border border-blue-200 rounded-xl px-5 py-4">
+            <h3 className="text-sm font-semibold text-blue-900 mb-3 flex items-center gap-2">
+              <UserCog size={15} /> Portal do Cliente
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Reservation number */}
+              <div>
+                <p className="text-xs font-medium text-blue-700 mb-1">Número de Reserva (senha do cliente)</p>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={reservationInput}
+                    onChange={e => setReservationInput(e.target.value)}
+                    placeholder={event.reservationNumber || 'Ex: RES-2024-001'}
+                    className="flex-1 px-3 py-1.5 border rounded-lg text-sm bg-white"
+                  />
+                  <button
+                    onClick={saveReservationNumber}
+                    disabled={savingReservation || !reservationInput.trim()}
+                    className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+                  >
+                    {savingReservation ? '...' : 'Salvar'}
+                  </button>
+                </div>
+                {event.reservationNumber && (
+                  <p className="text-xs text-blue-600 mt-1">Atual: <strong>{event.reservationNumber}</strong></p>
+                )}
+              </div>
+              {/* Link */}
+              <div>
+                <p className="text-xs font-medium text-blue-700 mb-1">Link único do cliente</p>
+                {event.clientToken ? (
+                  <div className="flex gap-2">
+                    <input
+                      readOnly
+                      value={`${typeof window !== 'undefined' ? window.location.origin : ''}/client/${event.clientToken}`}
+                      className="flex-1 px-3 py-1.5 border rounded-lg text-xs bg-white text-gray-600"
+                    />
+                    <button
+                      onClick={copyClientUrl}
+                      className="px-3 py-1.5 bg-white border border-blue-300 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-50"
+                      title="Copiar link"
+                    >
+                      <Copy size={14} />
+                    </button>
+                    <button
+                      onClick={generateClientToken}
+                      disabled={generatingToken}
+                      className="px-3 py-1.5 bg-white border border-blue-300 text-blue-600 rounded-lg text-xs hover:bg-blue-50 disabled:opacity-50"
+                      title="Gerar novo link (invalida o anterior)"
+                    >
+                      {generatingToken ? '...' : 'Novo'}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={generateClientToken}
+                    disabled={generatingToken}
+                    className="px-4 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+                  >
+                    {generatingToken ? 'Gerando...' : 'Gerar Link'}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Info card */}
         <div className="mt-4 bg-card border rounded-xl px-5 py-4">

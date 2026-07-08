@@ -157,17 +157,19 @@ enum EventStatus {
 }
 
 model Event {
-  id          String      @id @default(uuid())
-  name        String
-  clientName  String
-  employerId  String
-  status      EventStatus @default(draft)
-  setupAt     DateTime?
-  startAt     DateTime?
-  teardownAt  DateTime?
-  notes       String?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  id                String      @id @default(uuid())
+  name              String
+  clientName        String
+  employerId        String
+  status            EventStatus @default(draft)
+  setupAt           DateTime?
+  startAt           DateTime?
+  teardownAt        DateTime?
+  notes             String?
+  clientToken       String?     @unique
+  reservationNumber String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
 
   employer     Employer     @relation(fields: [employerId], references: [id])
   venues       EventVenue[]
@@ -667,15 +669,16 @@ model Team {
 // ============================================
 
 model File {
-  id              String   @id @default(uuid())
-  eventId         String
+  id               String   @id @default(uuid())
+  eventId          String
   uploadedByUserId String?
-  name            String
-  mimeType        String
-  sizeBytes       Int
-  s3Key           String
-  comment         String?
-  createdAt       DateTime @default(now())
+  name             String
+  mimeType         String
+  sizeBytes        Int
+  s3Key            String
+  comment          String?
+  visibleToClient  Boolean  @default(false)
+  createdAt        DateTime @default(now())
 
   event       Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
   uploadedBy  User? @relation("uploadedBy", fields: [uploadedByUserId], references: [id])

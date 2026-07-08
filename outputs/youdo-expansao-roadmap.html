@@ -1,0 +1,1276 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>YouDo | Roadmap de Expansão</title>
+  <style>
+    :root {
+      --bg: #f6f7f4;
+      --panel: #ffffff;
+      --panel-2: #eef3ef;
+      --ink: #20231f;
+      --muted: #687067;
+      --line: #d8ded6;
+      --green: #23735a;
+      --green-2: #49a078;
+      --blue: #335c81;
+      --yellow: #c89425;
+      --red: #b55345;
+      --charcoal: #303833;
+      --shadow: 0 12px 34px rgba(32, 35, 31, .08);
+      --radius: 8px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background:
+        linear-gradient(180deg, rgba(35, 115, 90, .08), transparent 320px),
+        var(--bg);
+    }
+
+    button, input, select, textarea {
+      font: inherit;
+    }
+
+    button {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--ink);
+      cursor: pointer;
+      min-height: 38px;
+      padding: 8px 12px;
+    }
+
+    button:hover {
+      border-color: #b9c7bd;
+      box-shadow: 0 4px 16px rgba(32, 35, 31, .08);
+    }
+
+    .app {
+      max-width: 1500px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    header {
+      display: grid;
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .mark {
+      width: 46px;
+      height: 46px;
+      border-radius: 8px;
+      background: var(--charcoal);
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font-weight: 800;
+      letter-spacing: .04em;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(28px, 4vw, 48px);
+      line-height: 1;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .primary {
+      background: var(--green);
+      border-color: var(--green);
+      color: white;
+      font-weight: 700;
+    }
+
+    .danger {
+      color: var(--red);
+      border-color: rgba(181, 83, 69, .35);
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(180px, 1fr));
+      gap: 12px;
+    }
+
+    .metric {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 16px;
+      box-shadow: var(--shadow);
+    }
+
+    .metric small {
+      display: block;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 28px;
+      line-height: 1;
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      margin-top: 8px;
+      font-size: 13px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      padding: 6px;
+      background: rgba(255, 255, 255, .7);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      backdrop-filter: blur(10px);
+    }
+
+    .tab {
+      min-height: 36px;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .tab.active {
+      color: white;
+      background: var(--charcoal);
+    }
+
+    main {
+      margin-top: 16px;
+    }
+
+    .view { display: none; }
+    .view.active { display: block; }
+
+    .section-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 16px;
+      margin: 22px 0 12px;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.15;
+    }
+
+    .hint {
+      color: var(--muted);
+      margin: 6px 0 0;
+      font-size: 14px;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(360px, .7fr);
+      gap: 14px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .panel-pad { padding: 16px; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th, td {
+      padding: 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      background: #fbfcfa;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 98px;
+      justify-content: center;
+      padding: 5px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 800;
+      border: 1px solid transparent;
+    }
+
+    .status.done { color: #14624c; background: #e4f3ec; border-color: #bfdfd0; }
+    .status.progress { color: #245176; background: #e7f0f8; border-color: #c3d8e9; }
+    .status.todo { color: #7a5714; background: #fff4d9; border-color: #f0d38d; }
+    .status.blocked { color: #963e34; background: #f9e6e2; border-color: #e7b8af; }
+
+    select, input, textarea {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: white;
+      color: var(--ink);
+      min-height: 38px;
+      padding: 8px 10px;
+      width: 100%;
+    }
+
+    textarea {
+      min-height: 84px;
+      resize: vertical;
+    }
+
+    .filters {
+      display: grid;
+      grid-template-columns: 1fr 180px 180px;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .progress {
+      height: 8px;
+      background: #e7ece6;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .progress span {
+      display: block;
+      height: 100%;
+      background: linear-gradient(90deg, var(--green), var(--green-2));
+    }
+
+    .gantt {
+      overflow-x: auto;
+    }
+
+    .gantt-grid {
+      min-width: 980px;
+      display: grid;
+      grid-template-columns: 250px repeat(6, 1fr);
+      border-top: 1px solid var(--line);
+      border-left: 1px solid var(--line);
+    }
+
+    .gantt-cell, .gantt-head, .gantt-task {
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      min-height: 46px;
+      display: flex;
+      align-items: center;
+      padding: 8px 10px;
+      background: white;
+    }
+
+    .gantt-head {
+      background: #fbfcfa;
+      color: var(--muted);
+      font-weight: 800;
+      text-transform: uppercase;
+      font-size: 12px;
+      letter-spacing: .04em;
+      justify-content: center;
+    }
+
+    .gantt-task {
+      font-weight: 700;
+      position: sticky;
+      left: 0;
+      z-index: 2;
+    }
+
+    .gantt-cell {
+      justify-content: center;
+      position: relative;
+    }
+
+    .bar {
+      width: 100%;
+      height: 18px;
+      border-radius: 999px;
+      background: var(--green);
+      opacity: .96;
+    }
+
+    .bar.light { opacity: .45; }
+    .bar.blue { background: var(--blue); }
+    .bar.yellow { background: var(--yellow); }
+    .bar.red { background: var(--red); }
+
+    .kanban {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(220px, 1fr));
+      gap: 12px;
+    }
+
+    .lane {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 12px;
+      min-height: 240px;
+    }
+
+    .lane h3 {
+      margin: 0 0 10px;
+      font-size: 14px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+
+    .card {
+      background: white;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 12px;
+      margin-bottom: 10px;
+      box-shadow: 0 6px 18px rgba(32, 35, 31, .06);
+    }
+
+    .card strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .score {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      font-weight: 900;
+      color: white;
+      background: var(--green);
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+
+    .form-grid .wide { grid-column: span 2; }
+    .form-grid .full { grid-column: 1 / -1; }
+
+    label {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+
+    .small-actions {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .icon-btn {
+      width: 34px;
+      min-height: 34px;
+      padding: 0;
+      display: inline-grid;
+      place-items: center;
+      font-weight: 900;
+    }
+
+    .money {
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .drawer {
+      border-top: 1px solid var(--line);
+      background: #fbfcfa;
+      padding: 14px 16px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .room-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(260px, 1fr));
+      gap: 12px;
+    }
+
+    .checklist {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .check-row {
+      display: grid;
+      grid-template-columns: 22px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding: 9px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: white;
+    }
+
+    .check-row input { width: 18px; min-height: 18px; }
+    .check-row small { color: var(--muted); }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 4px 8px;
+      background: #edf1ed;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .timeline {
+      display: grid;
+      gap: 12px;
+    }
+
+    .milestone {
+      display: grid;
+      grid-template-columns: 110px 1fr;
+      gap: 14px;
+      align-items: start;
+    }
+
+    .milestone time {
+      background: var(--charcoal);
+      color: white;
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-weight: 800;
+      text-align: center;
+    }
+
+    .milestone div {
+      border-left: 3px solid var(--green);
+      padding-left: 12px;
+    }
+
+    .milestone h3 {
+      margin: 0 0 4px;
+      font-size: 16px;
+    }
+
+    .milestone p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .empty {
+      padding: 22px;
+      text-align: center;
+      color: var(--muted);
+    }
+
+    @media (max-width: 1100px) {
+      .summary-grid, .grid-2, .kanban, .room-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .form-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .app { padding: 14px; }
+      .summary-grid, .grid-2, .kanban, .room-grid, .filters, .form-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .form-grid .wide { grid-column: auto; }
+      .topbar { align-items: stretch; }
+      .actions { width: 100%; }
+      .actions button { flex: 1; }
+      th, td { padding: 10px 8px; }
+      .milestone { grid-template-columns: 1fr; }
+    }
+
+    @media print {
+      body { background: white; }
+      .tabs, .actions, .drawer, .filters, .small-actions { display: none !important; }
+      .view { display: block !important; page-break-after: always; }
+      .panel, .metric { box-shadow: none; }
+      .app { max-width: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div class="topbar">
+        <div class="brand">
+          <div class="mark">YD</div>
+          <div>
+            <h1>Roadmap de Expansão YouDo</h1>
+            <p class="subtitle">FII para 3 a 5 prédios de 64 apartamentos com espaço de eventos para 250 pessoas.</p>
+          </div>
+        </div>
+        <div class="actions">
+          <button class="primary" id="exportJson">Exportar JSON</button>
+          <button id="printPage">Imprimir / PDF</button>
+          <button class="danger" id="resetData">Resetar dados</button>
+        </div>
+      </div>
+
+      <section class="summary-grid" id="summary"></section>
+
+      <nav class="tabs" aria-label="Visões do roadmap">
+        <button class="tab active" data-view="dashboard">Painel</button>
+        <button class="tab" data-view="gantt">Gantt</button>
+        <button class="tab" data-view="terrenos">Terrenos</button>
+        <button class="tab" data-view="busca">Busca ativa</button>
+        <button class="tab" data-view="dataroom">Data room</button>
+        <button class="tab" data-view="financeiro">Financeiro</button>
+      </nav>
+    </header>
+
+    <main>
+      <section class="view active" id="dashboard">
+        <div class="section-head">
+          <div>
+            <h2>Checklist mestre</h2>
+            <p class="hint">Atualize status, dono e prazo. O painel recalcula o progresso automaticamente.</p>
+          </div>
+          <button id="addTask">+ Atividade</button>
+        </div>
+        <div class="filters">
+          <input id="taskSearch" placeholder="Buscar atividade, frente ou responsável" />
+          <select id="taskStatus">
+            <option value="">Todos os status</option>
+            <option value="done">Feito</option>
+            <option value="progress">Em andamento</option>
+            <option value="todo">A fazer</option>
+            <option value="blocked">Bloqueado</option>
+          </select>
+          <select id="taskFront">
+            <option value="">Todas as frentes</option>
+          </select>
+        </div>
+        <div class="panel">
+          <table>
+            <thead>
+              <tr>
+                <th>Frente</th>
+                <th>Atividade</th>
+                <th>Status</th>
+                <th>Dono</th>
+                <th>Prazo</th>
+                <th>Progresso</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="tasksTable"></tbody>
+          </table>
+        </div>
+
+        <div class="grid-2">
+          <section>
+            <div class="section-head">
+              <div>
+                <h2>Marcos decisivos</h2>
+                <p class="hint">Linha crítica para chegar à captação com risco reduzido.</p>
+              </div>
+            </div>
+            <div class="panel panel-pad timeline" id="milestones"></div>
+          </section>
+          <section>
+            <div class="section-head">
+              <div>
+                <h2>Riscos principais</h2>
+                <p class="hint">Pontos que merecem acompanhamento semanal.</p>
+              </div>
+            </div>
+            <div class="panel">
+              <table>
+                <thead>
+                  <tr><th>Risco</th><th>Mitigação</th><th>Nível</th></tr>
+                </thead>
+                <tbody id="risksTable"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="gantt">
+        <div class="section-head">
+          <div>
+            <h2>Gantt de 6 meses</h2>
+            <p class="hint">Atividades em paralelo para terrenos, FII, alvarás, data room e captação.</p>
+          </div>
+        </div>
+        <div class="panel gantt">
+          <div class="gantt-grid" id="ganttGrid"></div>
+        </div>
+      </section>
+
+      <section class="view" id="terrenos">
+        <div class="section-head">
+          <div>
+            <h2>Pipeline de terrenos</h2>
+            <p class="hint">Pontuação ponderada: preço 20%, construtibilidade 25%, demanda 20%, aprovação 15%, documentação 10%, negociabilidade 10%.</p>
+          </div>
+          <button id="addLand">+ Terreno</button>
+        </div>
+        <div class="panel">
+          <table>
+            <thead>
+              <tr>
+                <th>Terreno</th>
+                <th>Cidade / bairro</th>
+                <th>Preço</th>
+                <th>Status</th>
+                <th>Nota</th>
+                <th>Próxima ação</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="landsTable"></tbody>
+          </table>
+          <div class="drawer" id="landForm"></div>
+        </div>
+      </section>
+
+      <section class="view" id="busca">
+        <div class="section-head">
+          <div>
+            <h2>Estratégia de busca ativa</h2>
+            <p class="hint">Funil com metas, canais e subatividades para transformar originação em contratos travados.</p>
+          </div>
+        </div>
+
+        <div class="kanban" id="funnel"></div>
+
+        <div class="grid-2">
+          <section>
+            <div class="section-head">
+              <div>
+                <h2>Cadência semanal</h2>
+                <p class="hint">Ritmo operacional para manter o pipeline vivo.</p>
+              </div>
+            </div>
+            <div class="panel">
+              <table>
+                <thead><tr><th>Dia</th><th>Ritual</th><th>Saída esperada</th></tr></thead>
+                <tbody id="cadenceTable"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section>
+            <div class="section-head">
+              <div>
+                <h2>Canais de originação</h2>
+                <p class="hint">Use canais simultâneos para evitar dependência de uma fonte só.</p>
+              </div>
+            </div>
+            <div class="panel">
+              <table>
+                <thead><tr><th>Canal</th><th>Ação prática</th><th>Meta</th></tr></thead>
+                <tbody id="channelsTable"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="dataroom">
+        <div class="section-head">
+          <div>
+            <h2>Data room da captação</h2>
+            <p class="hint">Checklist de documentos para deixar a tese auditável antes do roadshow formal.</p>
+          </div>
+        </div>
+        <div class="room-grid" id="dataRoom"></div>
+      </section>
+
+      <section class="view" id="financeiro">
+        <div class="section-head">
+          <div>
+            <h2>Simulador financeiro</h2>
+            <p class="hint">Ajuste premissas rápidas para ver quantos prédios cabem na captação.</p>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="panel panel-pad">
+            <div class="form-grid">
+              <label>Captação alvo
+                <select id="raiseAmount">
+                  <option value="30000000">R$ 30 milhões</option>
+                  <option value="50000000">R$ 50 milhões</option>
+                </select>
+              </label>
+              <label>Custo construtivo por prédio
+                <input id="buildCost" type="number" step="100000" value="7500000" />
+              </label>
+              <label>Terreno mínimo
+                <input id="landMin" type="number" step="100000" value="2500000" />
+              </label>
+              <label>Terreno máximo
+                <input id="landMax" type="number" step="100000" value="3500000" />
+              </label>
+              <label>Custo jurídico FII
+                <input id="legalCost" type="number" step="10000" value="150000" />
+              </label>
+              <label>Reserva / contingência
+                <input id="reservePct" type="number" step="1" value="5" />
+              </label>
+            </div>
+          </div>
+          <div class="panel panel-pad" id="financeOutput"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const storageKey = "youdo-expansion-roadmap-v1";
+
+    const defaults = {
+      tasks: [
+        { id: 1, front: "Financeiro", name: "Modelo financeiro dos cenários 3 prédios e 5 prédios", status: "done", owner: "YouDo / financeiro", due: "Feito", progress: 100 },
+        { id: 2, front: "Terrenos", name: "Criar checklist técnico e matriz de avaliação de terrenos", status: "todo", owner: "YouDo + arquitetura", due: "Mês 1", progress: 0 },
+        { id: 3, front: "Jurídico / FII", name: "Fechar proposta, cronograma e responsabilidades com Rio Assets / John", status: "progress", owner: "YouDo + John", due: "Mês 1", progress: 45 },
+        { id: 4, front: "Terrenos", name: "Busca ativa por terrenos com funil estruturado", status: "progress", owner: "Expansão imobiliária", due: "Meses 1-4", progress: 20 },
+        { id: 5, front: "Captação", name: "Deck inicial e materiais de investidores", status: "progress", owner: "YouDo + Rio Assets", due: "Meses 1-3", progress: 35 },
+        { id: 6, front: "Arquitetura", name: "Produto padrão: 64 apartamentos + espaço de eventos para 250 pessoas", status: "done", owner: "Arquitetura", due: "Feito", progress: 100 },
+        { id: 7, front: "Data room", name: "Montar estrutura, alimentar documentos e controlar versões", status: "todo", owner: "YouDo + jurídico + financeiro", due: "Meses 1-5", progress: 0 },
+        { id: 8, front: "Licenças", name: "Protocolar alvarás dos terrenos priorizados", status: "todo", owner: "Arquitetura + prefeitura", due: "Meses 3-6", progress: 0 },
+        { id: 9, front: "Terrenos", name: "Avançar LOIs e contratos de compra e venda condicionados", status: "todo", owner: "Jurídico + expansão", due: "Meses 2-5", progress: 0 },
+        { id: 10, front: "Captação", name: "Pré-roadshow com investidores âncora", status: "todo", owner: "Rio Assets + YouDo", due: "Meses 2-4", progress: 0 }
+      ],
+      lands: [
+        { id: 1, name: "Terreno exemplo A", place: "Cidade / bairro", price: 3000000, status: "Mapeado", next: "Solicitar matrícula e validar zoneamento", scores: { price: 4, build: 3, demand: 4, approval: 3, docs: 2, negotiability: 4 } },
+        { id: 2, name: "Terreno exemplo B", place: "Cidade / bairro", price: 2700000, status: "Pré-triagem", next: "Fazer estudo de massa", scores: { price: 5, build: 4, demand: 3, approval: 3, docs: 3, negotiability: 3 } }
+      ],
+      dataRoom: [
+        { title: "00_Resumo Executivo", items: [
+          ["One-pager da tese", false], ["Deck de captação", true], ["Cronograma macro", true], ["Uso dos recursos: R$ 30 mi e R$ 50 mi", true]
+        ]},
+        { title: "01_Modelo Financeiro", items: [
+          ["Modelo financeiro", true], ["Cenários 3 prédios / 5 prédios", true], ["Sensibilidades de terreno, obra e ocupação", false], ["Premissas operacionais", false]
+        ]},
+        { title: "02_Terrenos", items: [
+          ["Pipeline de terrenos", true], ["Matriz comparativa", false], ["Matrículas e IPTUs", false], ["Fotos, mapas e localização", false], ["LOIs ou minutas de compra e venda", false]
+        ]},
+        { title: "03_Arquitetura e Engenharia", items: [
+          ["Projeto padrão", true], ["Estudo de massa", true], ["Programa 64 apartamentos + eventos 250 pessoas", true], ["Orçamento paramétrico", false], ["Cronograma de obra", false]
+        ]},
+        { title: "04_Jurídico e Fundo", items: [
+          ["Proposta jurídica", false], ["Cronograma de constituição do FII", false], ["Minuta de regulamento", false], ["Governança", false], ["Contratos com gestor e prestadores", false]
+        ]},
+        { title: "05_Gestor", items: [
+          ["Rio Assets", true], ["Perfil do John", false], ["Mandato de gestão", false], ["Taxas", false], ["Responsabilidades e comitês", false]
+        ]},
+        { title: "06_Licenças e Alvarás", items: [
+          ["Checklist por município", false], ["Protocolos", false], ["Pendências", false], ["Aprovações", false], ["Riscos regulatórios", false]
+        ]},
+        { title: "07_Captação", items: [
+          ["Lista de investidores", false], ["Status das conversas", false], ["Perguntas e respostas padrão", false], ["Term sheet", false], ["Compromissos indicativos", false]
+        ]}
+      ]
+    };
+
+    const ganttRows = [
+      ["Checklist técnico de terrenos", [1], "green"],
+      ["Busca ativa por terrenos", [1, 2, 3, 4], "green"],
+      ["Triagem urbanística", [1, 2, 3, 4], "blue"],
+      ["Negociação com proprietários", [2, 3, 4, 5], "yellow"],
+      ["Contratos / LOIs de terrenos", [2, 3, 4, 5], "yellow"],
+      ["Estudos de massa por terreno", [1, 2, 3, 4], "blue"],
+      ["Orçamentos preliminares", [2, 3, 4], "blue"],
+      ["Protocolo de alvará", [3, 4, 5, 6], "red"],
+      ["Estruturação jurídica do FII", [1, 2, 3, 4, 5, 6], "green"],
+      ["Rio Assets / mandato gestor", [1, 2], "green"],
+      ["Deck e materiais de captação", [1, 2, 3], "blue"],
+      ["Data room", [1, 2, 3, 4, 5], "green"],
+      ["Pré-roadshow", [2, 3, 4], "yellow"],
+      ["Captação formal", [4, 5, 6], "red"]
+    ];
+
+    const risks = [
+      ["Terrenos fora do teto de R$ 3,5 mi", "Volume alto de prospecção e contrato condicionado", "Alto"],
+      ["Zoneamento não comporta 64 apartamentos + eventos", "Triagem urbanística antes de LOI", "Alto"],
+      ["Alvará demora mais que a captação", "Protocolar cedo e usar dossiê técnico no data room", "Médio"],
+      ["Obra passa de R$ 7,5 mi por prédio", "Orçamento paramétrico por terreno e contingência", "Alto"],
+      ["Investidor exige ativos mais travados", "LOIs, minutas, alvarás/protocolos e gestor definidos", "Médio"]
+    ];
+
+    const milestones = [
+      ["Mês 1", "Critérios e governança", "Checklist técnico, proposta jurídica, mandato com Rio Assets/John e estrutura do data room."],
+      ["Mês 2", "Primeiros terrenos priorizados", "Pipeline com 20 a 30 terrenos pré-triados e 6 a 8 candidatos para estudo de massa."],
+      ["Mês 3", "Dossiês robustos", "Terrenos com análise urbanística, orçamento preliminar e negociação avançada."],
+      ["Mês 4", "Captação aquecida", "Pré-roadshow com investidores âncora e contratos/LOIs em versão negociada."],
+      ["Mês 5", "Ativos travados", "Compra e venda condicionada, data room completo e alvarás protocolados."],
+      ["Mês 6", "Fechamento", "FII estruturado, captação formal e preparação para aquisição e obra."]
+    ];
+
+    const funnel = [
+      { title: "Mapeados", target: "50 a 80", cards: ["Corretores locais", "Busca online e placas", "Prefeituras e zoneamento"] },
+      { title: "Pré-triados", target: "20 a 30", cards: ["Preço entre R$ 2,5 mi e R$ 3,5 mi", "Acesso e infraestrutura", "Uso residencial/misto"] },
+      { title: "Analisados", target: "10 a 15", cards: ["Matrícula e IPTU", "Zoneamento", "Estudo de massa preliminar"] },
+      { title: "Travados", target: "3 a 5", cards: ["LOI", "Compra e venda condicionada", "Alvará ou protocolo"] }
+    ];
+
+    const cadence = [
+      ["Segunda", "Atualizar pipeline e prioridades", "Lista de ações da semana"],
+      ["Terça a quinta", "Prospecção, ligações, visitas e reuniões", "Novos terrenos e negociações abertas"],
+      ["Sexta", "Comitê de terrenos", "Aprovar, pausar ou descartar terrenos"],
+      ["Quinzenal", "Revisão com arquitetura e jurídico", "Riscos técnicos e jurídicos claros"],
+      ["Mensal", "Atualização para Rio Assets / investidores", "Pipeline e evolução do data room"]
+    ];
+
+    const channels = [
+      ["Corretores locais", "Briefing objetivo com comissão clara", "10 a 20 terrenos/mês"],
+      ["Donos diretos", "Abordagem via matrícula, placas e redes locais", "5 conversas qualificadas/semana"],
+      ["Incorporadoras", "Buscar terrenos fora do perfil delas", "2 reuniões/mês"],
+      ["Prefeituras", "Mapear áreas com potencial e regras urbanísticas", "1 mapa por cidade"],
+      ["Leilões / bancos", "Avaliar oportunidades com desconto", "Triagem quinzenal"],
+      ["Famílias proprietárias", "Propor compra condicionada ou permuta parcial", "2 abordagens/semana"]
+    ];
+
+    let state = loadState();
+
+    function loadState() {
+      try {
+        const stored = JSON.parse(localStorage.getItem(storageKey));
+        return stored || structuredClone(defaults);
+      } catch {
+        return structuredClone(defaults);
+      }
+    }
+
+    function saveState() {
+      localStorage.setItem(storageKey, JSON.stringify(state));
+      renderAll();
+    }
+
+    function money(value) {
+      return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(Number(value) || 0);
+    }
+
+    function statusLabel(status) {
+      return { done: "Feito", progress: "Em andamento", todo: "A fazer", blocked: "Bloqueado" }[status] || status;
+    }
+
+    function statusClass(status) {
+      return `status ${status}`;
+    }
+
+    function landScore(land) {
+      const s = land.scores;
+      return ((s.price * .20) + (s.build * .25) + (s.demand * .20) + (s.approval * .15) + (s.docs * .10) + (s.negotiability * .10)).toFixed(1);
+    }
+
+    function renderSummary() {
+      const complete = state.tasks.filter(t => t.status === "done").length;
+      const total = state.tasks.length;
+      const avg = total ? Math.round(state.tasks.reduce((sum, t) => sum + Number(t.progress || 0), 0) / total) : 0;
+      const advanced = state.lands.filter(l => Number(landScore(l)) >= 4).length;
+      const dataItems = state.dataRoom.flatMap(group => group.items);
+      const dataDone = dataItems.filter(item => item[1]).length;
+      const dataPct = Math.round((dataDone / dataItems.length) * 100);
+
+      document.getElementById("summary").innerHTML = [
+        ["Progresso geral", `${avg}%`, `${complete}/${total} atividades concluídas`],
+        ["Terrenos nota 4+", advanced, "Candidatos fortes para negociação"],
+        ["Data room", `${dataPct}%`, `${dataDone}/${dataItems.length} documentos prontos`],
+        ["Captação alvo", "R$ 30-50 mi", "3 a 5 prédios no plano-base"]
+      ].map(([label, value, note]) => `
+        <article class="metric">
+          <small>${label}</small>
+          <strong>${value}</strong>
+          <span>${note}</span>
+        </article>
+      `).join("");
+    }
+
+    function renderTasks() {
+      const q = document.getElementById("taskSearch")?.value?.toLowerCase() || "";
+      const status = document.getElementById("taskStatus")?.value || "";
+      const front = document.getElementById("taskFront")?.value || "";
+      const fronts = [...new Set(state.tasks.map(t => t.front))].sort();
+      const frontSelect = document.getElementById("taskFront");
+      const previous = frontSelect.value;
+      frontSelect.innerHTML = `<option value="">Todas as frentes</option>` + fronts.map(f => `<option value="${f}">${f}</option>`).join("");
+      frontSelect.value = previous;
+
+      const filtered = state.tasks.filter(t => {
+        const haystack = `${t.front} ${t.name} ${t.owner}`.toLowerCase();
+        return (!q || haystack.includes(q)) && (!status || t.status === status) && (!front || t.front === front);
+      });
+
+      document.getElementById("tasksTable").innerHTML = filtered.map(t => `
+        <tr>
+          <td>${t.front}</td>
+          <td><strong>${t.name}</strong></td>
+          <td>
+            <select data-task="${t.id}" data-field="status">
+              ${["done", "progress", "todo", "blocked"].map(s => `<option value="${s}" ${t.status === s ? "selected" : ""}>${statusLabel(s)}</option>`).join("")}
+            </select>
+          </td>
+          <td><input data-task="${t.id}" data-field="owner" value="${t.owner}" /></td>
+          <td><input data-task="${t.id}" data-field="due" value="${t.due}" /></td>
+          <td>
+            <input data-task="${t.id}" data-field="progress" type="number" min="0" max="100" value="${t.progress}" />
+            <div class="progress"><span style="width:${t.progress}%"></span></div>
+          </td>
+          <td><button class="icon-btn" data-delete-task="${t.id}" title="Remover">×</button></td>
+        </tr>
+      `).join("") || `<tr><td colspan="7" class="empty">Nenhuma atividade encontrada.</td></tr>`;
+    }
+
+    function renderMilestones() {
+      document.getElementById("milestones").innerHTML = milestones.map(([month, title, text]) => `
+        <article class="milestone">
+          <time>${month}</time>
+          <div><h3>${title}</h3><p>${text}</p></div>
+        </article>
+      `).join("");
+    }
+
+    function renderRisks() {
+      document.getElementById("risksTable").innerHTML = risks.map(([risk, mitigation, level]) => `
+        <tr><td><strong>${risk}</strong></td><td>${mitigation}</td><td><span class="pill">${level}</span></td></tr>
+      `).join("");
+    }
+
+    function renderGantt() {
+      const grid = document.getElementById("ganttGrid");
+      grid.innerHTML = `<div class="gantt-head">Atividade</div>` + [1,2,3,4,5,6].map(m => `<div class="gantt-head">Mês ${m}</div>`).join("");
+      ganttRows.forEach(([label, months, color]) => {
+        grid.insertAdjacentHTML("beforeend", `<div class="gantt-task">${label}</div>`);
+        [1,2,3,4,5,6].forEach(m => {
+          const active = months.includes(m);
+          grid.insertAdjacentHTML("beforeend", `<div class="gantt-cell">${active ? `<span class="bar ${color} ${months[0] === m || months[months.length - 1] === m ? "light" : ""}"></span>` : ""}</div>`);
+        });
+      });
+    }
+
+    function renderLands() {
+      document.getElementById("landsTable").innerHTML = state.lands.map(land => {
+        const score = landScore(land);
+        return `
+          <tr>
+            <td><strong>${land.name}</strong></td>
+            <td>${land.place}</td>
+            <td class="money">${money(land.price)}</td>
+            <td><span class="pill">${land.status}</span></td>
+            <td><div class="score" style="background:${score >= 4 ? "var(--green)" : score >= 3 ? "var(--yellow)" : "var(--red)"}">${score}</div></td>
+            <td>${land.next}</td>
+            <td class="small-actions">
+              <button class="icon-btn" data-edit-land="${land.id}" title="Editar">✎</button>
+              <button class="icon-btn" data-delete-land="${land.id}" title="Remover">×</button>
+            </td>
+          </tr>
+        `;
+      }).join("") || `<tr><td colspan="7" class="empty">Nenhum terreno cadastrado.</td></tr>`;
+    }
+
+    function renderLandForm(land = null) {
+      const isNew = !land;
+      const item = land || { id: Date.now(), name: "", place: "", price: 0, status: "Mapeado", next: "", scores: { price: 3, build: 3, demand: 3, approval: 3, docs: 3, negotiability: 3 } };
+      document.getElementById("landForm").innerHTML = `
+        <div class="form-grid">
+          <label class="wide">Nome do terreno
+            <input id="lfName" value="${item.name}" placeholder="Ex.: Terreno Centro Norte" />
+          </label>
+          <label class="wide">Cidade / bairro
+            <input id="lfPlace" value="${item.place}" placeholder="Cidade / bairro" />
+          </label>
+          <label>Preço
+            <input id="lfPrice" type="number" step="100000" value="${item.price}" />
+          </label>
+          <label>Status
+            <select id="lfStatus">
+              ${["Mapeado", "Pré-triagem", "Análise urbanística", "Estudo de massa", "Negociação", "LOI", "Compra e venda", "Descartado"].map(s => `<option ${item.status === s ? "selected" : ""}>${s}</option>`).join("")}
+            </select>
+          </label>
+          <label>Preço
+            <input id="lfScorePrice" type="number" min="1" max="5" value="${item.scores.price}" />
+          </label>
+          <label>Construtibilidade
+            <input id="lfScoreBuild" type="number" min="1" max="5" value="${item.scores.build}" />
+          </label>
+          <label>Demanda
+            <input id="lfScoreDemand" type="number" min="1" max="5" value="${item.scores.demand}" />
+          </label>
+          <label>Aprovação
+            <input id="lfScoreApproval" type="number" min="1" max="5" value="${item.scores.approval}" />
+          </label>
+          <label>Documentação
+            <input id="lfScoreDocs" type="number" min="1" max="5" value="${item.scores.docs}" />
+          </label>
+          <label>Negociabilidade
+            <input id="lfScoreNegotiability" type="number" min="1" max="5" value="${item.scores.negotiability}" />
+          </label>
+          <label class="full">Próxima ação
+            <textarea id="lfNext">${item.next}</textarea>
+          </label>
+        </div>
+        <div class="small-actions">
+          <button class="primary" id="saveLand">${isNew ? "Adicionar terreno" : "Salvar terreno"}</button>
+          <button id="cancelLand">Cancelar</button>
+        </div>
+      `;
+
+      document.getElementById("saveLand").onclick = () => {
+        const updated = {
+          id: item.id,
+          name: document.getElementById("lfName").value || "Terreno sem nome",
+          place: document.getElementById("lfPlace").value || "Sem localização",
+          price: Number(document.getElementById("lfPrice").value || 0),
+          status: document.getElementById("lfStatus").value,
+          next: document.getElementById("lfNext").value,
+          scores: {
+            price: Number(document.getElementById("lfScorePrice").value),
+            build: Number(document.getElementById("lfScoreBuild").value),
+            demand: Number(document.getElementById("lfScoreDemand").value),
+            approval: Number(document.getElementById("lfScoreApproval").value),
+            docs: Number(document.getElementById("lfScoreDocs").value),
+            negotiability: Number(document.getElementById("lfScoreNegotiability").value)
+          }
+        };
+        if (isNew) state.lands.push(updated);
+        else state.lands = state.lands.map(l => l.id === item.id ? updated : l);
+        document.getElementById("landForm").innerHTML = "";
+        saveState();
+      };
+
+      document.getElementById("cancelLand").onclick = () => {
+        document.getElementById("landForm").innerHTML = "";
+      };
+    }
+
+    function renderFunnel() {
+      document.getElementById("funnel").innerHTML = funnel.map(stage => `
+        <section class="lane">
+          <h3>${stage.title} <span class="pill">${stage.target}</span></h3>
+          ${stage.cards.map(card => `<article class="card"><strong>${card}</strong><p>Rodar em paralelo e registrar no pipeline.</p></article>`).join("")}
+        </section>
+      `).join("");
+    }
+
+    function renderCadence() {
+      document.getElementById("cadenceTable").innerHTML = cadence.map(row => `<tr><td><strong>${row[0]}</strong></td><td>${row[1]}</td><td>${row[2]}</td></tr>`).join("");
+      document.getElementById("channelsTable").innerHTML = channels.map(row => `<tr><td><strong>${row[0]}</strong></td><td>${row[1]}</td><td>${row[2]}</td></tr>`).join("");
+    }
+
+    function renderDataRoom() {
+      document.getElementById("dataRoom").innerHTML = state.dataRoom.map((group, gi) => {
+        const done = group.items.filter(i => i[1]).length;
+        const pct = Math.round(done / group.items.length * 100);
+        return `
+          <section class="panel panel-pad">
+            <div class="section-head" style="margin:0 0 8px">
+              <div>
+                <h2>${group.title}</h2>
+                <p class="hint">${done}/${group.items.length} itens prontos</p>
+              </div>
+              <span class="pill">${pct}%</span>
+            </div>
+            <div class="progress"><span style="width:${pct}%"></span></div>
+            <div class="checklist">
+              ${group.items.map((item, ii) => `
+                <label class="check-row">
+                  <input type="checkbox" data-room="${gi}" data-room-item="${ii}" ${item[1] ? "checked" : ""} />
+                  <span>${item[0]}</span>
+                  <small>${item[1] ? "pronto" : "pendente"}</small>
+                </label>
+              `).join("")}
+            </div>
+          </section>
+        `;
+      }).join("");
+    }
+
+    function renderFinance() {
+      const raise = Number(document.getElementById("raiseAmount").value);
+      const build = Number(document.getElementById("buildCost").value);
+      const min = Number(document.getElementById("landMin").value);
+      const max = Number(document.getElementById("landMax").value);
+      const legal = Number(document.getElementById("legalCost").value);
+      const reservePct = Number(document.getElementById("reservePct").value) / 100;
+      const lowUnit = build + min;
+      const highUnit = build + max;
+      const available = raise - legal;
+      const lowWithReserve = lowUnit * (1 + reservePct);
+      const highWithReserve = highUnit * (1 + reservePct);
+      const maxBuildings = Math.floor(available / lowWithReserve);
+      const conservative = Math.floor(available / highWithReserve);
+
+      document.getElementById("financeOutput").innerHTML = `
+        <div class="metric" style="box-shadow:none;margin-bottom:12px">
+          <small>Custo por prédio</small>
+          <strong>${money(lowUnit)} a ${money(highUnit)}</strong>
+          <span>Antes de reserva/contingência</span>
+        </div>
+        <table>
+          <tbody>
+            <tr><td>Capital disponível pós-jurídico</td><td class="money"><strong>${money(available)}</strong></td></tr>
+            <tr><td>Custo com reserva por prédio</td><td class="money">${money(lowWithReserve)} a ${money(highWithReserve)}</td></tr>
+            <tr><td>Quantidade conservadora</td><td><strong>${conservative} prédios</strong></td></tr>
+            <tr><td>Quantidade agressiva</td><td><strong>${maxBuildings} prédios</strong></td></tr>
+          </tbody>
+        </table>
+        <p class="hint">Leitura prática: ${raise === 30000000 ? "R$ 30 mi tende a comportar 2 a 3 prédios, com o terceiro exigindo disciplina forte de custo." : "R$ 50 mi tende a comportar 4 a 5 prédios, com o quinto dependendo de terrenos mais próximos do piso."}</p>
+      `;
+    }
+
+    function renderAll() {
+      renderSummary();
+      renderTasks();
+      renderMilestones();
+      renderRisks();
+      renderGantt();
+      renderLands();
+      renderFunnel();
+      renderCadence();
+      renderDataRoom();
+      renderFinance();
+    }
+
+    document.querySelectorAll(".tab").forEach(tab => {
+      tab.addEventListener("click", () => {
+        document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+        document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+        tab.classList.add("active");
+        document.getElementById(tab.dataset.view).classList.add("active");
+      });
+    });
+
+    document.addEventListener("input", event => {
+      const target = event.target;
+      if (target.matches("[data-task]")) {
+        const task = state.tasks.find(t => t.id === Number(target.dataset.task));
+        task[target.dataset.field] = target.dataset.field === "progress" ? Math.max(0, Math.min(100, Number(target.value))) : target.value;
+        if (target.dataset.field === "status") {
+          if (target.value === "done") task.progress = 100;
+          if (target.value === "todo") task.progress = 0;
+        }
+        localStorage.setItem(storageKey, JSON.stringify(state));
+        renderSummary();
+      }
+      if (target.matches("[data-room]")) {
+        state.dataRoom[Number(target.dataset.room)].items[Number(target.dataset.roomItem)][1] = target.checked;
+        saveState();
+      }
+      if (["taskSearch", "taskStatus", "taskFront"].includes(target.id)) renderTasks();
+      if (["raiseAmount", "buildCost", "landMin", "landMax", "legalCost", "reservePct"].includes(target.id)) renderFinance();
+    });
+
+    document.addEventListener("click", event => {
+      const target = event.target;
+      if (target.id === "addTask") {
+        state.tasks.push({ id: Date.now(), front: "Nova frente", name: "Nova atividade", status: "todo", owner: "A definir", due: "A definir", progress: 0 });
+        saveState();
+      }
+      if (target.dataset.deleteTask) {
+        state.tasks = state.tasks.filter(t => t.id !== Number(target.dataset.deleteTask));
+        saveState();
+      }
+      if (target.id === "addLand") renderLandForm();
+      if (target.dataset.editLand) {
+        renderLandForm(state.lands.find(l => l.id === Number(target.dataset.editLand)));
+      }
+      if (target.dataset.deleteLand) {
+        state.lands = state.lands.filter(l => l.id !== Number(target.dataset.deleteLand));
+        saveState();
+      }
+      if (target.id === "printPage") window.print();
+      if (target.id === "exportJson") {
+        const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "youdo-expansao-roadmap.json";
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+      if (target.id === "resetData" && confirm("Resetar o roadmap para os dados iniciais?")) {
+        state = structuredClone(defaults);
+        saveState();
+      }
+    });
+
+    renderAll();
+  </script>
+</body>
+</html>

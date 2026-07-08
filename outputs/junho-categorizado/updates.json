@@ -1,0 +1,2593 @@
+{
+  "summary": {
+    "may_data_rows": 507,
+    "june_data_rows": 486,
+    "safe_keys": 141,
+    "ambiguous_keys": 17,
+    "updates": 293,
+    "already_complete": 0,
+    "unmatched": 193,
+    "conflicts": 0,
+    "sample_updates": [
+      {
+        "row": 2,
+        "space": null,
+        "sector": "INSUMO COZ",
+        "pi": 176.0,
+        "supplier": "SENDAS DISTRIBUIDORA S/A"
+      },
+      {
+        "row": 3,
+        "space": "YOU",
+        "sector": "INSUMO COZ",
+        "pi": 176.0,
+        "supplier": "SACOLAO POPULAR CURITIBANO"
+      },
+      {
+        "row": 4,
+        "space": "YOU",
+        "sector": "INSUMO COZ",
+        "pi": 176.0,
+        "supplier": "CAMILO E TUTUMI HORTIFRUTI"
+      },
+      {
+        "row": 6,
+        "space": "YOU",
+        "sector": "INSUMO COZ",
+        "pi": 176.0,
+        "supplier": "Aurora Cooperativa"
+      },
+      {
+        "row": 7,
+        "space": "YOU",
+        "sector": "INSUMO COZ",
+        "pi": 176.0,
+        "supplier": "SENDAS DISTRIBUIDORA S/A"
+      },
+      {
+        "row": 8,
+        "space": "YOU",
+        "sector": "STAFF SERVIÇO",
+        "pi": 176.0,
+        "supplier": "Thaissa cubas ribeiro dos santos"
+      },
+      {
+        "row": 9,
+        "space": "YOU",
+        "sector": "STAFF SERVIÇO",
+        "pi": 176.0,
+        "supplier": "alyne carolina ropelato pacheco"
+      },
+      {
+        "row": 11,
+        "space": "YOU",
+        "sector": "STAFF SERVIÇO",
+        "pi": 176.0,
+        "supplier": "leandro lima"
+      },
+      {
+        "row": 12,
+        "space": "YOU",
+        "sector": "STAFF SERVIÇO",
+        "pi": 176.0,
+        "supplier": "Hidaryane nogueira bento"
+      },
+      {
+        "row": 13,
+        "space": "YOU",
+        "sector": "STAFF LOUÇA",
+        "pi": 176.0,
+        "supplier": "Eudes Jhunior silva"
+      },
+      {
+        "row": 14,
+        "space": "YOU",
+        "sector": "STAFF COZINHA",
+        "pi": 176.0,
+        "supplier": "Alexis santos de Almeida"
+      },
+      {
+        "row": 15,
+        "space": "YOU",
+        "sector": "STAFF COZINHA",
+        "pi": 176.0,
+        "supplier": "tathiane borcathe"
+      },
+      {
+        "row": 17,
+        "space": "YOU",
+        "sector": "TECNICO DE SOM",
+        "pi": 176.0,
+        "supplier": "Daniel Bueno Bettega"
+      },
+      {
+        "row": 18,
+        "space": "YOU",
+        "sector": "MÚSICOS",
+        "pi": 176.0,
+        "supplier": "Eric Chien"
+      },
+      {
+        "row": 19,
+        "space": "YOU",
+        "sector": "MARKETING",
+        "pi": 176.0,
+        "supplier": "Google Inc"
+      },
+      {
+        "row": 20,
+        "space": "YOU",
+        "sector": "INSUMO COZ",
+        "pi": 176.0,
+        "supplier": "SENDAS DISTRIBUIDORA S/A"
+      },
+      {
+        "row": 21,
+        "space": "YOU",
+        "sector": "STAFF SERVIÇO",
+        "pi": 176.0,
+        "supplier": "carlos alexandre almeida de souza"
+      },
+      {
+        "row": 22,
+        "space": "YOU",
+        "sector": "STAFF SERVIÇO",
+        "pi": 176.0,
+        "supplier": "Luiz Fernando de Jesus Rosa"
+      },
+      {
+        "row": 23,
+        "space": "YOU",
+        "sector": "INSUMO BAR",
+        "pi": 176.0,
+        "supplier": "ZE DELIVERY APP"
+      },
+      {
+        "row": 25,
+        "space": "YOU",
+        "sector": "STAFF SERVIÇO",
+        "pi": 176.0,
+        "supplier": "gustavo pereira da silva"
+      }
+    ],
+    "sample_unmatched": [
+      {
+        "row": 5,
+        "pi": 176.0,
+        "supplier": "EBAZAR.COM.BR LTDA",
+        "nf": "utensilio coz"
+      },
+      {
+        "row": 10,
+        "pi": 176.0,
+        "supplier": "Paula Kimberlly Martins Petrin",
+        "nf": 3009.0
+      },
+      {
+        "row": 16,
+        "pi": 176.0,
+        "supplier": "Sônia de Jesus",
+        "nf": "taxa cozinha sobremesas"
+      },
+      {
+        "row": 24,
+        "pi": 176.0,
+        "supplier": "Fernanda Cristina Yamawaki",
+        "nf": 280620262.0
+      },
+      {
+        "row": 26,
+        "pi": 176.0,
+        "supplier": "luciane vieira dos santos",
+        "nf": 280620264.0
+      },
+      {
+        "row": 30,
+        "pi": 176.0,
+        "supplier": "NAIARA THAIS TOALDO PINHEIRO",
+        "nf": 2806202610.0
+      },
+      {
+        "row": 31,
+        "pi": 176.0,
+        "supplier": "Heictor Bellato Araujo",
+        "nf": 2806202611.0
+      },
+      {
+        "row": 32,
+        "pi": 176.0,
+        "supplier": "eduardo monteiro pinto",
+        "nf": 2806202613.0
+      },
+      {
+        "row": 33,
+        "pi": 176.0,
+        "supplier": "Vanessa Andreina",
+        "nf": 2806202630.0
+      },
+      {
+        "row": 34,
+        "pi": 176.0,
+        "supplier": "Eliana da silva moura",
+        "nf": "louca cozinha"
+      },
+      {
+        "row": 35,
+        "pi": 176.0,
+        "supplier": "Larissa Araujo",
+        "nf": 28062026.0
+      },
+      {
+        "row": 42,
+        "pi": 176.0,
+        "supplier": "Agatha Pinheiro",
+        "nf": 2711.0
+      },
+      {
+        "row": 44,
+        "pi": 176.0,
+        "supplier": "Isabella Anália de Oliveira Beraldo",
+        "nf": 2711.0
+      },
+      {
+        "row": 45,
+        "pi": 176.0,
+        "supplier": "Alessandra Ketlyn sá silva",
+        "nf": 2712.0
+      },
+      {
+        "row": 47,
+        "pi": 176.0,
+        "supplier": "Paula Kimberlly Martins Petrin",
+        "nf": 2714.0
+      },
+      {
+        "row": 48,
+        "pi": 176.0,
+        "supplier": "Fabio Bueno Skalecki",
+        "nf": 2715.0
+      },
+      {
+        "row": 50,
+        "pi": 176.0,
+        "supplier": "Juliana Cordova",
+        "nf": 2717.0
+      },
+      {
+        "row": 59,
+        "pi": 176.0,
+        "supplier": "juliana galerani",
+        "nf": 2721.0
+      },
+      {
+        "row": 64,
+        "pi": 176.0,
+        "supplier": "Paula Kimberlly Martins Petrin",
+        "nf": 2723.0
+      },
+      {
+        "row": 65,
+        "pi": 176.0,
+        "supplier": "Fabio Bueno Skalecki",
+        "nf": 2724.0
+      },
+      {
+        "row": 74,
+        "pi": 176.0,
+        "supplier": "WMS SUPERMERCADOS DO BRASIL LTDA (CARREFOUR)",
+        "nf": "bar"
+      },
+      {
+        "row": 79,
+        "pi": 176.0,
+        "supplier": "Governo Federal / Imp. Ret. Venda / Cofins",
+        "nf": "SIMPLES NACIONAL"
+      },
+      {
+        "row": 93,
+        "pi": 176.0,
+        "supplier": "Paula Kimberlly Martins Petrin",
+        "nf": 2404.0
+      },
+      {
+        "row": 98,
+        "pi": 176.0,
+        "supplier": "EBAZAR.COM.BR LTDA",
+        "nf": "carregador notebook cozinha"
+      },
+      {
+        "row": 101,
+        "pi": 176.0,
+        "supplier": "Arthur Antunes de Sá",
+        "nf": "louca adicional domingo"
+      },
+      {
+        "row": 102,
+        "pi": 176.0,
+        "supplier": "gustavo gabryel de souza roberto",
+        "nf": 2409.0
+      },
+      {
+        "row": 107,
+        "pi": 176.0,
+        "supplier": "Iswara Indústria e Comércio de Produtos Químicos Ltda",
+        "nf": 2308.0
+      },
+      {
+        "row": 108,
+        "pi": 176.0,
+        "supplier": "EBAZAR.COM.BR LTDA",
+        "nf": "insumo coz"
+      },
+      {
+        "row": 109,
+        "pi": 176.0,
+        "supplier": "EBAZAR.COM.BR LTDA",
+        "nf": "insumo coz"
+      },
+      {
+        "row": 117,
+        "pi": 176.0,
+        "supplier": "Adriele de fatima machado",
+        "nf": 2201.0
+      },
+      {
+        "row": 124,
+        "pi": 176.0,
+        "supplier": "caue aparecido godofredo",
+        "nf": 2114.0
+      },
+      {
+        "row": 132,
+        "pi": 176.0,
+        "supplier": "Gabriel Henrique Mendonça Bandoria",
+        "nf": 2128.0
+      },
+      {
+        "row": 133,
+        "pi": 176.0,
+        "supplier": "isabel beatriz teixeira alves",
+        "nf": 2129.0
+      },
+      {
+        "row": 134,
+        "pi": 176.0,
+        "supplier": "Lana servantes",
+        "nf": 2130.0
+      },
+      {
+        "row": 138,
+        "pi": 176.0,
+        "supplier": "ARMAZEM MUNICIPAL",
+        "nf": "petit four caixinhas"
+      },
+      {
+        "row": 140,
+        "pi": 176.0,
+        "supplier": "peixaria cia do camarao",
+        "nf": "camarao bobó"
+      },
+      {
+        "row": 154,
+        "pi": 176.0,
+        "supplier": "Sônia de Jesus",
+        "nf": "taxa sobremesas"
+      },
+      {
+        "row": 157,
+        "pi": 176.0,
+        "supplier": "via inox varejo e distribuição de utilidades ltda",
+        "nf": "colheres"
+      },
+      {
+        "row": 162,
+        "pi": 176.0,
+        "supplier": "CELEIRO MUNICIPAL",
+        "nf": "crostines"
+      },
+      {
+        "row": 166,
+        "pi": 176.0,
+        "supplier": "Maria Dolores - Comercio de Artesanatos LTDA",
+        "nf": 16062026.0
+      },
+      {
+        "row": 169,
+        "pi": 176.0,
+        "supplier": "Gabrielle de Fatima Ribeiro cubas",
+        "nf": 1701.0
+      },
+      {
+        "row": 170,
+        "pi": 176.0,
+        "supplier": "Vanessa Andreina",
+        "nf": 1702.0
+      },
+      {
+        "row": 171,
+        "pi": 176.0,
+        "supplier": "EBAZAR.COM.BR LTDA",
+        "nf": "utensilioz coz colher"
+      },
+      {
+        "row": 172,
+        "pi": 176.0,
+        "supplier": "EBAZAR.COM.BR LTDA",
+        "nf": "utensilio coz colher 2"
+      },
+      {
+        "row": 173,
+        "pi": 176.0,
+        "supplier": "EBAZAR.COM.BR LTDA",
+        "nf": "utensilio coz colher 3"
+      },
+      {
+        "row": 174,
+        "pi": 176.0,
+        "supplier": "EBAZAR.COM.BR LTDA",
+        "nf": "utensilio coz"
+      },
+      {
+        "row": 176,
+        "pi": 176.0,
+        "supplier": "FARMACIAS E DROGARIA NISSEI",
+        "nf": "primeiros socorros"
+      },
+      {
+        "row": 185,
+        "pi": 176.0,
+        "supplier": "Steffanie Bertulino Prestes",
+        "nf": 140626.0
+      },
+      {
+        "row": 186,
+        "pi": 176.0,
+        "supplier": "Vanessa Andreina",
+        "nf": 140626.0
+      },
+      {
+        "row": 187,
+        "pi": 176.0,
+        "supplier": "Juliana Cordova",
+        "nf": 140627.0
+      }
+    ],
+    "sample_conflicts": []
+  },
+  "updates": [
+    {
+      "row": 2,
+      "space": null,
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 3,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SACOLAO POPULAR CURITIBANO"
+    },
+    {
+      "row": 4,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "CAMILO E TUTUMI HORTIFRUTI"
+    },
+    {
+      "row": 6,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "Aurora Cooperativa"
+    },
+    {
+      "row": 7,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 8,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Thaissa cubas ribeiro dos santos"
+    },
+    {
+      "row": 9,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "alyne carolina ropelato pacheco"
+    },
+    {
+      "row": 11,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "leandro lima"
+    },
+    {
+      "row": 12,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Hidaryane nogueira bento"
+    },
+    {
+      "row": 13,
+      "space": "YOU",
+      "sector": "STAFF LOUÇA",
+      "pi": 176.0,
+      "supplier": "Eudes Jhunior silva"
+    },
+    {
+      "row": 14,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "Alexis santos de Almeida"
+    },
+    {
+      "row": 15,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "tathiane borcathe"
+    },
+    {
+      "row": 17,
+      "space": "YOU",
+      "sector": "TECNICO DE SOM",
+      "pi": 176.0,
+      "supplier": "Daniel Bueno Bettega"
+    },
+    {
+      "row": 18,
+      "space": "YOU",
+      "sector": "MÚSICOS",
+      "pi": 176.0,
+      "supplier": "Eric Chien"
+    },
+    {
+      "row": 19,
+      "space": "YOU",
+      "sector": "MARKETING",
+      "pi": 176.0,
+      "supplier": "Google Inc"
+    },
+    {
+      "row": 20,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 21,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "carlos alexandre almeida de souza"
+    },
+    {
+      "row": 22,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Luiz Fernando de Jesus Rosa"
+    },
+    {
+      "row": 23,
+      "space": "YOU",
+      "sector": "INSUMO BAR",
+      "pi": 176.0,
+      "supplier": "ZE DELIVERY APP"
+    },
+    {
+      "row": 25,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "gustavo pereira da silva"
+    },
+    {
+      "row": 27,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "aluir henrique"
+    },
+    {
+      "row": 28,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Victor Sabino camargo"
+    },
+    {
+      "row": 29,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "ADRIEL DE OLIVEIRA FERNANDES"
+    },
+    {
+      "row": 36,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Frederick Augusto Cezar Santos"
+    },
+    {
+      "row": 37,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "DIOGO LUIZ ARAUJO"
+    },
+    {
+      "row": 38,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "joel duarte"
+    },
+    {
+      "row": 39,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Andre Felipe Sartorelli"
+    },
+    {
+      "row": 40,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "leandro lima"
+    },
+    {
+      "row": 41,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Luiz Fernando de Jesus Rosa"
+    },
+    {
+      "row": 43,
+      "space": "YOU",
+      "sector": "TECNICO DE SOM",
+      "pi": 176.0,
+      "supplier": "Daniel Bueno Bettega"
+    },
+    {
+      "row": 46,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "carlos alexandre almeida de souza"
+    },
+    {
+      "row": 49,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "ADRIEL DE OLIVEIRA FERNANDES"
+    },
+    {
+      "row": 51,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Kelli samarita de Castro"
+    },
+    {
+      "row": 52,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "aluir henrique"
+    },
+    {
+      "row": 53,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Thaissa cubas ribeiro dos santos"
+    },
+    {
+      "row": 54,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "alyne carolina ropelato pacheco"
+    },
+    {
+      "row": 55,
+      "space": "YOU",
+      "sector": "TRANSPORTE",
+      "pi": 176.0,
+      "supplier": "Auto Posto Agua Verde"
+    },
+    {
+      "row": 56,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "rei do queijo"
+    },
+    {
+      "row": 57,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 58,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SACOLAO POPULAR CURITIBANO"
+    },
+    {
+      "row": 60,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 61,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 62,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "CARREFOUR COMERCIO E INDUSTRIA LTDA"
+    },
+    {
+      "row": 63,
+      "space": "YOU",
+      "sector": "STAFF ESPAÇO",
+      "pi": 176.0,
+      "supplier": "Vitoria de Oliveira Coelho"
+    },
+    {
+      "row": 66,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Kelli samarita de Castro"
+    },
+    {
+      "row": 67,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "leandro lima"
+    },
+    {
+      "row": 68,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "joel duarte"
+    },
+    {
+      "row": 69,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Kelli samarita de Castro"
+    },
+    {
+      "row": 70,
+      "space": "YOU",
+      "sector": "INSUMO BAR",
+      "pi": 176.0,
+      "supplier": "ZE DELIVERY APP"
+    },
+    {
+      "row": 71,
+      "space": "YOU",
+      "sector": "STAFF ESPAÇO",
+      "pi": 176.0,
+      "supplier": "Vitoria de Oliveira Coelho"
+    },
+    {
+      "row": 72,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 73,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "AÇOUGUE TIROLEZA"
+    },
+    {
+      "row": 75,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SACOLAO POPULAR CURITIBANO"
+    },
+    {
+      "row": 76,
+      "space": "YOU",
+      "sector": "TRANSPORTE",
+      "pi": 176.0,
+      "supplier": "UBER DO BRASIL"
+    },
+    {
+      "row": 77,
+      "space": "YOU",
+      "sector": "INSUMO BAR",
+      "pi": 176.0,
+      "supplier": "EMPRESA DE AGUAS PE DA SERRA LTDA"
+    },
+    {
+      "row": 78,
+      "space": "YOU",
+      "sector": "IMPOSTOS",
+      "pi": 176.0,
+      "supplier": "Governo Federal / Imp. Ret. Forn / PIS-Cofins-CSLL"
+    },
+    {
+      "row": 80,
+      "space": "YOU",
+      "sector": "JÁ LANÇADO",
+      "pi": 176.0,
+      "supplier": "Governo Federal / Imp. Ret. Func./ INSS"
+    },
+    {
+      "row": 81,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 82,
+      "space": "YOU",
+      "sector": "INSUMO BAR",
+      "pi": 176.0,
+      "supplier": "ZE DELIVERY APP"
+    },
+    {
+      "row": 83,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "Alexis santos de Almeida"
+    },
+    {
+      "row": 84,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "rei do queijo"
+    },
+    {
+      "row": 85,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 86,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 87,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "Alexis santos de Almeida"
+    },
+    {
+      "row": 88,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "tathiane borcathe"
+    },
+    {
+      "row": 89,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "AÇOUGUE TIROLEZA"
+    },
+    {
+      "row": 90,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 91,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "AÇOUGUE TIROLEZA"
+    },
+    {
+      "row": 92,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Thaissa cubas ribeiro dos santos"
+    },
+    {
+      "row": 94,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "leandro lima"
+    },
+    {
+      "row": 95,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Victor Sabino camargo"
+    },
+    {
+      "row": 96,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "ADRIEL DE OLIVEIRA FERNANDES"
+    },
+    {
+      "row": 97,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "alyne carolina ropelato pacheco"
+    },
+    {
+      "row": 99,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "Alexis santos de Almeida"
+    },
+    {
+      "row": 100,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "tathiane borcathe"
+    },
+    {
+      "row": 103,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "rei do queijo"
+    },
+    {
+      "row": 104,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SACOLAO POPULAR CURITIBANO"
+    },
+    {
+      "row": 105,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 106,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 110,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "POP HOUSE"
+    },
+    {
+      "row": 111,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 112,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "Alexis santos de Almeida"
+    },
+    {
+      "row": 113,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "tathiane borcathe"
+    },
+    {
+      "row": 114,
+      "space": "YOU",
+      "sector": "TRANSPORTE",
+      "pi": 176.0,
+      "supplier": "Auto Posto Agua Verde"
+    },
+    {
+      "row": 115,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 116,
+      "space": "YOU",
+      "sector": "SERVIÇOS CONTABEIS",
+      "pi": 176.0,
+      "supplier": "FOTON S CONTABILIDADE LTDA"
+    },
+    {
+      "row": 118,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "joel duarte"
+    },
+    {
+      "row": 119,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "leandro lima"
+    },
+    {
+      "row": 120,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Luiz Fernando de Jesus Rosa"
+    },
+    {
+      "row": 121,
+      "space": "YOU",
+      "sector": "STAFF ESPAÇO",
+      "pi": 176.0,
+      "supplier": "Vitoria de Oliveira Coelho"
+    },
+    {
+      "row": 122,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Andre Felipe Sartorelli"
+    },
+    {
+      "row": 123,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Hidaryane nogueira bento"
+    },
+    {
+      "row": 125,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "gustavo pereira da silva"
+    },
+    {
+      "row": 126,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "alyne carolina ropelato pacheco"
+    },
+    {
+      "row": 127,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "ADRIEL DE OLIVEIRA FERNANDES"
+    },
+    {
+      "row": 128,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "carlos alexandre almeida de souza"
+    },
+    {
+      "row": 129,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Victor Sabino camargo"
+    },
+    {
+      "row": 130,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "aluir henrique"
+    },
+    {
+      "row": 131,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Pedro Victor de Vietro Farias"
+    },
+    {
+      "row": 135,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "Alexis santos de Almeida"
+    },
+    {
+      "row": 136,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "tathiane borcathe"
+    },
+    {
+      "row": 137,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "Casa das Embalagens"
+    },
+    {
+      "row": 139,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 141,
+      "space": "YOU",
+      "sector": "TRANSPORTE",
+      "pi": 176.0,
+      "supplier": "UBER DO BRASIL"
+    },
+    {
+      "row": 142,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 143,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "DISTRIBUIDORA PAIOL"
+    },
+    {
+      "row": 144,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 145,
+      "space": "YOU",
+      "sector": "TRANSPORTE",
+      "pi": 176.0,
+      "supplier": "UBER DO BRASIL"
+    },
+    {
+      "row": 146,
+      "space": "YOU",
+      "sector": "TRANSPORTE",
+      "pi": 176.0,
+      "supplier": "UBER DO BRASIL"
+    },
+    {
+      "row": 147,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 148,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "IFOODCOM AGENCIA DE RESTAURANTES ONLINE S/A"
+    },
+    {
+      "row": 149,
+      "space": "YOU",
+      "sector": "TRANSPORTE",
+      "pi": 176.0,
+      "supplier": "UBER DO BRASIL"
+    },
+    {
+      "row": 150,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 151,
+      "space": "YOU",
+      "sector": "TRANSPORTE",
+      "pi": 176.0,
+      "supplier": "Auto Posto Agua Verde"
+    },
+    {
+      "row": 152,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "ARMAZEM DAS EMBALAGENS"
+    },
+    {
+      "row": 153,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "CAMILO E TUTUMI HORTIFRUTI"
+    },
+    {
+      "row": 155,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "tathiane borcathe"
+    },
+    {
+      "row": 156,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "Alexis santos de Almeida"
+    },
+    {
+      "row": 158,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 159,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 160,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SACOLAO POPULAR CURITIBANO"
+    },
+    {
+      "row": 161,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 163,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "Copal Alimentos Ltda"
+    },
+    {
+      "row": 164,
+      "space": "YOU",
+      "sector": "TRANSPORTE",
+      "pi": 176.0,
+      "supplier": "UBER DO BRASIL"
+    },
+    {
+      "row": 165,
+      "space": "YOU",
+      "sector": "MÚSICOS",
+      "pi": 176.0,
+      "supplier": "Eric Chien"
+    },
+    {
+      "row": 167,
+      "space": "YOU",
+      "sector": "INSUMO BAR",
+      "pi": 176.0,
+      "supplier": "EMPRESA DE AGUAS PE DA SERRA LTDA"
+    },
+    {
+      "row": 168,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "tathiane borcathe"
+    },
+    {
+      "row": 175,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 177,
+      "space": "YOU",
+      "sector": "MARKETING",
+      "pi": 176.0,
+      "supplier": "FACEBOOK"
+    },
+    {
+      "row": 178,
+      "space": "YOU",
+      "sector": "MARKETING",
+      "pi": 176.0,
+      "supplier": "Google Inc"
+    },
+    {
+      "row": 179,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "joao vitor de oliveira konig"
+    },
+    {
+      "row": 180,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "aluir henrique"
+    },
+    {
+      "row": 181,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Victor Sabino camargo"
+    },
+    {
+      "row": 182,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Hidaryane nogueira bento"
+    },
+    {
+      "row": 183,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Luiz Fernando de Jesus Rosa"
+    },
+    {
+      "row": 184,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Andre Felipe Sartorelli"
+    },
+    {
+      "row": 188,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "Alexis santos de Almeida"
+    },
+    {
+      "row": 189,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "tathiane borcathe"
+    },
+    {
+      "row": 190,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Pedro Victor de Vietro Farias"
+    },
+    {
+      "row": 193,
+      "space": "YOU",
+      "sector": "TRANSPORTE",
+      "pi": 176.0,
+      "supplier": "UBER DO BRASIL"
+    },
+    {
+      "row": 196,
+      "space": "YOU",
+      "sector": "TRANSPORTE",
+      "pi": 176.0,
+      "supplier": "99 POP"
+    },
+    {
+      "row": 197,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Victor Sabino camargo"
+    },
+    {
+      "row": 198,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "joao vitor de oliveira konig"
+    },
+    {
+      "row": 199,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "aluir henrique"
+    },
+    {
+      "row": 201,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Stefany taylla souza"
+    },
+    {
+      "row": 205,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "Alexis santos de Almeida"
+    },
+    {
+      "row": 206,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "tathiane borcathe"
+    },
+    {
+      "row": 207,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "Jeferson Fernando arceli"
+    },
+    {
+      "row": 209,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 210,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "CONDOR SUPER CENTER LTDA"
+    },
+    {
+      "row": 211,
+      "space": "YOU",
+      "sector": "INSUMO BAR",
+      "pi": 176.0,
+      "supplier": "ZE DELIVERY APP"
+    },
+    {
+      "row": 212,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "Alexis santos de Almeida"
+    },
+    {
+      "row": 213,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "tathiane borcathe"
+    },
+    {
+      "row": 214,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "CAMILO E TUTUMI HORTIFRUTI"
+    },
+    {
+      "row": 215,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 216,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 217,
+      "space": "YOU",
+      "sector": "TRANSPORTE",
+      "pi": 176.0,
+      "supplier": "Auto Posto Agua Verde"
+    },
+    {
+      "row": 218,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "leandro lima"
+    },
+    {
+      "row": 219,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Frederick Augusto Cezar Santos"
+    },
+    {
+      "row": 220,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Andre Felipe Sartorelli"
+    },
+    {
+      "row": 221,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Pedro Victor de Vietro Farias"
+    },
+    {
+      "row": 222,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "Alexis santos de Almeida"
+    },
+    {
+      "row": 223,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "tathiane borcathe"
+    },
+    {
+      "row": 224,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 225,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "rei do queijo"
+    },
+    {
+      "row": 226,
+      "space": "YOU",
+      "sector": "TRANSPORTE",
+      "pi": 176.0,
+      "supplier": "UBER DO BRASIL"
+    },
+    {
+      "row": 229,
+      "space": "YOU",
+      "sector": "SERVIÇOS CONTABEIS",
+      "pi": 176.0,
+      "supplier": "FOTON S CONTABILIDADE LTDA"
+    },
+    {
+      "row": 230,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "ARMAZEM DAS EMBALAGENS"
+    },
+    {
+      "row": 232,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 235,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "CASA NOVA COMERCIO DE EMBALAGENS"
+    },
+    {
+      "row": 236,
+      "space": "YOU",
+      "sector": "TECNICO DE SOM",
+      "pi": 176.0,
+      "supplier": "Daniel Bueno Bettega"
+    },
+    {
+      "row": 237,
+      "space": "YOU",
+      "sector": "TRANSPORTE",
+      "pi": 176.0,
+      "supplier": "UBER DO BRASIL"
+    },
+    {
+      "row": 239,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Frederick Augusto Cezar Santos"
+    },
+    {
+      "row": 240,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "leandro lima"
+    },
+    {
+      "row": 241,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "leandro lima"
+    },
+    {
+      "row": 243,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "aluir henrique"
+    },
+    {
+      "row": 244,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Victor Sabino camargo"
+    },
+    {
+      "row": 247,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "Alexis santos de Almeida"
+    },
+    {
+      "row": 248,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "tathiane borcathe"
+    },
+    {
+      "row": 249,
+      "space": "YOU",
+      "sector": "TRANSPORTE",
+      "pi": 176.0,
+      "supplier": "Auto Posto Agua Verde"
+    },
+    {
+      "row": 250,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 252,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "CAMILO E TUTUMI HORTIFRUTI"
+    },
+    {
+      "row": 253,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "POP HOUSE"
+    },
+    {
+      "row": 254,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "Trapiche Comercio de Produtos e Alimenticios Eireli"
+    },
+    {
+      "row": 255,
+      "space": "YOU",
+      "sector": "JÁ LANÇADO",
+      "pi": 176.0,
+      "supplier": "BALMANT CONSULTORIA DE MARKETING E TECNOLOGIA LTDA"
+    },
+    {
+      "row": 257,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "POP HOUSE"
+    },
+    {
+      "row": 258,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "leandro lima"
+    },
+    {
+      "row": 259,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Thaissa cubas ribeiro dos santos"
+    },
+    {
+      "row": 260,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "JOSE TIAGO LIRA MACEDO"
+    },
+    {
+      "row": 261,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Frederick Augusto Cezar Santos"
+    },
+    {
+      "row": 262,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "alyne carolina ropelato pacheco"
+    },
+    {
+      "row": 263,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Luiz Fernando de Jesus Rosa"
+    },
+    {
+      "row": 264,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 266,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "Alexis santos de Almeida"
+    },
+    {
+      "row": 268,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "tathiane borcathe"
+    },
+    {
+      "row": 269,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 270,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "Supermercado Festval"
+    },
+    {
+      "row": 271,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "leandro lima"
+    },
+    {
+      "row": 272,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Andre Felipe Sartorelli"
+    },
+    {
+      "row": 274,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 275,
+      "space": "YOU",
+      "sector": "STAFF LOUÇA",
+      "pi": 176.0,
+      "supplier": "Eudes Jhunior silva"
+    },
+    {
+      "row": 277,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 278,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "AÇOUGUE TIROLEZA"
+    },
+    {
+      "row": 279,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "Trapiche Comercio de Produtos e Alimenticios Eireli"
+    },
+    {
+      "row": 280,
+      "space": "YOU",
+      "sector": "ALUGUEL ITENS DIVERSOS",
+      "pi": 176.0,
+      "supplier": "VIP Service Personal Locação e Festas Ltda"
+    },
+    {
+      "row": 281,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "Supermercado Festval"
+    },
+    {
+      "row": 283,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "CAMILO E TUTUMI HORTIFRUTI"
+    },
+    {
+      "row": 284,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Luiz Fernando de Jesus Rosa"
+    },
+    {
+      "row": 286,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "Alexis santos de Almeida"
+    },
+    {
+      "row": 287,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "tathiane borcathe"
+    },
+    {
+      "row": 290,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Stefany taylla souza"
+    },
+    {
+      "row": 292,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "carlos alexandre almeida de souza"
+    },
+    {
+      "row": 293,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Victor Sabino camargo"
+    },
+    {
+      "row": 294,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Kelli samarita de Castro"
+    },
+    {
+      "row": 295,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "JOSE TIAGO LIRA MACEDO"
+    },
+    {
+      "row": 297,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "gustavo pereira da silva"
+    },
+    {
+      "row": 299,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Frederick Augusto Cezar Santos"
+    },
+    {
+      "row": 300,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "leandro lima"
+    },
+    {
+      "row": 301,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 302,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SACOLAO POPULAR CURITIBANO"
+    },
+    {
+      "row": 303,
+      "space": "YOU",
+      "sector": "ALUGUEL ITENS DIVERSOS",
+      "pi": 176.0,
+      "supplier": "VIP Service Personal Locação e Festas Ltda"
+    },
+    {
+      "row": 304,
+      "space": "YOU",
+      "sector": "TRANSPORTE",
+      "pi": 176.0,
+      "supplier": "UBER DO BRASIL"
+    },
+    {
+      "row": 305,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Victor Sabino camargo"
+    },
+    {
+      "row": 306,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Luiz Fernando de Jesus Rosa"
+    },
+    {
+      "row": 307,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "leandro lima"
+    },
+    {
+      "row": 308,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "gustavo pereira da silva"
+    },
+    {
+      "row": 309,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Stefany taylla souza"
+    },
+    {
+      "row": 312,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "Alexis santos de Almeida"
+    },
+    {
+      "row": 313,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "tathiane borcathe"
+    },
+    {
+      "row": 314,
+      "space": "YOU",
+      "sector": "TRANSPORTE",
+      "pi": 176.0,
+      "supplier": "UBER DO BRASIL"
+    },
+    {
+      "row": 315,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "rei do queijo"
+    },
+    {
+      "row": 320,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "CASA NOVA COMERCIO DE EMBALAGENS"
+    },
+    {
+      "row": 321,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "AÇOUGUE TIROLEZA"
+    },
+    {
+      "row": 322,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 325,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "CAMILO E TUTUMI HORTIFRUTI"
+    },
+    {
+      "row": 326,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "DISTRIBUIDORA PAIOL"
+    },
+    {
+      "row": 327,
+      "space": "YOU",
+      "sector": "TRANSPORTE",
+      "pi": 176.0,
+      "supplier": "UBER DO BRASIL"
+    },
+    {
+      "row": 328,
+      "space": "YOU",
+      "sector": "JÁ LANÇADO",
+      "pi": 176.0,
+      "supplier": "EMANUEL RIBAS SANTOS - PENSÃO - LETÍCIA SILKA LASS"
+    },
+    {
+      "row": 329,
+      "space": "YOU",
+      "sector": "JÁ LANÇADO",
+      "pi": 176.0,
+      "supplier": "Emanuel Ribas Santos"
+    },
+    {
+      "row": 330,
+      "space": "YOU",
+      "sector": "ALUGUEL ITENS DIVERSOS",
+      "pi": 176.0,
+      "supplier": "RAMALHETE DE MIRRA LOCACOES"
+    },
+    {
+      "row": 331,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Hidaryane nogueira bento"
+    },
+    {
+      "row": 332,
+      "space": "YOU",
+      "sector": "STAFF SERVIÇO",
+      "pi": 176.0,
+      "supplier": "Andre Felipe Sartorelli"
+    },
+    {
+      "row": 333,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "ARMAZEM DAS EMBALAGENS"
+    },
+    {
+      "row": 334,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "tathiane borcathe"
+    },
+    {
+      "row": 335,
+      "space": "YOU",
+      "sector": "TECNICO DE SOM",
+      "pi": 176.0,
+      "supplier": "Daniel Bueno Bettega"
+    },
+    {
+      "row": 337,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 338,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 339,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "Alexis santos de Almeida"
+    },
+    {
+      "row": 340,
+      "space": "YOU",
+      "sector": "STAFF COZINHA",
+      "pi": 176.0,
+      "supplier": "tathiane borcathe"
+    },
+    {
+      "row": 341,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "SENDAS DISTRIBUIDORA S/A"
+    },
+    {
+      "row": 342,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "Trapiche Comercio de Produtos e Alimenticios Eireli"
+    },
+    {
+      "row": 344,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "CARREFOUR COMERCIO E INDUSTRIA LTDA"
+    },
+    {
+      "row": 345,
+      "space": "YOU",
+      "sector": "INSUMO BAR",
+      "pi": 176.0,
+      "supplier": "EMPRESA DE AGUAS PE DA SERRA LTDA"
+    },
+    {
+      "row": 346,
+      "space": "YOU",
+      "sector": "INSUMO BAR",
+      "pi": 176.0,
+      "supplier": "VESPER MICRO DESTILARIA"
+    },
+    {
+      "row": 347,
+      "space": "YOU",
+      "sector": "TRANSPORTE",
+      "pi": 176.0,
+      "supplier": "Auto Posto Agua Verde"
+    },
+    {
+      "row": 350,
+      "space": "YOU",
+      "sector": "INSUMO COZ",
+      "pi": 176.0,
+      "supplier": "Copal Alimentos Ltda"
+    },
+    {
+      "row": 352,
+      "space": "RTC",
+      "sector": "TRANSPORTE",
+      "pi": 178.0,
+      "supplier": "UBER DO BRASIL"
+    },
+    {
+      "row": 356,
+      "space": "L2",
+      "sector": "STAFF ESPAÇO",
+      "pi": 178.0,
+      "supplier": "Vanessa Andreina"
+    },
+    {
+      "row": 357,
+      "space": "L1",
+      "sector": "JÁ LANÇADO",
+      "pi": 178.0,
+      "supplier": "Gabrielle de Fatima Ribeiro cubas"
+    },
+    {
+      "row": 358,
+      "space": "L1",
+      "sector": "ALUGUEL ITENS DIVERSOS",
+      "pi": 178.0,
+      "supplier": "S F ESTACIONAMENTO DE VEICULOS LTDA"
+    },
+    {
+      "row": 362,
+      "space": "L1",
+      "sector": "JÁ LANÇADO",
+      "pi": 178.0,
+      "supplier": "Gabrielle de Fatima Ribeiro cubas"
+    },
+    {
+      "row": 363,
+      "space": "L1",
+      "sector": "JÁ LANÇADO",
+      "pi": 178.0,
+      "supplier": "Gabrielle de Fatima Ribeiro cubas"
+    },
+    {
+      "row": 364,
+      "space": "L2",
+      "sector": "STAFF ESPAÇO",
+      "pi": 178.0,
+      "supplier": "Vanessa Andreina"
+    },
+    {
+      "row": 366,
+      "space": "L2",
+      "sector": "STAFF ESPAÇO",
+      "pi": 178.0,
+      "supplier": "Vanessa Andreina"
+    },
+    {
+      "row": 372,
+      "space": "L1",
+      "sector": "JÁ LANÇADO",
+      "pi": 178.0,
+      "supplier": "Gabrielle de Fatima Ribeiro cubas"
+    },
+    {
+      "row": 382,
+      "space": "RTC",
+      "sector": "REPOSIÇÃO INSUMOS",
+      "pi": 178.0,
+      "supplier": "JJ DOS SANTOS DISTRIBUIDORA DE GAS"
+    },
+    {
+      "row": 383,
+      "space": "L1",
+      "sector": "JÁ LANÇADO",
+      "pi": 178.0,
+      "supplier": "Gabrielle de Fatima Ribeiro cubas"
+    },
+    {
+      "row": 396,
+      "space": "L1",
+      "sector": "JÁ LANÇADO",
+      "pi": 178.0,
+      "supplier": "Gabrielle de Fatima Ribeiro cubas"
+    },
+    {
+      "row": 397,
+      "space": "L2",
+      "sector": "STAFF ESPAÇO",
+      "pi": 178.0,
+      "supplier": "Vanessa Andreina"
+    },
+    {
+      "row": 404,
+      "space": "RTC",
+      "sector": "TRANSPORTE",
+      "pi": 178.0,
+      "supplier": "UBER DO BRASIL"
+    },
+    {
+      "row": 408,
+      "space": "RTC",
+      "sector": "TRANSPORTE",
+      "pi": 178.0,
+      "supplier": "UBER DO BRASIL"
+    },
+    {
+      "row": 426,
+      "space": "L1",
+      "sector": "JÁ LANÇADO",
+      "pi": 178.0,
+      "supplier": "Gabrielle de Fatima Ribeiro cubas"
+    },
+    {
+      "row": 428,
+      "space": "L1",
+      "sector": "ALUGUEL ITENS DIVERSOS",
+      "pi": 178.0,
+      "supplier": "VIP Service Personal Locação e Festas Ltda"
+    },
+    {
+      "row": 435,
+      "space": "L1",
+      "sector": "STAFF ESPAÇO",
+      "pi": 178.0,
+      "supplier": "Thaissa cubas ribeiro dos santos"
+    },
+    {
+      "row": 436,
+      "space": "L2",
+      "sector": "STAFF ESPAÇO",
+      "pi": 178.0,
+      "supplier": "Vanessa Andreina"
+    },
+    {
+      "row": 437,
+      "space": "L1",
+      "sector": "JÁ LANÇADO",
+      "pi": 178.0,
+      "supplier": "Gabrielle de Fatima Ribeiro cubas"
+    },
+    {
+      "row": 443,
+      "space": "RTC",
+      "sector": "REPOSIÇÃO INSUMOS",
+      "pi": 178.0,
+      "supplier": "JJ DOS SANTOS DISTRIBUIDORA DE GAS"
+    },
+    {
+      "row": 445,
+      "space": "L1",
+      "sector": "MANUTENÇÃO",
+      "pi": 178.0,
+      "supplier": "EBAZAR.COM.BR LTDA"
+    },
+    {
+      "row": 446,
+      "space": "L1",
+      "sector": "STAFF ESPAÇO",
+      "pi": 178.0,
+      "supplier": "Thaissa cubas ribeiro dos santos"
+    },
+    {
+      "row": 448,
+      "space": "L1",
+      "sector": "JÁ LANÇADO",
+      "pi": 178.0,
+      "supplier": "Gabrielle de Fatima Ribeiro cubas"
+    },
+    {
+      "row": 451,
+      "space": "L2",
+      "sector": "STAFF ESPAÇO",
+      "pi": 178.0,
+      "supplier": "Vanessa Andreina"
+    },
+    {
+      "row": 452,
+      "space": "L1",
+      "sector": "JÁ LANÇADO",
+      "pi": 178.0,
+      "supplier": "Gabrielle de Fatima Ribeiro cubas"
+    },
+    {
+      "row": 458,
+      "space": "L1",
+      "sector": "STAFF ESPAÇO",
+      "pi": 178.0,
+      "supplier": "Thaissa cubas ribeiro dos santos"
+    },
+    {
+      "row": 459,
+      "space": "L1",
+      "sector": "JÁ LANÇADO",
+      "pi": 178.0,
+      "supplier": "Gabrielle de Fatima Ribeiro cubas"
+    },
+    {
+      "row": 462,
+      "space": "L1",
+      "sector": "ALUGUEL ITENS DIVERSOS",
+      "pi": 178.0,
+      "supplier": "S F ESTACIONAMENTO DE VEICULOS LTDA"
+    },
+    {
+      "row": 464,
+      "space": "L1",
+      "sector": "ALUGUEL ITENS DIVERSOS",
+      "pi": 178.0,
+      "supplier": "VIP Service Personal Locação e Festas Ltda"
+    },
+    {
+      "row": 467,
+      "space": "L1",
+      "sector": "JÁ LANÇADO",
+      "pi": 178.0,
+      "supplier": "Gabrielle de Fatima Ribeiro cubas"
+    },
+    {
+      "row": 468,
+      "space": "L2",
+      "sector": "STAFF ESPAÇO",
+      "pi": 178.0,
+      "supplier": "Vanessa Andreina"
+    },
+    {
+      "row": 470,
+      "space": "L2",
+      "sector": "STAFF ESPAÇO",
+      "pi": 178.0,
+      "supplier": "Vanessa Andreina"
+    },
+    {
+      "row": 471,
+      "space": "L1",
+      "sector": "JÁ LANÇADO",
+      "pi": 178.0,
+      "supplier": "Gabrielle de Fatima Ribeiro cubas"
+    },
+    {
+      "row": 479,
+      "space": "L1",
+      "sector": "ALUGUEL ITENS DIVERSOS",
+      "pi": 178.0,
+      "supplier": "VIP Service Personal Locação e Festas Ltda"
+    },
+    {
+      "row": 482,
+      "space": "L1",
+      "sector": "JÁ LANÇADO",
+      "pi": 178.0,
+      "supplier": "Gabrielle de Fatima Ribeiro cubas"
+    },
+    {
+      "row": 484,
+      "space": "L1",
+      "sector": "ALUGUEL ITENS DIVERSOS",
+      "pi": 178.0,
+      "supplier": "VIP Service Personal Locação e Festas Ltda"
+    }
+  ],
+  "ambiguous_keys": {
+    "178|gregory gaspar de f proak": {
+      "L1||SEGURANÇA": 6,
+      "L2||SEGURANÇA": 7
+    },
+    "178|jordana gabriela do sanros carvalho": {
+      "L1||STAFF FAXINA/MONTAGEM": 11,
+      "L2||STAFF FAXINA/MONTAGEM": 9,
+      "RTC||STAFF FAXINA/MONTAGEM": 10,
+      "L2||STAFF ESPAÇO": 1
+    },
+    "176|ebazar com br ltda": {
+      "YOU||INSUMO BAR": 1,
+      "YOU||INSUMO COZ": 2,
+      "YOU||INSUMO LIMP": 1,
+      "YOU||UTENSILIO BAR": 3
+    },
+    "178|adriel de oliveira fernandes": {
+      "L2||STAFF FAXINA/MONTAGEM": 2,
+      "L1||STAFF FAXINA/MONTAGEM": 3
+    },
+    "178|kelli samarita de castro": {
+      "L2||STAFF SERVIÇO": 2,
+      "L1||STAFF SERVIÇO": 3
+    },
+    "178|suki martins": {
+      "L1||STAFF FAXINA/MONTAGEM": 5,
+      "RTC||STAFF FAXINA/MONTAGEM": 5,
+      "L2||STAFF FAXINA/MONTAGEM": 3
+    },
+    "178|larissa ghellere": {
+      "L1||JÁ LANÇADO": 1,
+      "L1||BONIFICAÇÃO": 1,
+      "L2||BONIFICAÇÃO": 1,
+      "RTC||BONIFICAÇÃO": 1
+    },
+    "178|stefany taylla souza": {
+      "L1||STAFF ESPAÇO": 1,
+      "L2||STAFF ESPAÇO": 1
+    },
+    "178|cassia rafaela keller": {
+      "L1||STAFF ESPAÇO": 1,
+      "L2||STAFF ESPAÇO": 1,
+      "RTC||STAFF ESPAÇO": 1
+    },
+    "178|versatile descartaveis ltda": {
+      "L1||INSUMO LIMP": 1,
+      "RTC||INSUMO LIMP": 1,
+      "L2||INSUMO LIMP": 1
+    },
+    "178|facebook": {
+      "L1||MARKETING": 1,
+      "L2||MARKETING": 1,
+      "RTC||MARKETING": 1
+    },
+    "178|google inc": {
+      "RTC||MARKETING": 1,
+      "L1||MARKETING": 1,
+      "L2||MARKETING": 1
+    },
+    "178|leandro lima": {
+      "L2||STAFF FAXINA/MONTAGEM": 1,
+      "L1||STAFF FAXINA/MONTAGEM": 1
+    },
+    "178|iswara industria e comercio de produtos quimicos ltda": {
+      "L2||INSUMO LIMP": 1,
+      "RTC||INSUMO LIMP": 1,
+      "L1||INSUMO LIMP": 1
+    },
+    "178|alyne carolina ropelato pacheco": {
+      "YOU||STAFF ESPAÇO": 2,
+      "RTC||STAFF ESPAÇO": 1
+    },
+    "178|heictor bellato araujo": {
+      "L1||STAFF ESPAÇO": 1,
+      "L2||STAFF ESPAÇO": 1
+    },
+    "178|gabrielli santana de andrade": {
+      "L1||STAFF ESPAÇO": 1,
+      "L2||STAFF ESPAÇO": 1,
+      "RTC||STAFF ESPAÇO": 1
+    }
+  }
+}
