@@ -80,6 +80,14 @@ const emptyForm = {
   status: 'active',
 };
 
+// Converts a UTC ISO string to a "YYYY-MM-DDTHH:mm" string in the browser's local timezone,
+// so datetime-local inputs show the correct local time instead of UTC.
+function utcToLocalInput(utcIso: string): string {
+  const d = new Date(utcIso);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
   const [services, setServices] = useState<EventService[]>([]);
   const [allServices, setAllServices] = useState<FreelancerService[]>([]);
@@ -149,8 +157,8 @@ export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
       freelancerId: svc.freelancerId || '',
       maxSlots: svc.maxSlots,
       valuePerHour: svc.valuePerHour,
-      startAt: svc.startAt ? svc.startAt.slice(0, 16) : '',
-      endAt: svc.endAt ? svc.endAt.slice(0, 16) : '',
+      startAt: svc.startAt ? utcToLocalInput(svc.startAt) : '',
+      endAt: svc.endAt ? utcToLocalInput(svc.endAt) : '',
       notes: svc.notes || '',
       status: svc.status,
     });
@@ -175,8 +183,8 @@ export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
         freelancerId: form.freelancerId || null,
         maxSlots: Number(form.maxSlots),
         valuePerHour: Number(form.valuePerHour),
-        startAt: form.startAt || null,
-        endAt: form.endAt || null,
+        startAt: form.startAt ? new Date(form.startAt).toISOString() : null,
+        endAt: form.endAt ? new Date(form.endAt).toISOString() : null,
         notes: form.notes || null,
         status: form.status,
       };

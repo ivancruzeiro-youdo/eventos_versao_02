@@ -29,6 +29,12 @@ interface EventScheduleTabProps {
   eventId: string;
 }
 
+function utcToLocalInput(utcIso: string): string {
+  const d = new Date(utcIso);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(false);
@@ -90,8 +96,8 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
       const payload = {
         name: formData.name,
         teamId: formData.teamId,
-        startAt: formData.startAt,
-        endAt: formData.endAt,
+        startAt: formData.startAt ? new Date(formData.startAt).toISOString() : '',
+        endAt: formData.endAt ? new Date(formData.endAt).toISOString() : '',
         description: formData.description || null,
         fileId: formData.fileId || null,
       };
@@ -138,8 +144,8 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
     setFormData({
       name: schedule.name,
       teamId: schedule.team?.id || '',
-      startAt: schedule.startAt.slice(0, 16), // Format for datetime-local input
-      endAt: schedule.endAt.slice(0, 16),
+      startAt: utcToLocalInput(schedule.startAt),
+      endAt: utcToLocalInput(schedule.endAt),
       description: schedule.description || '',
       fileId: schedule.file?.id || '',
     });
