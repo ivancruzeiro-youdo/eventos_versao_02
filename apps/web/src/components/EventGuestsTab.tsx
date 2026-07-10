@@ -54,7 +54,7 @@ export default function EventGuestsTab({ eventId }: EventGuestsTabProps) {
   const loadGuests = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/v2/events/${eventId}/guests`, { credentials: 'include' });
+      const response = await fetch(`/api/v2/events/${eventId}/guests?limit=1000`, { credentials: 'include' });
       if (response.ok) {
         const data = await response.json();
         setGuests(data.guests || []);
@@ -127,8 +127,8 @@ export default function EventGuestsTab({ eventId }: EventGuestsTabProps) {
   async function importCsv() {
     try {
       const lines = csvText.trim().split(/\r?\n/);
-      // Skip a header row if present (e.g. "nome,email,...")
-      if (lines.length > 0 && /nome|name|e-?mail|telefone|phone|cpf/i.test(lines[0])) {
+      // Skip header/title rows (column headers or title lines like "LISTA DE CONVIDADOS...")
+      while (lines.length > 0 && /nome|name|e-?mail|telefone|phone|cpf|lista\s+de\s+conv|convidados|^\s*-+\s*$|^\s*#/i.test(lines[0])) {
         lines.shift();
       }
       const guests = lines.map(line => {
