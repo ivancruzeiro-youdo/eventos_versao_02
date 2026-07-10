@@ -37,11 +37,20 @@ export default function EventGuestsTab({ eventId }: EventGuestsTabProps) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [showCsvModal, setShowCsvModal] = useState(false);
   const [csvText, setCsvText] = useState('');
+
+  function openCsvModal() { setCsvText(''); setDupAlert(null); setShowCsvModal(true); }
+  function closeCsvModal() { setShowCsvModal(false); setDupAlert(null); setCsvText(''); }
   const [importAsConfirmed, setImportAsConfirmed] = useState(false);
   const [selectedGuest, setSelectedGuest] = useState<Guest | null>(null);
   const [qrData, setQrData] = useState<string>('');
   const [showQrModal, setShowQrModal] = useState(false);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
+  const [dupAlert, setDupAlert] = useState<{
+    duplicateNames: string[];
+    newOnly: any[];
+    all: any[];
+  } | null>(null);
+  const [importing, setImporting] = useState(false);
   
   // Form state
   const [newGuest, setNewGuest] = useState({
@@ -124,40 +133,59 @@ export default function EventGuestsTab({ eventId }: EventGuestsTabProps) {
     reader.readAsText(file);
   }
 
-  async function importCsv() {
-    try {
-      const lines = csvText.trim().split(/\r?\n/);
-      // Skip header/title rows (column headers or title lines like "LISTA DE CONVIDADOS...")
-      while (lines.length > 0 && /nome|name|e-?mail|telefone|phone|cpf|lista\s+de\s+conv|convidados|^\s*-+\s*$|^\s*#/i.test(lines[0])) {
-        lines.shift();
-      }
-      const guests = lines.map(line => {
+  function parseCsvGuests(text: string) {
+    const lines = text.trim().split(/\r?\n/);
+    while (lines.length > 0 && /nome|name|e-?mail|telefone|phone|cpf|lista\s+de\s+conv|convidados|^\s*-+\s*$|^\s*#/i.test(lines[0])) {
+      lines.shift();
+    }
+    return lines
+      .map(line => {
         const [name, email, phone, cpf, status] = line.split(/[,;]/).map(s => s.trim());
         return { name, email, phone, cpf, status: importAsConfirmed ? 'confirmed' : (status || undefined) };
-      }).filter(g => g.name);
+      })
+      .filter(g => g.name?.trim());
+  }
 
-      if (guests.length === 0) {
-        alert('Nenhum convidado válido encontrado no arquivo.');
-        return;
-      }
-
+  async function doImport(list: any[]) {
+    setImporting(true);
+    try {
       const response = await fetch(`/api/v2/events/${eventId}/guests/import`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ guests }),
+        body: JSON.stringify({ guests: list }),
       });
-
       const data = await response.json();
       if (data.success) {
         alert(`Importação concluída: ${data.results.created} criados, ${data.results.skipped} ignorados`);
-        setCsvText('');
         setImportAsConfirmed(false);
-        setShowCsvModal(false);
+        closeCsvModal();
         loadGuests();
       }
-    } catch (err) {
-      alert('Erro ao importar CSV');
+    } catch {
+      alert('Erro ao importar');
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  function importCsv() {
+    const parsed = parseCsvGuests(csvText);
+    if (parsed.length === 0) {
+      alert('Nenhum convidado válido encontrado no arquivo.');
+      return;
+    }
+
+    const existingNames = new Set(guests.map(g => g.name.trim().toLowerCase()));
+    const duplicateNames = parsed
+      .filter(g => existingNames.has(g.name.trim().toLowerCase()))
+      .map(g => g.name);
+    const newOnly = parsed.filter(g => !existingNames.has(g.name.trim().toLowerCase()));
+
+    if (duplicateNames.length > 0) {
+      setDupAlert({ duplicateNames, newOnly, all: parsed });
+    } else {
+      doImport(parsed);
     }
   }
 
@@ -270,7 +298,7 @@ export default function EventGuestsTab({ eventId }: EventGuestsTabProps) {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={() => setShowCsvModal(true)}
+            onClick={openCsvModal}
             className="px-4 py-2 border rounded-lg flex items-center gap-2 hover:bg-accent"
           >
             <Upload className="size-4" />
@@ -369,17 +397,55 @@ export default function EventGuestsTab({ eventId }: EventGuestsTabProps) {
             />
             <span className="text-sm">Importar todos como <strong>confirmados</strong></span>
           </label>
-          <div className="flex gap-2">
-            <button onClick={importCsv} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg">
-              Importar
-            </button>
-            <button
-              onClick={() => setShowCsvModal(false)}
-              className="px-4 py-2 border rounded-lg"
-            >
-              Cancelar
-            </button>
-          </div>
+          {/* Duplicate warning */}
+          {dupAlert && (
+            <div className="border border-amber-300 bg-amber-50 rounded-lg p-3 space-y-2">
+              <p className="text-sm font-medium text-amber-800">
+                {dupAlert.duplicateNames.length} convidado{dupAlert.duplicateNames.length !== 1 ? 's' : ''} já existe{dupAlert.duplicateNames.length !== 1 ? 'm' : ''} com o mesmo nome:
+              </p>
+              <ul className="text-xs text-amber-700 max-h-28 overflow-y-auto space-y-0.5">
+                {dupAlert.duplicateNames.map(n => <li key={n}>• {n}</li>)}
+              </ul>
+              <p className="text-xs text-amber-700">O que deseja fazer?</p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => doImport(dupAlert.newOnly)}
+                  disabled={importing || dupAlert.newOnly.length === 0}
+                  className="px-3 py-1.5 bg-primary text-primary-foreground rounded text-xs font-medium disabled:opacity-50"
+                >
+                  {importing ? 'Importando...' : `Importar apenas os ${dupAlert.newOnly.length} novos`}
+                </button>
+                <button
+                  onClick={() => doImport(dupAlert.all)}
+                  disabled={importing}
+                  className="px-3 py-1.5 border border-amber-400 text-amber-800 rounded text-xs font-medium disabled:opacity-50"
+                >
+                  {importing ? 'Importando...' : `Importar todos os ${dupAlert.all.length} (incluindo duplicatas)`}
+                </button>
+                <button onClick={() => setDupAlert(null)} className="px-3 py-1.5 border rounded text-xs">
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {!dupAlert && (
+            <div className="flex gap-2">
+              <button
+                onClick={importCsv}
+                disabled={importing || !csvText.trim()}
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-lg disabled:opacity-50"
+              >
+                {importing ? 'Importando...' : 'Importar'}
+              </button>
+              <button
+                onClick={closeCsvModal}
+                className="px-4 py-2 border rounded-lg"
+              >
+                Cancelar
+              </button>
+            </div>
+          )}
         </div>
       )}
 
