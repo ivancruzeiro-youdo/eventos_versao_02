@@ -49,7 +49,7 @@ export async function eventRoutes(app: FastifyInstance) {
   });
 
   // Create event
-  app.post('/', { preHandler: [requireAuth, requireRole(['admin', 'event_owner'])] }, async (request, reply) => {
+  app.post('/', { preHandler: [requireAuth, requireRole(['admin', 'event_owner', 'operator'])] }, async (request, reply) => {
     const user = (request as any).user;
     const data = createEventSchema.parse(request.body);
 

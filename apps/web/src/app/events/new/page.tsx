@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
@@ -22,10 +22,9 @@ export default function NewEventPage() {
     notes: '',
   });
 
-  // Load venues on mount
-  useState(() => {
+  useEffect(() => {
     venuesApi.list().then(res => setVenues(res.venues || [])).catch(() => {});
-  });
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
