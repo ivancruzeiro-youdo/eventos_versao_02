@@ -87,7 +87,7 @@ export default function NewEventPage() {
                 required
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
                 placeholder="Ex: Conferência Anual 2026"
               />
             </div>
@@ -100,7 +100,7 @@ export default function NewEventPage() {
                 required
                 value={formData.clientName}
                 onChange={(e) => setFormData({ ...formData, clientName: e.target.value })}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
                 placeholder="Ex: Empresa ABC"
               />
             </div>
@@ -118,7 +118,7 @@ export default function NewEventPage() {
                   type="datetime-local"
                   value={formData.setupAt}
                   onChange={(e) => setFormData({ ...formData, setupAt: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
                 />
               </div>
               <div>
@@ -130,7 +130,7 @@ export default function NewEventPage() {
                   required
                   value={formData.startAt}
                   onChange={(e) => setFormData({ ...formData, startAt: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
                 />
               </div>
               <div>
@@ -141,7 +141,7 @@ export default function NewEventPage() {
                   type="datetime-local"
                   value={formData.teardownAt}
                   onChange={(e) => setFormData({ ...formData, teardownAt: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
                 />
               </div>
             </div>
@@ -159,7 +159,7 @@ export default function NewEventPage() {
                     key={venue.id}
                     className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition ${
                       formData.venueIds.includes(venue.id)
-                        ? 'border-primary-500 bg-primary-50'
+                        ? 'border-primary bg-primary/5'
                         : 'hover:bg-gray-50'
                     }`}
                   >
@@ -167,7 +167,7 @@ export default function NewEventPage() {
                       type="checkbox"
                       checked={formData.venueIds.includes(venue.id)}
                       onChange={() => handleVenueToggle(venue.id)}
-                      className="w-4 h-4 text-primary-600"
+                      className="w-4 h-4 accent-primary"
                     />
                     <span className="font-medium">{venue.name}</span>
                   </label>
@@ -185,7 +185,7 @@ export default function NewEventPage() {
               rows={4}
               value={formData.notes}
               onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
               placeholder="Informações adicionais sobre o evento..."
             />
           </div>
@@ -195,7 +195,7 @@ export default function NewEventPage() {
             <button
               type="submit"
               disabled={loading}
-              className="flex-1 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition disabled:opacity-50"
+              className="flex-1 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition disabled:opacity-50"
             >
               {loading ? 'Criando...' : 'Criar Evento'}
             </button>
