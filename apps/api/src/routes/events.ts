@@ -246,7 +246,15 @@ export async function eventRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const services = await (prisma as any).eventService.findMany({
       where: { eventId: id },
-      include: { service: true },
+      include: {
+        service: true,
+        files: { orderBy: { createdAt: 'asc' } },
+        linkedChecklists: {
+          include: {
+            checklist: { include: { items: { orderBy: { order: 'asc' } } } },
+          },
+        },
+      },
       orderBy: { createdAt: 'asc' },
     });
     return { success: true, services };

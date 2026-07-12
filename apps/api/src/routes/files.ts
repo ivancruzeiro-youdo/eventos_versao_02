@@ -247,4 +247,85 @@ export async function fileRoutes(app: FastifyInstance) {
 
     return { success: true };
   });
+
+  // ── Service-level file upload ────────────────────────────────────────────
+
+  // Upload file attached to an EventService slot
+  app.post('/services/:id/files/upload', { preHandler: requireAuth }, async (request, reply) => {
+    const { id: serviceId } = request.params as { id: string };
+    const user = (request as any).user;
+
+    const svc = await (prisma as any).eventService.findUnique({
+      where: { id: serviceId },
+      select: { eventId: true },
+    });
+    if (!svc) return reply.status(404).send({ error: 'Service slot not found' });
+
+    try {
+      const data = await request.file();
+      if (!data) return reply.status(400).send({ error: 'No file uploaded' });
+
+      const buffer = await data.toBuffer();
+      if (buffer.length > 128 * 1024 * 1024) {
+        return reply.status(400).send({ error: 'File too large. Maximum size is 128MB' });
+      }
+
+      const s3Key = `services/${serviceId}/${Date.now()}-${data.filename}`;
+      try {
+        await uploadBufferToS3(s3Key, buffer, data.mimetype);
+      } catch {
+        return reply.status(502).send({ error: 'Falha ao enviar arquivo para o armazenamento.' });
+      }
+
+      const file = await prisma.file.create({
+        data: {
+          eventId: svc.eventId,
+          serviceId,
+          uploadedByUserId: user.id,
+          name: data.filename,
+          mimeType: data.mimetype,
+          sizeBytes: buffer.length,
+          s3Key,
+        },
+      });
+
+      return reply.status(201).send({ success: true, file });
+    } catch (error) {
+      console.error('Service file upload error:', error);
+      return reply.status(500).send({ error: 'Upload failed' });
+    }
+  });
+
+  // ── Service checklist link/unlink ────────────────────────────────────────
+
+  // Link a checklist to a service slot
+  app.post('/services/:id/checklists/:checklistId', { preHandler: requireAuth }, async (request, reply) => {
+    const { id: serviceId, checklistId } = request.params as { id: string; checklistId: string };
+
+    const svc = await (prisma as any).eventService.findUnique({ where: { id: serviceId }, select: { eventId: true } });
+    if (!svc) return reply.status(404).send({ error: 'Service slot not found' });
+
+    const checklist = await (prisma as any).eventChecklist.findUnique({ where: { id: checklistId }, select: { eventId: true } });
+    if (!checklist) return reply.status(404).send({ error: 'Checklist not found' });
+    if (checklist.eventId !== svc.eventId) return reply.status(400).send({ error: 'Checklist does not belong to this event' });
+
+    await (prisma as any).eventServiceChecklist.upsert({
+      where: { serviceId_checklistId: { serviceId, checklistId } },
+      create: { serviceId, checklistId },
+      update: {},
+    });
+
+    return { success: true };
+  });
+
+  // Unlink a checklist from a service slot
+  app.delete('/services/:id/checklists/:checklistId', { preHandler: requireAuth }, async (request, reply) => {
+    const { id: serviceId, checklistId } = request.params as { id: string; checklistId: string };
+
+    await (prisma as any).eventServiceChecklist.deleteMany({
+      where: { serviceId, checklistId },
+    });
+
+    return { success: true };
+  });
 }

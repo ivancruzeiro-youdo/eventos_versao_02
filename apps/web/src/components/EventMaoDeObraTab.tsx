@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { HardHat, Plus, Pencil, Trash2, X, Check, User, Phone, ChevronDown, ChevronRight, Mail, AlertTriangle, UserCheck, UserX, Users } from 'lucide-react';
+import { HardHat, Plus, Pencil, Trash2, X, Check, User, Phone, ChevronDown, ChevronRight, Mail, AlertTriangle, UserCheck, UserX, Users, Paperclip, FileText, Download, ClipboardList, Link2, Link2Off } from 'lucide-react';
 import { formatDateTime } from '@/lib/utils';
 
 interface FreelancerService {
@@ -17,6 +17,19 @@ interface FreelancerOption {
   email: string;
 }
 
+interface ServiceFile {
+  id: string;
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+interface ServiceChecklist {
+  id: string;
+  title: string;
+  items: { id: string; text: string; done: boolean; order: number }[];
+}
+
 interface EventService {
   id: string;
   serviceId: string;
@@ -30,6 +43,8 @@ interface EventService {
   endAt: string | null;
   notes: string | null;
   status: string;
+  files: ServiceFile[];
+  linkedChecklists: { serviceId: string; checklistId: string; checklist: ServiceChecklist }[];
 }
 
 interface Application {
@@ -105,9 +120,18 @@ export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
   const [applications, setApplications] = useState<Application[]>([]);
   const [updating, setUpdating] = useState<string | null>(null);
 
+  // Briefing state
+  const [eventChecklists, setEventChecklists] = useState<{ id: string; title: string }[]>([]);
+  const [notesDraft, setNotesDraft] = useState<Record<string, string>>({});
+  const [notesEditing, setNotesEditing] = useState<Record<string, boolean>>({});
+  const [notesSaving, setNotesSaving] = useState<Record<string, boolean>>({});
+  const [uploadingFile, setUploadingFile] = useState<Record<string, boolean>>({});
+  const [selectedChecklist, setSelectedChecklist] = useState<Record<string, string>>({});
+
   useEffect(() => {
     load();
     loadApplications();
+    loadEventChecklists();
   }, [eventId]);
 
   async function load() {
@@ -129,6 +153,72 @@ export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
       const data = await res.json();
       setApplications(data.applications || []);
     } catch { }
+  }
+
+  async function loadEventChecklists() {
+    try {
+      const res = await fetch(`/api/v2/events/${eventId}/checklists`, { credentials: 'include' });
+      const data = await res.json();
+      setEventChecklists(data.checklists || []);
+    } catch { }
+  }
+
+  async function saveNotes(svcId: string) {
+    setNotesSaving(p => ({ ...p, [svcId]: true }));
+    try {
+      await fetch(`/api/v2/events/${eventId}/services/${svcId}`, {
+        method: 'PATCH', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: notesDraft[svcId] || null }),
+      });
+      setNotesEditing(p => ({ ...p, [svcId]: false }));
+      await load();
+    } finally {
+      setNotesSaving(p => ({ ...p, [svcId]: false }));
+    }
+  }
+
+  async function uploadFile(svcId: string, file: File) {
+    setUploadingFile(p => ({ ...p, [svcId]: true }));
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      await fetch(`/api/v2/services/${svcId}/files/upload`, {
+        method: 'POST', credentials: 'include', body: fd,
+      });
+      await load();
+    } finally {
+      setUploadingFile(p => ({ ...p, [svcId]: false }));
+    }
+  }
+
+  async function deleteFile(fileId: string) {
+    if (!confirm('Remover este anexo?')) return;
+    await fetch(`/api/v2/files/${fileId}`, { method: 'DELETE', credentials: 'include' });
+    await load();
+  }
+
+  async function downloadFile(fileId: string) {
+    const res = await fetch(`/api/v2/files/${fileId}/download`, { credentials: 'include' });
+    const data = await res.json();
+    if (data.downloadUrl) window.open(data.downloadUrl, '_blank');
+  }
+
+  async function linkChecklist(svcId: string) {
+    const checklistId = selectedChecklist[svcId];
+    if (!checklistId) return;
+    await fetch(`/api/v2/services/${svcId}/checklists/${checklistId}`, {
+      method: 'POST', credentials: 'include',
+    });
+    setSelectedChecklist(p => ({ ...p, [svcId]: '' }));
+    await load();
+  }
+
+  async function unlinkChecklist(svcId: string, checklistId: string) {
+    await fetch(`/api/v2/services/${svcId}/checklists/${checklistId}`, {
+      method: 'DELETE', credentials: 'include',
+    });
+    await load();
   }
 
   async function loadFreelancersForService(serviceId: string) {
@@ -560,9 +650,144 @@ export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
                       );
                     })()}
 
-                    {svc.notes && (
-                      <p className="text-xs text-muted-foreground border-t pt-2">{svc.notes}</p>
-                    )}
+                    {/* ── Instruções (notes) ── */}
+                    <div className="border-t pt-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                          <FileText size={12} /> Instruções
+                        </span>
+                        {!notesEditing[svc.id] && (
+                          <button
+                            onClick={() => { setNotesDraft(p => ({ ...p, [svc.id]: svc.notes || '' })); setNotesEditing(p => ({ ...p, [svc.id]: true })); }}
+                            className="text-xs text-primary hover:underline"
+                          >
+                            {svc.notes ? 'Editar' : 'Adicionar'}
+                          </button>
+                        )}
+                      </div>
+                      {notesEditing[svc.id] ? (
+                        <div className="space-y-2">
+                          <textarea
+                            value={notesDraft[svc.id] ?? ''}
+                            onChange={e => setNotesDraft(p => ({ ...p, [svc.id]: e.target.value }))}
+                            rows={3}
+                            placeholder="Instruções para o freelancer no dia do evento..."
+                            className="w-full border border-input rounded-lg px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => saveNotes(svc.id)}
+                              disabled={notesSaving[svc.id]}
+                              className="px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-xs font-medium hover:bg-primary/90 transition disabled:opacity-50"
+                            >
+                              {notesSaving[svc.id] ? 'Salvando...' : 'Salvar'}
+                            </button>
+                            <button
+                              onClick={() => setNotesEditing(p => ({ ...p, [svc.id]: false }))}
+                              className="px-3 py-1.5 border rounded-md text-xs hover:bg-muted transition"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      ) : svc.notes ? (
+                        <p className="text-sm text-foreground bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 whitespace-pre-wrap">{svc.notes}</p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground italic">Nenhuma instrução adicionada.</p>
+                      )}
+                    </div>
+
+                    {/* ── Anexos ── */}
+                    <div className="border-t pt-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                          <Paperclip size={12} /> Anexos
+                        </span>
+                        <label className="text-xs text-primary hover:underline cursor-pointer">
+                          {uploadingFile[svc.id] ? 'Enviando...' : '+ Anexar'}
+                          <input
+                            type="file"
+                            className="hidden"
+                            disabled={uploadingFile[svc.id]}
+                            onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(svc.id, f); e.target.value = ''; }}
+                          />
+                        </label>
+                      </div>
+                      {svc.files.length === 0 ? (
+                        <p className="text-xs text-muted-foreground italic">Nenhum arquivo anexado.</p>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {svc.files.map(f => (
+                            <div key={f.id} className="flex items-center gap-2 bg-muted/40 rounded-lg px-3 py-2">
+                              <FileText size={13} className="text-muted-foreground shrink-0" />
+                              <span className="text-sm flex-1 truncate">{f.name}</span>
+                              <span className="text-xs text-muted-foreground shrink-0">{(f.sizeBytes / 1024).toFixed(0)} KB</span>
+                              <button onClick={() => downloadFile(f.id)} title="Download" className="p-1 text-primary hover:text-primary/80 transition shrink-0">
+                                <Download size={13} />
+                              </button>
+                              <button onClick={() => deleteFile(f.id)} title="Remover" className="p-1 text-muted-foreground hover:text-destructive transition shrink-0">
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* ── Checklists vinculados ── */}
+                    <div className="border-t pt-3 space-y-2">
+                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                        <ClipboardList size={12} /> Checklists do Evento
+                      </span>
+                      <div className="flex gap-2">
+                        <select
+                          value={selectedChecklist[svc.id] || ''}
+                          onChange={e => setSelectedChecklist(p => ({ ...p, [svc.id]: e.target.value }))}
+                          className="flex-1 border border-input rounded-md px-2 py-1.5 text-xs bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                        >
+                          <option value="">— Selecionar checklist —</option>
+                          {eventChecklists
+                            .filter(cl => !svc.linkedChecklists.some(lc => lc.checklistId === cl.id))
+                            .map(cl => <option key={cl.id} value={cl.id}>{cl.title}</option>)}
+                        </select>
+                        <button
+                          onClick={() => linkChecklist(svc.id)}
+                          disabled={!selectedChecklist[svc.id]}
+                          className="flex items-center gap-1 px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-xs font-medium hover:bg-primary/90 transition disabled:opacity-40"
+                        >
+                          <Link2 size={11} /> Vincular
+                        </button>
+                      </div>
+                      {svc.linkedChecklists.length === 0 ? (
+                        <p className="text-xs text-muted-foreground italic">Nenhum checklist vinculado.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {svc.linkedChecklists.map(lc => (
+                            <div key={lc.checklistId} className="bg-muted/30 rounded-lg p-3 space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold">{lc.checklist.title}</span>
+                                <button
+                                  onClick={() => unlinkChecklist(svc.id, lc.checklistId)}
+                                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive transition"
+                                >
+                                  <Link2Off size={11} /> Remover
+                                </button>
+                              </div>
+                              <ul className="space-y-1">
+                                {lc.checklist.items.map(item => (
+                                  <li key={item.id} className={`flex items-start gap-2 text-xs ${item.done ? 'text-muted-foreground line-through' : 'text-foreground'}`}>
+                                    <span className={`mt-0.5 w-3 h-3 rounded-sm border shrink-0 flex items-center justify-center ${item.done ? 'bg-primary border-primary' : 'border-input'}`}>
+                                      {item.done && <Check size={8} className="text-primary-foreground" />}
+                                    </span>
+                                    {item.text}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

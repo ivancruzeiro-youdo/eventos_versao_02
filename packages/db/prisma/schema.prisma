@@ -547,11 +547,23 @@ model EventService {
   maxSlots     Int       @default(1)
   createdAt    DateTime  @default(now())
 
-  event   Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  service FreelancerService @relation(fields: [serviceId], references: [id])
+  event           Event                   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  service         FreelancerService       @relation(fields: [serviceId], references: [id])
+  files           File[]
+  linkedChecklists EventServiceChecklist[]
 
   @@index([eventId])
   @@index([serviceId])
+}
+
+model EventServiceChecklist {
+  serviceId   String
+  checklistId String
+
+  service   EventService   @relation(fields: [serviceId],   references: [id], onDelete: Cascade)
+  checklist EventChecklist @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+
+  @@id([serviceId, checklistId])
 }
 
 // ============================================
@@ -566,8 +578,9 @@ model EventChecklist {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  event Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  items ChecklistItem[]
+  event           Event                   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  items           ChecklistItem[]
+  linkedServices  EventServiceChecklist[]
 
   @@index([eventId])
 }
@@ -671,6 +684,7 @@ model Team {
 model File {
   id               String   @id @default(uuid())
   eventId          String
+  serviceId        String?
   uploadedByUserId String?
   name             String
   mimeType         String
@@ -680,11 +694,13 @@ model File {
   visibleToClient  Boolean  @default(false)
   createdAt        DateTime @default(now())
 
-  event       Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  uploadedBy  User? @relation("uploadedBy", fields: [uploadedByUserId], references: [id])
+  event       Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  service     EventService? @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  uploadedBy  User?         @relation("uploadedBy", fields: [uploadedByUserId], references: [id])
   schedules   EventSchedule[] @relation("ScheduleFile")
 
   @@index([eventId])
+  @@index([serviceId])
 }
 
 // ============================================

@@ -431,7 +431,17 @@ export async function freelancerRoutes(app: FastifyInstance) {
             status: true,
             startAt: true,
             venues: { include: { venue: { select: { name: true, city: true } } } },
-            services: { include: { service: { select: { name: true } } } },
+            services: {
+            include: {
+              service: { select: { name: true } },
+              files: { select: { id: true, name: true, mimeType: true, sizeBytes: true } },
+              linkedChecklists: {
+                include: {
+                  checklist: { include: { items: { orderBy: { order: 'asc' } } } },
+                },
+              },
+            },
+          },
             employer: { select: { name: true } },
             npsOrganizador: { select: { score: true, submittedAt: true } },
           },
@@ -443,7 +453,12 @@ export async function freelancerRoutes(app: FastifyInstance) {
     // Enrich each application with its matching slot details
     const enriched = applications.map((app: any) => {
       const slot = app.event.services.find((s: any) => s.service.name === app.role);
-      return { ...app, slot: slot ?? null };
+      const briefing = slot ? {
+        notes: slot.notes ?? null,
+        files: slot.files ?? [],
+        checklists: (slot.linkedChecklists ?? []).map((lc: any) => lc.checklist),
+      } : null;
+      return { ...app, slot: slot ?? null, briefing };
     });
 
     return { success: true, applications: enriched };
