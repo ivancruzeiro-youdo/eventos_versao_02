@@ -33,7 +33,8 @@ model User {
   checkins      Guest[]     @relation("CheckedInBy")
   penaltiesApplied FreelancerPenalty[] @relation("AppliedBy")
   checklistItems ChecklistItem[] @relation("DoneBy")
-  comments      EventComment[]
+  comments         EventComment[]
+  deletedComments  EventComment[]   @relation("CommentDeletedBy")
   uploadedFiles File[] @relation("uploadedBy")
   choiceConfirmed       EventItemChoice[]         @relation("ChoiceConfirmedBy")
   choiceHistories       EventItemChoiceHistory[]   @relation("ChoiceHistoryUser")
@@ -185,10 +186,11 @@ model Event {
   schedules    EventSchedule[]
   contracts    EventContract[]
   items        EventItem[]
-  syncLogs     EventSyncLog[]  @relation("EventToSyncLog")
-  venueAnswers EventVenueAnswer[]
-  closure      EventClosure?
-  npsOrganizador EventNPSOrganizador?
+  syncLogs        EventSyncLog[]  @relation("EventToSyncLog")
+  venueAnswers    EventVenueAnswer[]
+  closure         EventClosure?
+  npsOrganizador  EventNPSOrganizador?
+  clientApprovals ClientApproval[]
 
   kitchenMenus          KitchenEventMenu[]
   kitchenLabors         KitchenEventLabor[]
@@ -658,9 +660,10 @@ model EventSchedule {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  team  Team? @relation(fields: [teamId], references: [id])
-  file  File? @relation("ScheduleFile", fields: [fileId], references: [id])
+  event   Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  team    Team?          @relation(fields: [teamId], references: [id])
+  file    File?          @relation("ScheduleFile", fields: [fileId], references: [id])
+  history EventComment[]
 
   @@index([eventId])
   @@index([teamId])
@@ -708,18 +711,43 @@ model File {
 // ============================================
 
 model EventComment {
-  id        String   @id @default(uuid())
-  eventId   String
-  userId    String
-  content   String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id              String    @id @default(uuid())
+  eventId         String
+  eventItemId     String?   // null = event-level comment; set = item-level comment
+  eventScheduleId String?   // set = schedule history entry
+  userId          String?   // null for system auto-comments
+  isSystem        Boolean   @default(false)
+  content         String
+  deletedAt       DateTime? // soft-delete: keeps record in history
+  deletedById     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  user  User  @relation(fields: [userId], references: [id])
+  event         Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventItem     EventItem?     @relation(fields: [eventItemId], references: [id], onDelete: Cascade)
+  eventSchedule EventSchedule? @relation(fields: [eventScheduleId], references: [id], onDelete: SetNull)
+  user          User?          @relation(fields: [userId], references: [id])
+  deletedBy     User?          @relation("CommentDeletedBy", fields: [deletedById], references: [id])
 
   @@index([eventId])
+  @@index([eventItemId])
+  @@index([eventScheduleId])
   @@index([userId])
+}
+
+model ClientApproval {
+  id         String   @id @default(uuid())
+  eventId    String
+  itemType   String   // 'plan' | 'schedule'
+  itemId     String
+  approvedAt DateTime @default(now())
+  ip         String?
+  userAgent  String?
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, itemType, itemId])
+  @@index([eventId])
 }
 
 model AuditLog {
@@ -881,23 +909,25 @@ model EventContract {
 
 // Item contratado dentro de um evento (A&B, Infraestrutura, Equipe, Locação)
 model EventItem {
-  id          String   @id @default(uuid())
-  eventId     String
-  productId   String?  // linked Product (null for venue items)
-  venueId     String?  // linked Venue (for locação)
-  category    String   // "ab" | "infra" | "staff" | "venue"
-  name        String
-  quantity    Float    @default(1)
-  unit        String?
-  notes       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id               String   @id @default(uuid())
+  eventId          String
+  productId        String?  // linked Product (null for venue items)
+  venueId          String?  // linked Venue (for locação)
+  sourceContractId String?  // external contract ID that contributed this item
+  category         String   // "ab" | "infra" | "staff" | "venue"
+  name             String
+  quantity         Float    @default(1)
+  unit             String?
+  notes            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  event   Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  product Product?      @relation(fields: [productId], references: [id])
-  choices EventItemChoice[]
-  slots   EventStaffSlot[]
-  answers EventItemAnswer[]
+  event    Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  product  Product?       @relation(fields: [productId], references: [id])
+  choices  EventItemChoice[]
+  slots    EventStaffSlot[]
+  answers  EventItemAnswer[]
+  comments EventComment[]
 
   kitchenMenuLink KitchenEventMenu[]
 

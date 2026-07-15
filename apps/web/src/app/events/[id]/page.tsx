@@ -601,8 +601,8 @@ export default function EventDetailPage() {
               <MapPin size={15} className="text-muted-foreground mt-0.5 shrink-0" />
               <div>
                 <p className="text-xs text-muted-foreground">Local</p>
-                {event.venues?.[0] ? (
-                  <p className="font-semibold text-sm">{event.venues[0].venue.name}</p>
+                {event.venues?.length > 0 ? (
+                  <p className="font-semibold text-sm">{event.venues.map(v => v.venue.name).join(' + ')}</p>
                 ) : (
                   <p className="italic text-muted-foreground text-sm">A definir</p>
                 )}

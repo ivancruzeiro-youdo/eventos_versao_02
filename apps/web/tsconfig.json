@@ -7,7 +7,9 @@
     "incremental": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": [
+        "./src/*"
+      ]
     },
     "plugins": [
       {
@@ -15,6 +17,14 @@
       }
     ]
   },
-  "include": ["next-env.d.ts", "src/**/*"],
-  "exclude": ["dist", "node_modules", ".next"]
+  "include": [
+    "next-env.d.ts",
+    "src/**/*",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules",
+    ".next"
+  ]
 }

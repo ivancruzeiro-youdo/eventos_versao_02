@@ -317,4 +317,50 @@ export async function clientRoutes(app: FastifyInstance) {
 
     return { success: true, schedules };
   });
+
+  // Get client approvals (plan items + schedule items confirmed as correct)
+  app.get('/client/:token/approvals', async (request, reply) => {
+    const session = await getClientSession(app, request, reply);
+    if (!session) return;
+
+    const approvals = await (prisma as any).clientApproval.findMany({
+      where: { eventId: session.eventId },
+      select: { itemType: true, itemId: true, approvedAt: true },
+    });
+
+    return { success: true, approvals };
+  });
+
+  // Toggle approval for a plan item or schedule activity
+  app.post('/client/:token/approvals', async (request, reply) => {
+    const session = await getClientSession(app, request, reply);
+    if (!session) return;
+
+    const { itemType, itemId } = request.body as { itemType: string; itemId: string };
+    if (!itemType || !itemId) {
+      return reply.status(400).send({ error: 'itemType e itemId são obrigatórios' });
+    }
+
+    const ip = (request.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+      ?? request.headers['x-real-ip'] as string
+      ?? request.ip
+      ?? null;
+    const userAgent = (request.headers['user-agent'] as string) ?? null;
+
+    const existing = await (prisma as any).clientApproval.findUnique({
+      where: { eventId_itemType_itemId: { eventId: session.eventId, itemType, itemId } },
+    });
+
+    if (existing) {
+      await (prisma as any).clientApproval.delete({
+        where: { eventId_itemType_itemId: { eventId: session.eventId, itemType, itemId } },
+      });
+      return { success: true, approved: false };
+    } else {
+      await (prisma as any).clientApproval.create({
+        data: { eventId: session.eventId, itemType, itemId, ip, userAgent },
+      });
+      return { success: true, approved: true };
+    }
+  });
 }

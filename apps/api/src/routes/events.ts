@@ -307,6 +307,33 @@ export async function eventRoutes(app: FastifyInstance) {
     return { success: true };
   });
 
+  // Operator manually assigns a freelancer to a service slot (creates approved FreelancerApplication)
+  app.post('/:id/applications', { preHandler: requireAuth }, async (request, reply) => {
+    const { id: eventId } = request.params as { id: string };
+    const { freelancerId, role } = request.body as any;
+    if (!freelancerId || !role) return reply.status(400).send({ error: 'freelancerId e role obrigatórios' });
+
+    const existing = await (prisma as any).freelancerApplication.findFirst({
+      where: { freelancerId, eventId, role },
+    });
+
+    if (existing) {
+      if (existing.status !== 'approved') {
+        await (prisma as any).freelancerApplication.update({
+          where: { id: existing.id },
+          data: { status: 'approved' },
+        });
+        return { success: true };
+      }
+      return reply.status(409).send({ error: 'Freelancer já confirmado para esta função.' });
+    }
+
+    await (prisma as any).freelancerApplication.create({
+      data: { freelancerId, eventId, role, status: 'approved', appliedAt: new Date() },
+    });
+    return reply.status(201).send({ success: true });
+  });
+
   // ─── Plano do Evento ──────────────────────────────────────────────────────
 
   // GET /events/:id/plan-overview — all product questions + venue questions with current answers

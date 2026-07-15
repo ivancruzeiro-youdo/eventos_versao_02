@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ChevronDown, ChevronRight, HelpCircle, CheckCircle2, Clock, History } from 'lucide-react';
+import { ChevronDown, ChevronRight, HelpCircle, CheckCircle2, Clock, History, MessageSquare, Send, Trash2 } from 'lucide-react';
 import { formatDateTime } from '@/lib/utils';
 
 interface Question {
@@ -37,6 +37,15 @@ interface Answer {
   history: { id: string; before: any; after: any; createdAt: string; user: { name: string } | null }[];
 }
 
+interface ItemComment {
+  id: string;
+  content: string;
+  createdAt: string;
+  deletedAt: string | null;
+  user: { id: string; name: string } | null;
+  deletedBy: { id: string; name: string } | null;
+}
+
 interface EventItem {
   id: string;
   name: string;
@@ -65,9 +74,14 @@ export default function EventItemsTab({ eventId, category }: Props) {
   const [answerDrafts, setAnswerDrafts] = useState<Record<string, Record<string, any>>>({});
   // choice history per choiceId
   const [choiceHistory, setChoiceHistory] = useState<Record<string, ChoiceHistoryEntry[]>>({});
+  // showHistory: keys are 'acc_<choiceId>' for accordion, 'hist_<choiceId>' for history panel
   const [showHistory, setShowHistory] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [confirming, setConfirming] = useState<Record<string, boolean>>({});
+  // item comments: itemId -> list
+  const [itemComments, setItemComments] = useState<Record<string, ItemComment[]>>({});
+  const [commentDraft, setCommentDraft] = useState<Record<string, string>>({});
+  const [sendingComment, setSendingComment] = useState<Record<string, boolean>>({});
 
   useEffect(() => { load(); }, [eventId]);
 
@@ -111,7 +125,17 @@ export default function EventItemsTab({ eventId, category }: Props) {
     setShowHistory(prev => {
       const next = new Set(prev);
       if (next.has(choiceId)) { next.delete(choiceId); }
-      else { next.add(choiceId); loadChoiceHistory(choiceId, itemId); }
+      else { next.add(choiceId); }
+      return next;
+    });
+  }
+
+  function toggleChoiceHistory(choiceId: string, itemId: string) {
+    const key = 'hist_' + choiceId;
+    setShowHistory(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) { next.delete(key); }
+      else { next.add(key); loadChoiceHistory(choiceId, itemId); }
       return next;
     });
   }
@@ -197,17 +221,56 @@ export default function EventItemsTab({ eventId, category }: Props) {
     });
   }
 
+  async function loadItemComments(itemId: string) {
+    const res = await fetch(`/api/v2/events/${eventId}/items/${itemId}/comments`, { credentials: 'include' });
+    if (res.ok) {
+      const data = await res.json();
+      setItemComments(prev => ({ ...prev, [itemId]: data.comments || [] }));
+    }
+  }
+
+  async function sendComment(itemId: string) {
+    const text = commentDraft[itemId]?.trim();
+    if (!text) return;
+    setSendingComment(prev => ({ ...prev, [itemId]: true }));
+    try {
+      const res = await fetch(`/api/v2/events/${eventId}/items/${itemId}/comments`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: text }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setItemComments(prev => ({ ...prev, [itemId]: [...(prev[itemId] ?? []), data.comment] }));
+        setCommentDraft(prev => ({ ...prev, [itemId]: '' }));
+      }
+    } finally {
+      setSendingComment(prev => ({ ...prev, [itemId]: false }));
+    }
+  }
+
+  async function deleteItemComment(itemId: string, commentId: string) {
+    const res = await fetch(`/api/v2/events/${eventId}/items/${itemId}/comments/${commentId}`, {
+      method: 'DELETE', credentials: 'include',
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setItemComments(prev => ({
+        ...prev,
+        [itemId]: (prev[itemId] ?? []).map(c => c.id === commentId ? data.comment : c),
+      }));
+    }
+  }
+
   function toggle(id: string) {
     setExpanded(prev => {
-      const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next;
+      const next = new Set(prev);
+      if (next.has(id)) { next.delete(id); } else { next.add(id); loadItemComments(id); }
+      return next;
     });
   }
 
-  const hasDetails = (item: EventItem) =>
-    item.choices.length > 0 || (item.product?.questions?.length ?? 0) > 0;
-
-  const allConfirmed = (item: EventItem) =>
-    item.choices.length > 0 && item.choices.every(c => !!c.confirmedAt);
+  const hasDetails = (_item: EventItem) => true;
 
   const allRequiredAnswered = (item: EventItem, itemAnswers: Answer[]) => {
     const requiredQuestions = item.product?.questions?.filter(q => q.required) ?? [];
@@ -215,8 +278,7 @@ export default function EventItemsTab({ eventId, category }: Props) {
     return requiredQuestions.every(q => itemAnswers.some(a => a.questionId === q.id && a.answer !== null && a.answer !== undefined && a.answer !== ''));
   };
 
-  const isDirty = (item: EventItem) =>
-    item.choices.some(c => JSON.stringify(drafts[c.id] ?? c.chosen) !== JSON.stringify(c.chosen));
+  const isDirty = (_item: EventItem) => false;
 
   if (loading) return <div className="py-12 text-center text-muted-foreground">Carregando...</div>;
   if (items.length === 0) return (
@@ -229,8 +291,6 @@ export default function EventItemsTab({ eventId, category }: Props) {
     <div className="space-y-3">
       {items.map(item => {
         const open = expanded.has(item.id);
-        const confirmed = allConfirmed(item);
-        const dirty = isDirty(item);
         const itemAnswers = answers[item.id] ?? [];
         const requiredAnswered = allRequiredAnswered(item, itemAnswers);
 
@@ -249,15 +309,11 @@ export default function EventItemsTab({ eventId, category }: Props) {
                 <div>
                   <p className="font-medium text-sm">{item.name}</p>
                   <div className="flex items-center gap-2 mt-0.5">
-                    {confirmed ? (
-                      <span className="text-xs text-green-600 flex items-center gap-1"><CheckCircle2 size={11} /> Confirmado</span>
-                    ) : item.choices.length > 0 ? (
-                      <span className="text-xs text-amber-600 flex items-center gap-1"><Clock size={11} /> Pendente</span>
-                    ) : requiredAnswered ? (
-                      <span className="text-xs text-green-600 flex items-center gap-1"><CheckCircle2 size={11} /> Respondido</span>
-                    ) : (item.product?.questions?.length ?? 0) > 0 ? (
-                      <span className="text-xs text-amber-600 flex items-center gap-1"><Clock size={11} /> Pendente</span>
-                    ) : null}
+                    {(item.product?.questions?.length ?? 0) > 0 && (
+                      requiredAnswered
+                        ? <span className="text-xs text-green-600 flex items-center gap-1"><CheckCircle2 size={11} /> Respondido</span>
+                        : <span className="text-xs text-amber-600 flex items-center gap-1"><Clock size={11} /> Pendente</span>
+                    )}
                     {(item.product?.questions?.length ?? 0) > 0 && (
                       <span className="text-xs text-muted-foreground flex items-center gap-1"><HelpCircle size={11} /> {item.product!.questions.length} perg.</span>
                     )}
@@ -269,65 +325,6 @@ export default function EventItemsTab({ eventId, category }: Props) {
 
             {open && (
               <div className="border-t px-4 py-4 space-y-4 bg-muted/20">
-
-                {/* Choices — accordion text view */}
-                {item.choices.length > 0 && (
-                  <div>
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Opções / Cardápio</p>
-                    <div className="border rounded-lg overflow-hidden divide-y">
-                      {item.choices.map(choice => {
-                        const subitems: any[] = item.product?.subitems ?? [];
-                        const group = subitems.find((s: any) => s.group === choice.label);
-                        const options: string[] = group?.items?.map((i: any) => i.name || i.description || String(i)) ?? [];
-                        const openAcc = showHistory.has('acc_' + choice.id);
-
-                        return (
-                          <div key={choice.id} className="bg-background">
-                            <button
-                              className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-muted/40 transition text-left"
-                              onClick={e => { e.stopPropagation(); toggleHistory('acc_' + choice.id, item.id); }}
-                            >
-                              <span className="text-sm font-medium">
-                                {choice.label}
-                                {choice.maxChoices && <span className="text-xs text-muted-foreground ml-1.5">(escolher {choice.maxChoices})</span>}
-                              </span>
-                              {openAcc ? <ChevronDown size={14} className="text-muted-foreground shrink-0" /> : <ChevronRight size={14} className="text-muted-foreground shrink-0" />}
-                            </button>
-                            {openAcc && (
-                              <div className="px-4 pb-3">
-                                {options.length > 0 ? (
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {options.map((opt: string) => {
-                                      const sel = drafts[choice.id] ?? choice.chosen;
-                                      const isSelected = sel.includes(opt);
-                                      return (
-                                        <button
-                                          key={opt}
-                                          disabled={saving[item.id]}
-                                          onClick={e => { e.stopPropagation(); selectOption(item, choice, opt); }}
-                                          className={`text-xs px-2.5 py-1 rounded-full border transition disabled:opacity-50 ${isSelected ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted text-muted-foreground hover:bg-muted/80'}`}
-                                        >
-                                          {opt}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                ) : (
-                                  <p className="text-xs text-muted-foreground italic">Sem opções cadastradas</p>
-                                )}
-                                {choice.confirmedAt && (
-                                  <p className="text-xs text-green-600 flex items-center gap-1 mt-2">
-                                    <CheckCircle2 size={11} /> Confirmado{choice.confirmedBy?.name ? ` por ${choice.confirmedBy.name}` : ''}
-                                  </p>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
 
                 {/* Product Questions / Answers */}
                 {(item.product?.questions?.length ?? 0) > 0 && (
@@ -416,6 +413,70 @@ export default function EventItemsTab({ eventId, category }: Props) {
                     </div>
                   </div>
                 )}
+
+                {/* Item comments */}
+                <div className="border rounded-lg bg-background overflow-hidden">
+                  <div className="flex items-center gap-1.5 px-3 py-2 border-b">
+                    <MessageSquare size={12} className="text-muted-foreground" />
+                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Comentários do item</span>
+                  </div>
+
+                  {/* Comment list */}
+                  <div className="divide-y">
+                    {(itemComments[item.id] ?? []).length === 0 ? (
+                      <p className="px-3 py-2 text-xs text-muted-foreground italic">Nenhum comentário ainda.</p>
+                    ) : (
+                      (itemComments[item.id] ?? []).map(c => (
+                        <div key={c.id} className={`px-3 py-2 ${c.deletedAt ? 'opacity-50' : ''}`}>
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                              <span className="font-medium text-foreground">{c.user?.name ?? '—'}</span>
+                              <span>·</span>
+                              <span>{formatDateTime(c.createdAt)}</span>
+                              {c.deletedAt && (
+                                <span className="text-destructive ml-1">
+                                  · excluído por {c.deletedBy?.name ?? '—'} em {formatDateTime(c.deletedAt)}
+                                </span>
+                              )}
+                            </div>
+                            {!c.deletedAt && (
+                              <button
+                                onClick={e => { e.stopPropagation(); deleteItemComment(item.id, c.id); }}
+                                className="p-1 text-muted-foreground hover:text-destructive transition rounded shrink-0"
+                                title="Excluir"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            )}
+                          </div>
+                          <p className={`text-sm mt-0.5 whitespace-pre-wrap ${c.deletedAt ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
+                            {c.content}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* New comment input */}
+                  <div className="border-t px-3 py-2 flex gap-2 items-end">
+                    <textarea
+                      value={commentDraft[item.id] ?? ''}
+                      onChange={e => setCommentDraft(prev => ({ ...prev, [item.id]: e.target.value }))}
+                      onClick={e => e.stopPropagation()}
+                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendComment(item.id); } }}
+                      rows={1}
+                      placeholder="Adicionar comentário... (Enter para enviar)"
+                      className="flex-1 text-sm px-2 py-1.5 border rounded bg-background focus:ring-2 focus:ring-ring resize-none"
+                    />
+                    <button
+                      onClick={e => { e.stopPropagation(); sendComment(item.id); }}
+                      disabled={sendingComment[item.id] || !commentDraft[item.id]?.trim()}
+                      className="flex items-center gap-1 text-xs px-3 py-1.5 rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition shrink-0"
+                    >
+                      <Send size={11} /> Enviar
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>

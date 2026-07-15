@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Clock, Plus, Trash2, Edit2, FileText, Calendar, Users } from 'lucide-react';
+import { Clock, Plus, Trash2, Edit2, FileText, Calendar, Users, History, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface Team {
   id: string;
@@ -23,6 +23,13 @@ interface Schedule {
     name: string;
     mimeType: string;
   } | null;
+}
+
+interface HistoryEntry {
+  id: string;
+  content: string;
+  createdAt: string;
+  user: { id: string; name: string } | null;
 }
 
 interface EventScheduleTabProps {
@@ -51,6 +58,10 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
     fileId: '',
   });
 
+  // History state: scheduleId → entries (null = not yet loaded)
+  const [history, setHistory] = useState<Record<string, HistoryEntry[] | null>>({});
+  const [showHistory, setShowHistory] = useState<Record<string, boolean>>({});
+
   useEffect(() => {
     fetchSchedules();
     fetchTeams();
@@ -58,9 +69,7 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
 
   const fetchTeams = async () => {
     try {
-      const res = await fetch(`/api/v2/teams`, {
-        credentials: 'include',
-      });
+      const res = await fetch(`/api/v2/teams`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         setTeams(data.teams || []);
@@ -72,19 +81,36 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
 
   const fetchSchedules = async () => {
     try {
-      const res = await fetch(`/api/v2/events/${eventId}/schedules`, {
-        credentials: 'include',
-      });
+      const res = await fetch(`/api/v2/events/${eventId}/schedules`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
-        const sortedSchedules = (data.schedules || []).sort((a: Schedule, b: Schedule) => 
+        const sorted = (data.schedules || []).sort((a: Schedule, b: Schedule) =>
           new Date(a.startAt).getTime() - new Date(b.startAt).getTime()
         );
-        setSchedules(sortedSchedules);
+        setSchedules(sorted);
       }
     } catch (error) {
       console.error('Error fetching schedules:', error);
     }
+  };
+
+  const loadHistory = async (scheduleId: string) => {
+    if (history[scheduleId] !== undefined) return; // already loaded
+    try {
+      const res = await fetch(`/api/v2/schedules/${scheduleId}/history`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setHistory(prev => ({ ...prev, [scheduleId]: data.history || [] }));
+      }
+    } catch {
+      setHistory(prev => ({ ...prev, [scheduleId]: [] }));
+    }
+  };
+
+  const toggleHistory = (scheduleId: string) => {
+    const next = !showHistory[scheduleId];
+    setShowHistory(prev => ({ ...prev, [scheduleId]: next }));
+    if (next) loadHistory(scheduleId);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -124,16 +150,21 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
       const next = editingId
         ? schedules.map((s) => (s.id === saved.id ? saved : s))
         : [...schedules, saved];
-      const sortedSchedules = next.sort((a: Schedule, b: Schedule) => 
+      const sorted = next.sort((a: Schedule, b: Schedule) =>
         new Date(a.startAt).getTime() - new Date(b.startAt).getTime()
       );
-      setSchedules(sortedSchedules);
+      setSchedules(sorted);
+
+      // Invalidate history for this schedule so it reloads next time
+      if (editingId) {
+        setHistory(prev => ({ ...prev, [editingId]: undefined as any }));
+      }
+
       setShowForm(false);
       setFormData({ name: '', teamId: '', startAt: '', endAt: '', description: '', fileId: '' });
       setEditingId(null);
     } catch (error) {
-      console.error('Error saving schedule:', error);
-      setFormError('Erro ao salvar atividade');
+      console.error(error);
     } finally {
       setLoading(false);
     }
@@ -164,38 +195,27 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
 
       if (res.ok) {
         setSchedules(schedules.filter(s => s.id !== scheduleId));
+        setShowHistory(prev => { const n = { ...prev }; delete n[scheduleId]; return n; });
+        setHistory(prev => { const n = { ...prev }; delete n[scheduleId]; return n; });
       }
     } catch (error) {
       console.error('Error deleting schedule:', error);
     }
   };
 
-  const formatDateTime = (dateString: string) => {
-    const date = new Date(dateString);
-    return new Intl.DateTimeFormat('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(date);
-  };
-
   const formatTimeOnly = (dateString: string) => {
-    const date = new Date(dateString);
-    return new Intl.DateTimeFormat('pt-BR', {
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(date);
+    return new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(new Date(dateString));
   };
 
   const formatDateOnly = (dateString: string) => {
-    const date = new Date(dateString);
+    return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(dateString));
+  };
+
+  const formatHistoryTs = (iso: string) => {
     return new Intl.DateTimeFormat('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-    }).format(date);
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    }).format(new Date(iso));
   };
 
   return (
@@ -283,7 +303,6 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
                 className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
               >
                 <option value="">Nenhum</option>
-                {/* TODO: Load files from API */}
               </select>
             </div>
             {formError && (
@@ -358,6 +377,34 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
                       <div className="flex items-center gap-2 mt-2 text-sm text-muted-foreground">
                         <FileText size={14} />
                         <span>{schedule.file.name}</span>
+                      </div>
+                    )}
+
+                    {/* History toggle */}
+                    <button
+                      onClick={() => toggleHistory(schedule.id)}
+                      className="mt-2 flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition"
+                    >
+                      <History size={12} />
+                      Histórico
+                      {showHistory[schedule.id] ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                    </button>
+
+                    {showHistory[schedule.id] && (
+                      <div className="mt-2 pl-2 border-l-2 border-muted space-y-1.5">
+                        {history[schedule.id] === undefined || history[schedule.id] === null ? (
+                          <p className="text-xs text-muted-foreground">Carregando...</p>
+                        ) : history[schedule.id]!.length === 0 ? (
+                          <p className="text-xs text-muted-foreground">Sem histórico registrado.</p>
+                        ) : (
+                          history[schedule.id]!.map((entry) => (
+                            <div key={entry.id} className="text-xs">
+                              <span className="text-muted-foreground">{formatHistoryTs(entry.createdAt)}</span>
+                              {entry.user && <span className="text-muted-foreground"> · {entry.user.name}</span>}
+                              <p className="text-foreground/80 mt-0.5">{entry.content}</p>
+                            </div>
+                          ))
+                        )}
                       </div>
                     )}
                   </div>

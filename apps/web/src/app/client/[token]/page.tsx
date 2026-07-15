@@ -6,6 +6,7 @@ import {
   FileText, Users, Calendar, Clock, Download, Eye, EyeOff,
   Upload, Trash2, Plus, Search, CheckCircle, AlertCircle,
   FileImage, FileVideo, User, ChevronDown, ChevronRight, X,
+  Utensils, Circle,
 } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -47,6 +48,14 @@ interface Schedule {
   description: string | null;
   team: { id: string; name: string } | null;
 }
+
+interface Approval {
+  itemType: string;
+  itemId: string;
+  approvedAt: string;
+}
+
+type ApprovalSet = Set<string>; // key: `${itemType}:${itemId}`
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -118,8 +127,8 @@ function AuthScreen({ token, onAuth }: { token: string; onAuth: (jwt: string, ev
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-sm">
         <div className="text-center mb-6">
-          <div className="w-14 h-14 bg-primary-100 rounded-full flex items-center justify-center mx-auto mb-3">
-            <Calendar size={24} className="text-primary-600" />
+          <div className="w-14 h-14 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-3">
+            <Calendar size={24} className="text-primary" />
           </div>
           <h1 className="text-xl font-bold text-gray-900">Portal do Cliente</h1>
           <p className="text-sm text-gray-500 mt-1">Digite o número de reserva para acessar o seu evento</p>
@@ -131,13 +140,13 @@ function AuthScreen({ token, onAuth }: { token: string; onAuth: (jwt: string, ev
             value={code}
             onChange={e => setCode(e.target.value)}
             placeholder="Número de reserva"
-            className="w-full px-4 py-3 border rounded-xl text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+            className="w-full px-4 py-3 border rounded-xl text-sm focus:ring-2 focus:ring-primary/30 focus:border-primary outline-none"
           />
           {error && <p className="text-red-500 text-sm text-center">{error}</p>}
           <button
             type="submit"
             disabled={loading || !code.trim()}
-            className="w-full py-3 bg-primary-600 text-white rounded-xl font-medium text-sm hover:bg-primary-700 disabled:opacity-50 transition"
+            className="w-full py-3 bg-primary text-primary-foreground rounded-xl font-medium text-sm hover:bg-primary/90 disabled:opacity-50 transition"
           >
             {loading ? 'Verificando...' : 'Acessar'}
           </button>
@@ -195,7 +204,7 @@ function FilesTab({ token, jwt }: { token: string; jwt: string }) {
           </div>
           <button
             onClick={() => download(file)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary-50 text-primary-700 hover:bg-primary-100 rounded-lg text-sm font-medium transition shrink-0"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg text-sm font-medium transition shrink-0"
           >
             <Download size={14} /> VER
           </button>
@@ -352,7 +361,7 @@ function GuestsTab({ token, jwt }: { token: string; jwt: string }) {
         </div>
         <button
           onClick={openAdd}
-          className="flex items-center gap-1.5 px-3 py-2 bg-primary-600 text-white rounded-lg text-sm font-medium"
+          className="flex items-center gap-1.5 px-3 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium"
         >
           <Plus size={14} /> Adicionar
         </button>
@@ -398,7 +407,7 @@ function GuestsTab({ token, jwt }: { token: string; jwt: string }) {
             <button
               onClick={() => doImport(csvText)}
               disabled={importing || !csvText.trim()}
-              className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium disabled:opacity-50"
             >
               {importing ? 'Importando...' : 'Importar'}
             </button>
@@ -428,7 +437,7 @@ function GuestsTab({ token, jwt }: { token: string; jwt: string }) {
           </div>
           <div className="flex gap-2">
             <button onClick={save} disabled={saving || !form.name.trim()}
-              className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-medium disabled:opacity-50">
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium disabled:opacity-50">
               {saving ? 'Salvando...' : editingGuest ? 'Salvar' : 'Adicionar'}
             </button>
             <button onClick={() => setShowForm(false)} className="px-4 py-2 border rounded-lg text-sm">Cancelar</button>
@@ -460,7 +469,7 @@ function GuestsTab({ token, jwt }: { token: string; jwt: string }) {
               <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColor(g.status)}`}>
                 {statusLabel(g.status)}
               </span>
-              <button onClick={() => openEdit(g)} className="p-1 text-gray-400 hover:text-primary-600">
+              <button onClick={() => openEdit(g)} className="p-1 text-gray-400 hover:text-primary">
                 <Plus size={14} className="rotate-45" />
               </button>
               <button onClick={() => remove(g.id)} className="p-1 text-gray-300 hover:text-red-500">
@@ -474,12 +483,101 @@ function GuestsTab({ token, jwt }: { token: string; jwt: string }) {
   );
 }
 
-// ── Plan tab (read-only) ───────────────────────────────────────────────────────
+// ── Shared approval button ────────────────────────────────────────────────────
 
-function PlanTab({ token, jwt }: { token: string; jwt: string }) {
+function ApproveButton({
+  approved, approvedAt, onToggle, toggling,
+}: {
+  approved: boolean;
+  approvedAt?: string;
+  onToggle: () => void;
+  toggling: boolean;
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      disabled={toggling}
+      title={approved ? 'Clique para remover confirmação' : 'Confirmar que está correto'}
+      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition shrink-0 ${
+        approved
+          ? 'bg-green-50 border-green-300 text-green-700 hover:bg-green-100'
+          : 'bg-white border-gray-200 text-gray-500 hover:border-primary hover:text-primary'
+      } disabled:opacity-50`}
+    >
+      {approved
+        ? <CheckCircle size={13} className="text-green-600" />
+        : <Circle size={13} />}
+      {approved ? 'Confirmado' : 'Confirmar'}
+    </button>
+  );
+}
+
+// ── Category label ────────────────────────────────────────────────────────────
+
+function categoryLabel(cat: string) {
+  return { ab: 'A&B', infra: 'Infra', staff: 'Equipe', venue: 'Local' }[cat] || cat;
+}
+function categoryColor(cat: string) {
+  return {
+    ab: 'bg-orange-100 text-orange-700',
+    infra: 'bg-blue-100 text-blue-700',
+    staff: 'bg-purple-100 text-purple-700',
+    venue: 'bg-gray-100 text-gray-600',
+  }[cat] || 'bg-gray-100 text-gray-600';
+}
+
+// ── Question row with per-question approval ───────────────────────────────────
+
+function QuestionRow({ q, ans, approvalKey, approvals, onToggle }: {
+  q: any;
+  ans: any;
+  approvalKey: string;
+  approvals: ApprovalSet;
+  onToggle: (itemType: string, itemId: string) => Promise<void>;
+}) {
+  const [toggling, setToggling] = useState(false);
+  const [type, id] = approvalKey.split(':');
+  const approved = approvals.has(approvalKey);
+  const answered = !!ans?.answer;
+
+  async function handleToggle() {
+    setToggling(true);
+    await onToggle(type, id);
+    setToggling(false);
+  }
+
+  return (
+    <div className={`px-4 py-3 flex items-start gap-3 ${approved ? 'bg-green-50/60' : ''}`}>
+      <div className="mt-0.5 shrink-0">
+        {answered
+          ? <CheckCircle size={14} className="text-green-500" />
+          : q.required
+            ? <AlertCircle size={14} className="text-amber-500" />
+            : <div className="w-3.5 h-3.5 rounded-full border-2 border-gray-300" />}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm text-gray-600">{q.text}</p>
+        {answered
+          ? <p className="text-sm font-medium text-gray-900 mt-0.5">{Array.isArray(ans.answer) ? ans.answer.join(', ') : String(ans.answer)}</p>
+          : <p className="text-xs text-amber-600 mt-0.5 italic">{q.required ? 'A definir (obrigatório)' : 'A definir'}</p>}
+      </div>
+      {answered && (
+        <ApproveButton approved={approved} onToggle={handleToggle} toggling={toggling} />
+      )}
+    </div>
+  );
+}
+
+// ── Plan tab ──────────────────────────────────────────────────────────────────
+
+function PlanTab({ token, jwt, approvals, onToggle }: {
+  token: string;
+  jwt: string;
+  approvals: ApprovalSet;
+  onToggle: (itemType: string, itemId: string) => Promise<void>;
+}) {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     fetch(`/api/v2/client/${token}/plan`, { headers: { 'x-client-auth': jwt } })
@@ -491,88 +589,170 @@ function PlanTab({ token, jwt }: { token: string; jwt: string }) {
   if (loading) return <div className="py-8 text-center text-gray-400">Carregando plano...</div>;
   if (!data) return <div className="py-8 text-center text-gray-400">Plano não disponível.</div>;
 
-  const allItems = data.items || [];
-  const venues = data.venues || [];
+  const allItems: any[] = (data.items || []).filter((i: any) => (i.product?.questions?.length ?? 0) > 0);
+  const venues: any[] = data.venues || [];
+  const hasVenueQuestions = venues.some((v: any) => (v.venue?.questions?.length ?? 0) > 0);
 
-  // Collect all questions and answers
-  const sections: { title: string; questions: { text: string; required: boolean; answered: boolean; answer: any }[] }[] = [];
-
-  venues.forEach((v: any) => {
-    const qs = v.venue?.questions || [];
-    if (qs.length === 0) return;
-    sections.push({
-      title: `Local: ${v.venue.name}`,
-      questions: qs.map((q: any) => {
-        const ans = data.venueAnswers?.find((a: any) => a.questionId === q.id);
-        return { text: q.text, required: q.required, answered: !!ans?.answer, answer: ans?.answer };
-      }),
-    });
-  });
-
-  allItems.forEach((item: any) => {
-    const qs = item.product?.questions || [];
-    if (qs.length === 0) return;
-    sections.push({
-      title: item.name,
-      questions: qs.map((q: any) => {
-        const ans = item.answers?.find((a: any) => a.questionId === q.id);
-        return { text: q.text, required: q.required, answered: !!ans?.answer, answer: ans?.answer };
-      }),
-    });
-  });
-
-  if (sections.length === 0) {
+  if (allItems.length === 0 && !hasVenueQuestions) {
     return (
       <div className="py-12 text-center">
         <CheckCircle size={40} className="mx-auto text-gray-300 mb-3" />
-        <p className="text-gray-500">Nenhum item de plano cadastrado ainda.</p>
+        <p className="text-gray-500">Nenhum item com configuração disponível.</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-3">
-      {sections.map((section, idx) => {
-        const answered = section.questions.filter(q => q.answered).length;
-        const total = section.questions.length;
-        const isOpen = expanded[idx] !== false;
+      {/* Venue questions */}
+      {venues.map((v: any, idx: number) => {
+        const qs: any[] = v.venue?.questions || [];
+        if (qs.length === 0) return null;
+        const confirmedCount = qs.filter((q: any) => approvals.has(`venue_q:${v.venueId}_${q.id}`)).length;
+        const answeredCount = qs.filter((q: any) => !!data.venueAnswers?.find((a: any) => a.questionId === q.id)?.answer).length;
         return (
           <div key={idx} className="bg-white border rounded-xl overflow-hidden">
-            <button
-              className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50"
-              onClick={() => setExpanded(e => ({ ...e, [idx]: !isOpen }))}
-            >
-              {isOpen ? <ChevronDown size={16} className="text-gray-400 shrink-0" /> : <ChevronRight size={16} className="text-gray-400 shrink-0" />}
-              <span className="font-medium text-sm flex-1">{section.title}</span>
-              <span className={`text-xs px-2 py-0.5 rounded-full ${answered === total ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                {answered}/{total} definidos
+            <div className="flex items-center gap-3 px-4 py-3 bg-gray-50">
+              <span className="font-semibold text-sm flex-1 text-gray-800">Local: {v.venue.name}</span>
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${confirmedCount === answeredCount && answeredCount > 0 ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                {confirmedCount}/{qs.length} confirmados
               </span>
-            </button>
-            {isOpen && (
-              <div className="border-t divide-y">
-                {section.questions.map((q, qi) => (
-                  <div key={qi} className="px-4 py-3 flex items-start gap-3">
-                    <div className="mt-0.5 shrink-0">
-                      {q.answered
-                        ? <CheckCircle size={14} className="text-green-500" />
-                        : q.required
-                          ? <AlertCircle size={14} className="text-amber-500" />
-                          : <div className="w-3.5 h-3.5 rounded-full border-2 border-gray-300" />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-gray-700">{q.text}</p>
-                      {q.answered ? (
-                        <p className="text-sm font-medium text-gray-900 mt-0.5">
-                          {Array.isArray(q.answer) ? q.answer.join(', ') : String(q.answer)}
-                        </p>
-                      ) : (
-                        <p className="text-xs text-amber-600 mt-0.5 italic">
-                          {q.required ? 'A definir (obrigatório)' : 'A definir'}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                ))}
+            </div>
+            <div className="divide-y">
+              {qs.map((q: any, qi: number) => {
+                const ans = data.venueAnswers?.find((a: any) => a.questionId === q.id);
+                return (
+                  <QuestionRow
+                    key={qi}
+                    q={q}
+                    ans={ans}
+                    approvalKey={`venue_q:${v.venueId}_${q.id}`}
+                    approvals={approvals}
+                    onToggle={onToggle}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Plan items — per-question approval */}
+      {allItems.map((item: any) => {
+        const qs: any[] = item.product?.questions || [];
+        const confirmedCount = qs.filter((q: any) => approvals.has(`plan_q:${item.id}_${q.id}`)).length;
+        const answeredCount = qs.filter((q: any) => !!item.answers?.find((a: any) => a.questionId === q.id)?.answer).length;
+        return (
+          <div key={item.id} className="bg-white border rounded-xl overflow-hidden">
+            <div className="flex items-center gap-3 px-4 py-3 bg-gray-50">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${categoryColor(item.category)}`}>
+                    {categoryLabel(item.category)}
+                  </span>
+                  <span className="font-semibold text-sm text-gray-800">{item.name}</span>
+                </div>
+                {(item.quantity > 1 || item.unit) && (
+                  <p className="text-xs text-gray-400 mt-0.5">{item.quantity} {item.unit || 'un'}</p>
+                )}
+              </div>
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${confirmedCount === answeredCount && answeredCount > 0 ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                {confirmedCount}/{qs.length} confirmados
+              </span>
+            </div>
+            <div className="divide-y">
+              {qs.map((q: any, qi: number) => {
+                const ans = item.answers?.find((a: any) => a.questionId === q.id);
+                return (
+                  <QuestionRow
+                    key={qi}
+                    q={q}
+                    ans={ans}
+                    approvalKey={`plan_q:${item.id}_${q.id}`}
+                    approvals={approvals}
+                    onToggle={onToggle}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── A&B (food & beverage) tab ─────────────────────────────────────────────────
+
+function FoodTab({ token, jwt, approvals, onToggle }: {
+  token: string;
+  jwt: string;
+  approvals: ApprovalSet;
+  onToggle: (itemType: string, itemId: string) => Promise<void>;
+}) {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`/api/v2/client/${token}/plan`, { headers: { 'x-client-auth': jwt } })
+      .then(r => r.json())
+      .then(d => setData(d.event))
+      .finally(() => setLoading(false));
+  }, [token, jwt]);
+
+  if (loading) return <div className="py-8 text-center text-gray-400">Carregando itens de A&B...</div>;
+
+  const abItems: any[] = (data?.items || []).filter((i: any) => i.category === 'ab');
+
+  if (abItems.length === 0) {
+    return (
+      <div className="py-12 text-center">
+        <Utensils size={40} className="mx-auto text-gray-300 mb-3" />
+        <p className="text-gray-500">Nenhum item de A&B contratado.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {abItems.map((item: any) => {
+        const qs: any[] = item.product?.questions || [];
+        const confirmedCount = qs.filter((q: any) => approvals.has(`plan_q:${item.id}_${q.id}`)).length;
+        const answeredCount = qs.filter((q: any) => !!item.answers?.find((a: any) => a.questionId === q.id)?.answer).length;
+        return (
+          <div key={item.id} className="bg-white border rounded-xl overflow-hidden">
+            <div className="flex items-center gap-3 px-4 py-3 bg-gray-50">
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm text-gray-800">{item.name}</p>
+                {(item.quantity > 1 || item.unit) && (
+                  <p className="text-xs text-gray-400 mt-0.5">{item.quantity} {item.unit || 'un'}</p>
+                )}
+              </div>
+              {qs.length > 0 && (
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${confirmedCount === answeredCount && answeredCount > 0 ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                  {confirmedCount}/{qs.length} confirmados
+                </span>
+              )}
+            </div>
+            {qs.length > 0 ? (
+              <div className="divide-y">
+                {qs.map((q: any, qi: number) => {
+                  const ans = item.answers?.find((a: any) => a.questionId === q.id);
+                  return (
+                    <QuestionRow
+                      key={qi}
+                      q={q}
+                      ans={ans}
+                      approvalKey={`plan_q:${item.id}_${q.id}`}
+                      approvals={approvals}
+                      onToggle={onToggle}
+                    />
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="px-4 py-3">
+                {item.notes && <p className="text-sm text-gray-500">{item.notes}</p>}
               </div>
             )}
           </div>
@@ -582,11 +762,17 @@ function PlanTab({ token, jwt }: { token: string; jwt: string }) {
   );
 }
 
-// ── Schedule tab (read-only) ───────────────────────────────────────────────────
+// ── Schedule tab ──────────────────────────────────────────────────────────────
 
-function ScheduleTab({ token, jwt }: { token: string; jwt: string }) {
+function ScheduleTab({ token, jwt, approvals, onToggle }: {
+  token: string;
+  jwt: string;
+  approvals: ApprovalSet;
+  onToggle: (itemType: string, itemId: string) => Promise<void>;
+}) {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
+  const [toggling, setToggling] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     fetch(`/api/v2/client/${token}/schedules`, { headers: { 'x-client-auth': jwt } })
@@ -606,38 +792,143 @@ function ScheduleTab({ token, jwt }: { token: string; jwt: string }) {
     );
   }
 
+  async function handleToggle(scheduleId: string) {
+    setToggling(t => ({ ...t, [scheduleId]: true }));
+    await onToggle('schedule', scheduleId);
+    setToggling(t => ({ ...t, [scheduleId]: false }));
+  }
+
   return (
     <div className="space-y-3">
-      {schedules.map(s => (
-        <div key={s.id} className="bg-white border rounded-xl p-4 flex gap-4 items-start">
-          <div className="shrink-0 text-center min-w-[56px]">
-            <p className="text-xs text-gray-400">Início</p>
-            <p className="text-sm font-bold text-gray-900 leading-tight">
-              {new Date(s.startAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })}
-            </p>
-            <p className="text-xs text-gray-400 mt-1">Fim</p>
-            <p className="text-sm font-medium text-gray-600 leading-tight">
-              {new Date(s.endAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })}
-            </p>
+      {schedules.map(s => {
+        const approved = approvals.has(`schedule:${s.id}`);
+        return (
+          <div key={s.id} className={`bg-white border rounded-xl p-4 flex gap-4 items-start ${approved ? 'border-green-300' : ''}`}>
+            <div className="shrink-0 text-center min-w-[56px]">
+              <p className="text-xs text-gray-400">Início</p>
+              <p className="text-sm font-bold text-gray-900 leading-tight">
+                {new Date(s.startAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })}
+              </p>
+              <p className="text-xs text-gray-400 mt-1">Fim</p>
+              <p className="text-sm font-medium text-gray-600 leading-tight">
+                {new Date(s.endAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })}
+              </p>
+            </div>
+            <div className="border-l pl-4 flex-1 min-w-0">
+              <p className="font-semibold text-sm text-gray-900">{s.name}</p>
+              {s.team && <p className="text-xs text-primary mt-0.5">Equipe: {s.team.name}</p>}
+              {s.description && <p className="text-sm text-gray-500 mt-1">{s.description}</p>}
+            </div>
+            <ApproveButton
+              approved={approved}
+              onToggle={() => handleToggle(s.id)}
+              toggling={!!toggling[s.id]}
+            />
           </div>
-          <div className="border-l pl-4 flex-1 min-w-0">
-            <p className="font-semibold text-sm text-gray-900">{s.name}</p>
-            {s.team && <p className="text-xs text-primary-600 mt-0.5">Equipe: {s.team.name}</p>}
-            {s.description && <p className="text-sm text-gray-500 mt-1">{s.description}</p>}
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
+// ── Status banner ─────────────────────────────────────────────────────────────
+
+function StatusBanner({ token, jwt, approvals }: { token: string; jwt: string; approvals: ApprovalSet }) {
+  const [planData, setPlanData] = useState<any>(null);
+  const [schedules, setSchedules] = useState<any[]>([]);
+
+  useEffect(() => {
+    Promise.all([
+      fetch(`/api/v2/client/${token}/plan`, { headers: { 'x-client-auth': jwt } }).then(r => r.json()),
+      fetch(`/api/v2/client/${token}/schedules`, { headers: { 'x-client-auth': jwt } }).then(r => r.json()),
+    ]).then(([planRes, schedRes]) => {
+      setPlanData(planRes.event ?? null);
+      setSchedules(schedRes.schedules ?? []);
+    }).catch(() => {});
+  }, [token, jwt]);
+
+  useEffect(() => {
+    // Re-evaluate whenever approvals change but data is already loaded
+  }, [approvals]);
+
+  if (!planData) return null;
+
+  type QStat = { key: string; answered: boolean; required: boolean };
+  const allQs: QStat[] = [];
+
+  (planData.venues || []).forEach((v: any) => {
+    (v.venue?.questions || []).forEach((q: any) => {
+      const ans = planData.venueAnswers?.find((a: any) => a.questionId === q.id);
+      allQs.push({ key: `venue_q:${v.venueId}_${q.id}`, answered: !!ans?.answer, required: !!q.required });
+    });
+  });
+
+  (planData.items || []).filter((i: any) => (i.product?.questions?.length ?? 0) > 0).forEach((item: any) => {
+    (item.product?.questions || []).forEach((q: any) => {
+      const ans = item.answers?.find((a: any) => a.questionId === q.id);
+      allQs.push({ key: `plan_q:${item.id}_${q.id}`, answered: !!ans?.answer, required: !!q.required });
+    });
+  });
+
+  const unanswered = allQs.filter(q => !q.answered && q.required).length;
+  const answeredUnconfirmed = allQs.filter(q => q.answered && !approvals.has(q.key)).length;
+  const scheduleUnconfirmed = schedules.filter(s => !approvals.has(`schedule:${s.id}`)).length;
+  const allDone = unanswered === 0 && answeredUnconfirmed === 0 && scheduleUnconfirmed === 0;
+
+  if (allQs.length === 0 && schedules.length === 0) return null;
+
+  return (
+    <div className={`rounded-xl border px-4 py-3.5 mb-5 ${allDone ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
+      <p className="text-sm font-semibold text-gray-800 mb-1.5">
+        {allDone ? 'Tudo confirmado!' : 'O que ainda precisa da sua atenção'}
+      </p>
+      {allDone ? (
+        <div className="flex items-center gap-2 text-sm text-green-700">
+          <CheckCircle size={14} className="shrink-0" />
+          <span>Todas as confirmações estão completas. Obrigado!</span>
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {unanswered > 0 && (
+            <div className="flex items-center gap-2 text-sm text-red-700">
+              <AlertCircle size={14} className="shrink-0" />
+              <span>
+                <strong>{unanswered}</strong> pergunta{unanswered > 1 ? 's obrigatórias' : ' obrigatória'} sem resposta — veja a aba <strong>Plano</strong>
+              </span>
+            </div>
+          )}
+          {answeredUnconfirmed > 0 && (
+            <div className="flex items-center gap-2 text-sm text-amber-800">
+              <Circle size={14} className="shrink-0" />
+              <span>
+                <strong>{answeredUnconfirmed}</strong> resposta{answeredUnconfirmed > 1 ? 's' : ''} aguardando sua confirmação — veja a aba <strong>Plano</strong>
+              </span>
+            </div>
+          )}
+          {scheduleUnconfirmed > 0 && (
+            <div className="flex items-center gap-2 text-sm text-amber-800">
+              <Circle size={14} className="shrink-0" />
+              <span>
+                <strong>{scheduleUnconfirmed}</strong> atividade{scheduleUnconfirmed > 1 ? 's' : ''} do cronograma para confirmar — veja a aba <strong>Cronograma</strong>
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const TABS = [
-  { id: 'files', label: 'Arquivos', icon: FileText },
-  { id: 'guests', label: 'Convidados', icon: Users },
   { id: 'plan', label: 'Plano', icon: CheckCircle },
   { id: 'schedule', label: 'Cronograma', icon: Clock },
+  { id: 'ab', label: 'A&B', icon: Utensils },
+  { id: 'guests', label: 'Convidados', icon: Users },
+  { id: 'files', label: 'Arquivos', icon: FileText },
 ];
 
 export default function ClientPortalPage() {
@@ -646,18 +937,46 @@ export default function ClientPortalPage() {
 
   const [jwt, setJwt] = useState<string | null>(null);
   const [event, setEvent] = useState<EventSummary | null>(null);
-  const [activeTab, setActiveTab] = useState('files');
+  const [activeTab, setActiveTab] = useState('plan');
+  const [approvals, setApprovals] = useState<ApprovalSet>(new Set());
 
   useEffect(() => {
     const stored = sessionStorage.getItem(`client_jwt_${token}`);
     if (stored) {
-      // Try to restore session by fetching event data
       fetch(`/api/v2/client/${token}/event`, { headers: { 'x-client-auth': stored } })
         .then(r => { if (!r.ok) throw new Error(); return r.json(); })
         .then(d => { setJwt(stored); setEvent(d.event); })
         .catch(() => sessionStorage.removeItem(`client_jwt_${token}`));
     }
   }, [token]);
+
+  useEffect(() => {
+    if (!jwt) return;
+    fetch(`/api/v2/client/${token}/approvals`, { headers: { 'x-client-auth': jwt } })
+      .then(r => r.json())
+      .then(d => {
+        const s = new Set<string>((d.approvals || []).map((a: Approval) => `${a.itemType}:${a.itemId}`));
+        setApprovals(s);
+      });
+  }, [jwt, token]);
+
+  async function toggleApproval(itemType: string, itemId: string) {
+    if (!jwt) return;
+    const res = await fetch(`/api/v2/client/${token}/approvals`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-client-auth': jwt },
+      body: JSON.stringify({ itemType, itemId }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const key = `${itemType}:${itemId}`;
+      setApprovals(prev => {
+        const next = new Set(prev);
+        if (data.approved) next.add(key); else next.delete(key);
+        return next;
+      });
+    }
+  }
 
   function onAuth(newJwt: string, ev: EventSummary) {
     setJwt(newJwt);
@@ -677,7 +996,7 @@ export default function ClientPortalPage() {
           <h1 className="text-lg font-bold text-gray-900 leading-tight">{event.name}</h1>
           <p className="text-sm text-gray-500">{event.clientName}</p>
           {event.startAt && (
-            <p className="text-xs text-primary-600 mt-1 flex items-center gap-1">
+            <p className="text-xs text-primary mt-1 flex items-center gap-1">
               <Calendar size={11} /> {formatDate(event.startAt)}
             </p>
           )}
@@ -692,7 +1011,7 @@ export default function ClientPortalPage() {
                 onClick={() => setActiveTab(tab.id)}
                 className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition ${
                   activeTab === tab.id
-                    ? 'border-primary-600 text-primary-600'
+                    ? 'border-primary text-primary'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
                 }`}
               >
@@ -705,10 +1024,12 @@ export default function ClientPortalPage() {
 
       {/* Content */}
       <div className="max-w-2xl mx-auto px-4 py-6">
+        <StatusBanner token={token} jwt={jwt} approvals={approvals} />
         {activeTab === 'files' && <FilesTab token={token} jwt={jwt} />}
         {activeTab === 'guests' && <GuestsTab token={token} jwt={jwt} />}
-        {activeTab === 'plan' && <PlanTab token={token} jwt={jwt} />}
-        {activeTab === 'schedule' && <ScheduleTab token={token} jwt={jwt} />}
+        {activeTab === 'ab' && <FoodTab token={token} jwt={jwt} approvals={approvals} onToggle={toggleApproval} />}
+        {activeTab === 'plan' && <PlanTab token={token} jwt={jwt} approvals={approvals} onToggle={toggleApproval} />}
+        {activeTab === 'schedule' && <ScheduleTab token={token} jwt={jwt} approvals={approvals} onToggle={toggleApproval} />}
       </div>
     </div>
   );

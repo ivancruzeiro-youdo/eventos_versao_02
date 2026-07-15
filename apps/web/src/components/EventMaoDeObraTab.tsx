@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { HardHat, Plus, Pencil, Trash2, X, Check, User, Phone, ChevronDown, ChevronRight, Mail, AlertTriangle, UserCheck, UserX, Users, Paperclip, FileText, Download, ClipboardList, Link2, Link2Off } from 'lucide-react';
+import { HardHat, Plus, Pencil, Trash2, X, Check, User, Phone, ChevronDown, ChevronRight, Mail, AlertTriangle, UserCheck, UserX, Users, Paperclip, FileText, Download, ClipboardList, Link2, Link2Off, UserPlus } from 'lucide-react';
 import { formatDateTime } from '@/lib/utils';
 
 interface FreelancerService {
@@ -33,9 +33,7 @@ interface ServiceChecklist {
 interface EventService {
   id: string;
   serviceId: string;
-  freelancerId: string | null;
   service: { id: string; name: string; hourlyRate: number };
-  freelancer: { id: string; name: string; phone: string | null; email: string } | null;
   productName: string | null;
   maxSlots: number;
   valuePerHour: number;
@@ -86,7 +84,6 @@ const applicationStatusConfig = {
 
 const emptyForm = {
   serviceId: '',
-  freelancerId: '',
   maxSlots: 1,
   valuePerHour: 0,
   startAt: '',
@@ -106,8 +103,6 @@ function utcToLocalInput(utcIso: string): string {
 export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
   const [services, setServices] = useState<EventService[]>([]);
   const [allServices, setAllServices] = useState<FreelancerService[]>([]);
-  const [serviceFreelancers, setServiceFreelancers] = useState<FreelancerOption[]>([]);
-  const [loadingFreelancers, setLoadingFreelancers] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -115,6 +110,13 @@ export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // Assign freelancer state
+  const [assigningId, setAssigningId] = useState<string | null>(null);
+  const [assignFreelancerId, setAssignFreelancerId] = useState('');
+  const [assignFreelancers, setAssignFreelancers] = useState<FreelancerOption[]>([]);
+  const [loadingAssignFreelancers, setLoadingAssignFreelancers] = useState(false);
+  const [assigning, setAssigning] = useState(false);
 
   // Applications state
   const [applications, setApplications] = useState<Application[]>([]);
@@ -221,21 +223,9 @@ export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
     await load();
   }
 
-  async function loadFreelancersForService(serviceId: string) {
-    if (!serviceId) { setServiceFreelancers([]); return; }
-    setLoadingFreelancers(true);
-    try {
-      const res = await fetch(`/api/v2/services/${serviceId}/freelancers`, { credentials: 'include' });
-      const data = await res.json();
-      setServiceFreelancers(data.freelancers || []);
-    } catch { setServiceFreelancers([]); }
-    setLoadingFreelancers(false);
-  }
-
   function openCreate() {
     setEditingId(null);
     setForm({ ...emptyForm });
-    setServiceFreelancers([]);
     setError('');
     setShowForm(true);
   }
@@ -244,7 +234,6 @@ export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
     setEditingId(svc.id);
     setForm({
       serviceId: svc.serviceId,
-      freelancerId: svc.freelancerId || '',
       maxSlots: svc.maxSlots,
       valuePerHour: svc.valuePerHour,
       startAt: svc.startAt ? utcToLocalInput(svc.startAt) : '',
@@ -254,13 +243,41 @@ export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
     });
     setError('');
     setShowForm(true);
-    loadFreelancersForService(svc.serviceId);
   }
 
-  async function onServiceChange(serviceId: string) {
+  function onServiceChange(serviceId: string) {
     const svc = allServices.find(s => s.id === serviceId);
-    setForm(f => ({ ...f, serviceId, freelancerId: '', valuePerHour: svc ? svc.hourlyRate : f.valuePerHour }));
-    await loadFreelancersForService(serviceId);
+    setForm(f => ({ ...f, serviceId, valuePerHour: svc ? svc.hourlyRate : f.valuePerHour }));
+  }
+
+  async function startAssign(svc: EventService) {
+    setAssigningId(svc.id);
+    setAssignFreelancerId('');
+    setLoadingAssignFreelancers(true);
+    try {
+      const res = await fetch(`/api/v2/services/${svc.serviceId}/freelancers`, { credentials: 'include' });
+      const data = await res.json();
+      setAssignFreelancers(data.freelancers || []);
+    } catch { setAssignFreelancers([]); }
+    setLoadingAssignFreelancers(false);
+  }
+
+  async function confirmAssign(svc: EventService) {
+    if (!assignFreelancerId) return;
+    setAssigning(true);
+    try {
+      const res = await fetch(`/api/v2/events/${eventId}/applications`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ freelancerId: assignFreelancerId, role: svc.service.name }),
+      });
+      const data = await res.json();
+      if (!res.ok) { alert(data.error || 'Erro ao atribuir.'); }
+    } catch { alert('Erro ao atribuir.'); }
+    setAssigningId(null);
+    setAssigning(false);
+    await loadApplications();
   }
 
   async function save() {
@@ -270,7 +287,6 @@ export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
     try {
       const body = {
         serviceId: form.serviceId,
-        freelancerId: form.freelancerId || null,
         maxSlots: Number(form.maxSlots),
         valuePerHour: Number(form.valuePerHour),
         startAt: form.startAt ? new Date(form.startAt).toISOString() : null,
@@ -409,26 +425,6 @@ export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
                 {allServices.length === 0 && (
                   <p className="text-xs text-amber-600 mt-1">
                     Nenhuma função cadastrada. <a href="/freelancers" className="underline">Acesse Freelancers</a> para criar serviços primeiro.
-                  </p>
-                )}
-              </div>
-
-              {/* Freelancer */}
-              <div className="sm:col-span-2">
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">
-                  Freelancer {loadingFreelancers && <span className="text-muted-foreground">(carregando...)</span>}
-                </label>
-                <select value={form.freelancerId} onChange={e => setForm(f => ({ ...f, freelancerId: e.target.value }))}
-                  disabled={!form.serviceId || loadingFreelancers}
-                  className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50">
-                  <option value="">— Sem atribuição (vaga aberta) —</option>
-                  {serviceFreelancers.map(f => (
-                    <option key={f.id} value={f.id}>{f.name}{f.phone ? ` · ${f.phone}` : ''}</option>
-                  ))}
-                </select>
-                {form.serviceId && !loadingFreelancers && serviceFreelancers.length === 0 && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Nenhum freelancer cadastrado para esta função.
                   </p>
                 )}
               </div>
@@ -591,29 +587,12 @@ export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
 
                     {/* Freelancers inscritos via candidatura */}
                     {(() => {
-                      const approvedApps = (applicationsByRole[svc.service.name] || []).filter(a => a.status === 'approved');
-                      const hasDirectFreelancer = !!svc.freelancer;
-                      const hasAny = hasDirectFreelancer || approvedApps.length > 0;
+                      const roleApps = applicationsByRole[svc.service.name] || [];
+                      const approvedApps = roleApps.filter(a => a.status === 'approved');
+                      const pendingApps = roleApps.filter(a => a.status === 'pending');
+                      const hasAny = approvedApps.length > 0 || pendingApps.length > 0;
                       return (
                         <div className="space-y-1.5">
-                          {hasDirectFreelancer && (
-                            <div className="flex items-center gap-3 bg-primary/5 rounded-lg px-3 py-2">
-                              <div className="w-8 h-8 rounded-full bg-primary/15 flex items-center justify-center text-primary font-bold text-sm shrink-0">
-                                {svc.freelancer!.name.charAt(0).toUpperCase()}
-                              </div>
-                              <div>
-                                <p className="text-sm font-medium">{svc.freelancer!.name}</p>
-                                <div className="flex items-center gap-3 mt-0.5">
-                                  {svc.freelancer!.phone && (
-                                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                                      <Phone size={10} /> {svc.freelancer!.phone}
-                                    </span>
-                                  )}
-                                  <span className="text-xs text-muted-foreground">{svc.freelancer!.email}</span>
-                                </div>
-                              </div>
-                            </div>
-                          )}
                           {approvedApps.map(app => (
                             <div key={app.id} className="flex items-center gap-3 bg-green-50 rounded-lg px-3 py-2">
                               <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center text-green-700 font-bold text-sm shrink-0">
@@ -643,8 +622,76 @@ export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
                               </button>
                             </div>
                           ))}
+                          {pendingApps.map(app => (
+                            <div key={app.id} className="flex items-center gap-3 bg-yellow-50 rounded-lg px-3 py-2">
+                              <div className="w-8 h-8 rounded-full bg-yellow-100 flex items-center justify-center text-yellow-700 font-bold text-sm shrink-0">
+                                {app.freelancer.name.charAt(0).toUpperCase()}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium">{app.freelancer.name}</p>
+                                {app.freelancer.phone && (
+                                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                                    <Phone size={10} /> {app.freelancer.phone}
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-xs font-medium text-yellow-700 bg-yellow-100 px-2 py-0.5 rounded-full shrink-0">Pendente</span>
+                              <button
+                                onClick={() => { if (confirm(`Aprovar ${app.freelancer.name} para esta vaga?`)) updateStatus(app.id, 'approved'); }}
+                                disabled={updating === app.id}
+                                title="Aprovar"
+                                className="p-1.5 rounded-full bg-green-50 text-green-600 hover:bg-green-100 disabled:opacity-40 transition shrink-0"
+                              >
+                                <Check size={13} />
+                              </button>
+                              <button
+                                onClick={() => { if (confirm(`Rejeitar ${app.freelancer.name}?`)) updateStatus(app.id, 'rejected'); }}
+                                disabled={updating === app.id}
+                                title="Rejeitar"
+                                className="p-1.5 rounded-full bg-red-50 text-red-500 hover:bg-red-100 disabled:opacity-40 transition shrink-0"
+                              >
+                                <X size={13} />
+                              </button>
+                            </div>
+                          ))}
                           {!hasAny && (
-                            <p className="text-xs text-muted-foreground italic">Nenhum freelancer inscrito (vaga aberta)</p>
+                            <p className="text-xs text-muted-foreground italic">Nenhum freelancer confirmado ainda.</p>
+                          )}
+
+                          {/* Assign freelancer inline */}
+                          {assigningId === svc.id ? (
+                            <div className="flex gap-2 items-center mt-2 pt-2 border-t">
+                              <select
+                                value={assignFreelancerId}
+                                onChange={e => setAssignFreelancerId(e.target.value)}
+                                disabled={loadingAssignFreelancers}
+                                className="flex-1 border border-input rounded-md px-2 py-1.5 text-xs bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                              >
+                                <option value="">
+                                  {loadingAssignFreelancers ? '— Carregando... —' : '— Selecione um freelancer —'}
+                                </option>
+                                {assignFreelancers.map(f => (
+                                  <option key={f.id} value={f.id}>{f.name}{f.phone ? ` · ${f.phone}` : ''}</option>
+                                ))}
+                              </select>
+                              <button
+                                onClick={() => confirmAssign(svc)}
+                                disabled={!assignFreelancerId || assigning}
+                                className="px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-xs font-medium hover:bg-primary/90 disabled:opacity-40 transition shrink-0"
+                              >
+                                {assigning ? 'Salvando...' : 'Confirmar'}
+                              </button>
+                              <button onClick={() => setAssigningId(null)} className="p-1.5 text-muted-foreground hover:text-foreground transition shrink-0">
+                                <X size={13} />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => startAssign(svc)}
+                              className="flex items-center gap-1.5 text-xs text-primary hover:underline mt-2 pt-2 border-t w-full"
+                            >
+                              <UserPlus size={12} /> Atribuir Freelancer
+                            </button>
                           )}
                         </div>
                       );

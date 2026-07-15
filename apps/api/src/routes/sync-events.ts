@@ -412,10 +412,16 @@ export async function syncEventsRoutes(app: FastifyInstance) {
         });
         eventId = ev.id;
 
-        // Link venue via padrao_id -> Venue.externalId
-        const padraoId = String(relatedRaw[0]?.padrao_id || '');
-        if (padraoId) {
-          const venue = await (prisma as any).venue.findFirst({ where: { externalId: padraoId } });
+        // Link all venues via padroes[] array -> Venue.externalId
+        const allPadraoIds = new Set<string>();
+        for (const rc of relatedRaw) {
+          if (rc.padrao_id) allPadraoIds.add(String(rc.padrao_id));
+          for (const p of rc.padroes || []) {
+            if (p.padrao) allPadraoIds.add(String(p.padrao));
+          }
+        }
+        for (const pid of allPadraoIds) {
+          const venue = await (prisma as any).venue.findFirst({ where: { externalId: pid } });
           if (venue) {
             await (prisma as any).eventVenue.create({ data: { eventId, venueId: venue.id } });
           }
@@ -450,16 +456,38 @@ export async function syncEventsRoutes(app: FastifyInstance) {
         }
       }
 
-      // For update or no_change: clear existing items and rebuild to ensure they're current
-      if (action === 'update' || action === 'no_change') {
-        await (prisma as any).eventItem.deleteMany({ where: { eventId } });
-        await (prisma as any).eventService.deleteMany({ where: { eventId } });
+      // Sync venues from padroes[] (additive — never remove existing venues)
+      {
+        const allPadraoIds = new Set<string>();
+        for (const rc of relatedRaw) {
+          if (rc.padrao_id) allPadraoIds.add(String(rc.padrao_id));
+          for (const p of rc.padroes || []) {
+            if (p.padrao) allPadraoIds.add(String(p.padrao));
+          }
+        }
+        for (const pid of allPadraoIds) {
+          const venue = await (prisma as any).venue.findFirst({ where: { externalId: pid } });
+          if (venue) {
+            const exists = await (prisma as any).eventVenue.findFirst({ where: { eventId, venueId: venue.id } });
+            if (!exists) {
+              await (prisma as any).eventVenue.create({ data: { eventId, venueId: venue.id } });
+            }
+          }
+        }
       }
 
-      // Build items
-      const oldItemsSnap = action === 'update'
-        ? await (prisma as any).eventItem.findMany({ where: { eventId }, include: { choices: true, slots: true } })
-        : [];
+      // Snapshot before changes (for diff + system comment)
+      const oldItemsSnap = await (prisma as any).eventItem.findMany({
+        where: { eventId },
+        select: { id: true, name: true, quantity: true, productId: true },
+      });
+
+      // Track changes for system comment
+      const syncAddedItems: string[] = [];
+      const syncUpdatedQty: { name: string; oldQty: number; newQty: number }[] = [];
+
+      // Use primary contract as sourceContractId for items in this sync batch
+      const primaryContractId = contractIds[0] || null;
 
       for (const item of items) {
         if (item.category === 'venue' && item.venueId) {
@@ -468,73 +496,129 @@ export async function syncEventsRoutes(app: FastifyInstance) {
           if (!exists) {
             await (prisma as any).eventVenue.create({ data: { eventId, venueId: item.venueId } });
           }
-          // Also create a venue EventItem for tracking
-          await (prisma as any).eventItem.create({
-            data: {
-              eventId,
-              venueId: item.venueId,
-              category: 'venue',
-              name: item.name,
-              quantity: item.qty,
-              unit: item.unit || null,
-            },
-          });
+          // Upsert venue EventItem
+          const existingVenueItem = await (prisma as any).eventItem.findFirst({ where: { eventId, venueId: item.venueId } });
+          if (!existingVenueItem) {
+            await (prisma as any).eventItem.create({
+              data: {
+                eventId,
+                venueId: item.venueId,
+                sourceContractId: primaryContractId,
+                category: 'venue',
+                name: item.name,
+                quantity: item.qty,
+                unit: item.unit || null,
+              },
+            });
+            syncAddedItems.push(item.name);
+          }
           continue;
         }
 
         if (!item.productId) continue;
 
-        const eventItem = await (prisma as any).eventItem.create({
-          data: {
-            eventId,
-            productId: item.productId,
-            category: item.category === 'unknown' ? 'other' : item.category,
-            name: item.name,
-            quantity: item.qty,
-            unit: item.unit || null,
-          },
+        // Upsert by (eventId, productId) — preserves choices/answers/history
+        const existing = await (prisma as any).eventItem.findFirst({
+          where: { eventId, productId: item.productId },
         });
 
-        // A&B: create choice slots from subitems
-        if (item.category === 'ab' && item.subitems.length > 0) {
-          for (const sub of item.subitems) {
-            await (prisma as any).eventItemChoice.create({
-              data: {
-                eventItemId: eventItem.id,
-                label: sub.group,
-                chosen: [],
-                maxChoices: null,
-              },
-            });
+        let eventItemId: string;
+
+        if (existing) {
+          // Update quantity and tag sourceContractId if not yet set
+          const oldQty: number = existing.quantity;
+          const newQty: number = item.qty;
+          await (prisma as any).eventItem.update({
+            where: { id: existing.id },
+            data: {
+              quantity: newQty,
+              name: item.name,
+              unit: item.unit || existing.unit || null,
+              ...(existing.sourceContractId == null && primaryContractId
+                ? { sourceContractId: primaryContractId }
+                : {}),
+            },
+          });
+          eventItemId = existing.id;
+          if (Math.abs(oldQty - newQty) > 0.001) {
+            syncUpdatedQty.push({ name: item.name, oldQty, newQty });
           }
+        } else {
+          // New item — create with sourceContractId
+          const eventItem = await (prisma as any).eventItem.create({
+            data: {
+              eventId,
+              productId: item.productId,
+              sourceContractId: primaryContractId,
+              category: item.category === 'unknown' ? 'other' : item.category,
+              name: item.name,
+              quantity: item.qty,
+              unit: item.unit || null,
+            },
+          });
+          eventItemId = eventItem.id;
+          syncAddedItems.push(item.name);
         }
 
-        // Staff: create EventService slots (one per service), using qty as maxSlots
+        // Staff: upsert EventService slots (never delete — they carry notes/briefings/checklists)
         if (item.category === 'staff' && item.staffServices.length > 0) {
           const eventRecord = await (prisma as any).event.findUnique({ where: { id: eventId }, select: { startAt: true, teardownAt: true } });
           const eventStartAt: Date = eventRecord?.startAt ?? new Date(`${startDate}T12:00:00`);
-          // Use teardownAt as base for end if the event has one set, fallback to startAt
           const eventEndBase: Date = eventRecord?.teardownAt ?? eventStartAt;
           for (const svc of item.staffServices) {
-            const svcData = await (prisma as any).freelancerService.findUnique({ where: { id: svc.id } });
-            const startOffset: number = svcData?.startOffsetMinutes ?? -60;
-            const endOffset: number = svcData?.endOffsetMinutes ?? 60;
-            const svcStart = new Date(eventStartAt.getTime() + startOffset * 60_000);
-            const svcEnd = new Date(eventEndBase.getTime() + endOffset * 60_000);
-            await (prisma as any).eventService.create({
-              data: {
-                eventId,
-                serviceId: svc.id,
-                productName: item.name,
-                maxSlots: Math.ceil(item.qty),
-                valuePerHour: svcData?.hourlyRate ?? 0,
-                startAt: svcStart,
-                endAt: svcEnd,
-                status: 'active',
-              },
-            });
+            const existingSvc = await (prisma as any).eventService.findFirst({ where: { eventId, serviceId: svc.id } });
+            if (existingSvc) {
+              // Update maxSlots only — preserve all operator-entered data
+              await (prisma as any).eventService.update({
+                where: { id: existingSvc.id },
+                data: { maxSlots: Math.ceil(item.qty) },
+              });
+            } else {
+              const svcData = await (prisma as any).freelancerService.findUnique({ where: { id: svc.id } });
+              const startOffset: number = svcData?.startOffsetMinutes ?? -60;
+              const endOffset: number = svcData?.endOffsetMinutes ?? 60;
+              const svcStart = new Date(eventStartAt.getTime() + startOffset * 60_000);
+              const svcEnd = new Date(eventEndBase.getTime() + endOffset * 60_000);
+              await (prisma as any).eventService.create({
+                data: {
+                  eventId,
+                  serviceId: svc.id,
+                  productName: item.name,
+                  maxSlots: Math.ceil(item.qty),
+                  valuePerHour: svcData?.hourlyRate ?? 0,
+                  startAt: svcStart,
+                  endAt: svcEnd,
+                  status: 'active',
+                },
+              });
+            }
           }
         }
+      }
+
+      // Auto system comment — only when there are real changes
+      if (action !== 'create' && (syncAddedItems.length > 0 || syncUpdatedQty.length > 0)) {
+        const lines: string[] = [
+          `Sincronização UERP — contrato(s): ${contractIds.filter(Boolean).join(', ')}`,
+        ];
+        if (syncAddedItems.length > 0) {
+          lines.push('');
+          lines.push('Adicionados:');
+          syncAddedItems.forEach(n => lines.push(`+ ${n}`));
+        }
+        if (syncUpdatedQty.length > 0) {
+          lines.push('');
+          lines.push('Quantidades atualizadas:');
+          syncUpdatedQty.forEach(u => lines.push(`${u.name}: ${u.oldQty} → ${u.newQty}`));
+        }
+        await (prisma as any).eventComment.create({
+          data: {
+            eventId,
+            userId: null,
+            isSystem: true,
+            content: lines.join('\n'),
+          },
+        });
       }
 
       // Compute diff for sync log
@@ -851,6 +935,57 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       await (prisma as any).eventItemAnswerHistory.create({ data: { answerId: created.id, before: null, after: answer, userId: user?.id ?? null } });
     }
     return { success: true };
+  });
+
+  // GET /events/:id/items/:itemId/comments — all comments including soft-deleted (history)
+  app.get('/events/:id/items/:itemId/comments', { preHandler: requireAuth }, async (request) => {
+    const { itemId } = request.params as { id: string; itemId: string };
+    const comments = await (prisma as any).eventComment.findMany({
+      where: { eventItemId: itemId },
+      include: {
+        user: { select: { id: true, name: true } },
+        deletedBy: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    return { success: true, comments };
+  });
+
+  // POST /events/:id/items/:itemId/comments — add comment
+  app.post('/events/:id/items/:itemId/comments', { preHandler: requireAuth }, async (request, reply) => {
+    const { id: eventId, itemId } = request.params as { id: string; itemId: string };
+    const { content } = request.body as { content: string };
+    const user = (request as any).user;
+    if (!content?.trim()) return reply.status(400).send({ error: 'Conteúdo obrigatório.' });
+    const comment = await (prisma as any).eventComment.create({
+      data: { eventId, eventItemId: itemId, userId: user.id, content: content.trim() },
+      include: {
+        user: { select: { id: true, name: true } },
+        deletedBy: { select: { id: true, name: true } },
+      },
+    });
+    return reply.status(201).send({ success: true, comment });
+  });
+
+  // DELETE /events/:id/items/:itemId/comments/:commentId — soft-delete
+  app.delete('/events/:id/items/:itemId/comments/:commentId', { preHandler: requireAuth }, async (request, reply) => {
+    const { commentId } = request.params as { id: string; itemId: string; commentId: string };
+    const user = (request as any).user;
+    const existing = await (prisma as any).eventComment.findUnique({ where: { id: commentId } });
+    if (!existing) return reply.status(404).send({ error: 'Comentário não encontrado.' });
+    if (existing.deletedAt) return reply.status(409).send({ error: 'Já excluído.' });
+    if (existing.userId !== user.id && user.role !== 'admin') {
+      return reply.status(403).send({ error: 'Sem permissão.' });
+    }
+    const comment = await (prisma as any).eventComment.update({
+      where: { id: commentId },
+      data: { deletedAt: new Date(), deletedById: user.id },
+      include: {
+        user: { select: { id: true, name: true } },
+        deletedBy: { select: { id: true, name: true } },
+      },
+    });
+    return { success: true, comment };
   });
 
   // GET /events/:id/items/:itemId/answers — get answers with history

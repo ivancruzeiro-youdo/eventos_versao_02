@@ -200,15 +200,18 @@ export async function authRoutes(app: FastifyInstance) {
       const userpCodigo = verified.user?.codigo != null ? String(verified.user.codigo) : null;
       const userpTipo   = verified.user?.tipo ?? null;
 
-      // Parse youdo_user cookie for name/email
+      // Step 2: use name/email directly from youdo_user cookie set by hub.youdobrasil.com.br
+      // The hub already knows the real user identity — no need to call the usuarios endpoint.
+      // (codigo from verify-token ≠ usuario_id in usuarios table — different ID spaces)
       let hubName  = 'Usuário YouDO';
       let hubEmail = userpCodigo ? `${userpCodigo}@youdobrasil.com.br` : `sso-${Date.now()}@youdobrasil.com.br`;
+
       if (youdoUserRaw) {
         try {
           const parsed = JSON.parse(decodeURIComponent(youdoUserRaw));
-          if (parsed.nome)  hubName  = parsed.nome;
+          if (parsed.name) hubName  = parsed.name;
           if (parsed.email) hubEmail = parsed.email;
-        } catch { /* ignore */ }
+        } catch { /* ignore malformed cookie */ }
       }
 
       // Map Userp tipo → local role
@@ -249,12 +252,14 @@ export async function authRoutes(app: FastifyInstance) {
           },
         });
       } else {
-        // Update Userp metadata on each login
+        // Update Userp metadata on each login, including name if we got a real one from the cookie
         await userDelegate.update({
           where: { id: user.id },
           data: {
             userpCodigo: userpCodigo ?? undefined,
             userpTipo: userpTipo ?? undefined,
+            ...(hubName !== 'Usuário YouDO' ? { name: hubName } : {}),
+            ...(hubEmail && !hubEmail.includes('@youdobrasil.com.br') ? { email: hubEmail } : {}),
           },
         });
       }

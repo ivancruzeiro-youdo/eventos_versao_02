@@ -61,13 +61,17 @@ export async function commentRoutes(app: FastifyInstance) {
     const data = createCommentSchema.partial().parse(request.body);
     const user = (request as any).user;
 
-    // Check if comment belongs to user
+    // Check if comment belongs to user (system comments cannot be edited)
     const existing = await prisma.eventComment.findUnique({
       where: { id },
     });
 
     if (!existing) {
       return reply.status(404).send({ error: 'Comment not found' });
+    }
+
+    if ((existing as any).isSystem) {
+      return reply.status(403).send({ error: 'Comentários de sistema não podem ser editados.' });
     }
 
     if (existing.userId !== user.id && user.role !== 'admin') {
@@ -96,13 +100,17 @@ export async function commentRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const user = (request as any).user;
 
-    // Check if comment belongs to user
+    // Check if comment belongs to user (system comments cannot be deleted)
     const existing = await prisma.eventComment.findUnique({
       where: { id },
     });
 
     if (!existing) {
       return reply.status(404).send({ error: 'Comment not found' });
+    }
+
+    if ((existing as any).isSystem) {
+      return reply.status(403).send({ error: 'Comentários de sistema não podem ser excluídos.' });
     }
 
     if (existing.userId !== user.id && user.role !== 'admin') {

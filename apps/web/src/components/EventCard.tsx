@@ -19,7 +19,7 @@ interface EventCardProps {
 }
 
 export default function EventCard({ event }: EventCardProps) {
-  const venueName = event.venues?.[0]?.venue?.name || 'Sem local definido';
+  const venueName = event.venues?.length > 0 ? event.venues.map(v => v.venue.name).join(' + ') : 'Sem local definido';
   const guestCount = event._count?.guests || 0;
 
   return (

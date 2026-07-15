@@ -19,17 +19,27 @@ function isTokenExpired(token: string): boolean {
 
 export function middleware(request: NextRequest) {
   const token = request.cookies.get('token')?.value;
+  const isAuthenticated = token && !isTokenExpired(token);
 
-  if (token && !isTokenExpired(token)) {
+  // Already logged in → skip the login page
+  if (request.nextUrl.pathname === '/login') {
+    if (isAuthenticated) {
+      return NextResponse.redirect(new URL('/dashboard', request.url));
+    }
     return NextResponse.next();
   }
 
-  const loginUrl = new URL('/login', request.url);
-  return NextResponse.redirect(loginUrl);
+  // Protected routes → require valid token
+  if (isAuthenticated) {
+    return NextResponse.next();
+  }
+
+  return NextResponse.redirect(new URL('/login', request.url));
 }
 
 export const config = {
   matcher: [
+    '/login',
     '/dashboard/:path*',
     '/events/:path*',
     '/venues/:path*',
