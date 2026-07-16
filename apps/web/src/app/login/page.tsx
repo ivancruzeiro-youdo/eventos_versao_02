@@ -1,12 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { redirectToLogin, clearLoginRedirectGuard, HUB_LOGIN_URL } from '@/lib/sso';
 
 export default function LoginPage() {
-  const router = useRouter();
   const [checking, setChecking] = useState(true);
   const [error, setError] = useState('');
 
@@ -24,7 +22,7 @@ export default function LoginPage() {
       });
       if (res.ok) {
         clearLoginRedirectGuard();
-        router.replace('/dashboard');
+        window.location.replace('/dashboard');
         return;
       }
 
