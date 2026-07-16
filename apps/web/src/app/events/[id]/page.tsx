@@ -19,8 +19,24 @@ import {
   MessageCircle, FileText, Clock, CheckSquare, Users,
   ClipboardList, Briefcase, UtensilsCrossed, HardHat, Trash2, ChevronDown,
   Calendar, MapPin, Pencil, Check, X, Copy, UserCog, ChefHat, LogOut, Star, Plus,
-  GripVertical, Printer
+  GripVertical, Printer, Mail, Phone, CreditCard, FileSignature
 } from 'lucide-react';
+
+interface EventContract {
+  id: string;
+  externalId: string;
+  rawJson: {
+    cliente_info?: {
+      razaosocial?: string;
+      cnpj_cpf?: string;
+      email?: string;
+      enderecoemail?: string;
+      fone?: string;
+      numerotelefone?: string;
+    };
+    [key: string]: any;
+  };
+}
 
 interface Event {
   id: string;
@@ -36,6 +52,7 @@ interface Event {
   venues: { venue: { id: string; name: string; address: string | null } }[];
   guests: { id: string; name: string; phone: string | null; cpf: string | null; status: string }[];
   _count?: { guests: number };
+  contracts?: EventContract[];
 }
 
 interface ChecklistItem {
@@ -609,6 +626,54 @@ export default function EventDetailPage() {
               </div>
             </div>
           </div>
+
+          {/* Contract client info + contract numbers */}
+          {event.contracts && event.contracts.length > 0 && (() => {
+            const info = event.contracts![0].rawJson?.cliente_info;
+            const email = info?.email || info?.enderecoemail;
+            const phone = info?.fone || info?.numerotelefone;
+            const doc = info?.cnpj_cpf;
+            const hasClientInfo = email || phone || doc;
+            return (
+              <div className="mt-4 pt-4 border-t space-y-2">
+                {hasClientInfo && (
+                  <div className="flex flex-wrap gap-x-6 gap-y-1.5">
+                    {email && (
+                      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Mail size={12} className="shrink-0" />
+                        <span>{email}</span>
+                      </span>
+                    )}
+                    {phone && (
+                      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Phone size={12} className="shrink-0" />
+                        <span>{formatPhone(phone)}</span>
+                      </span>
+                    )}
+                    {doc && (
+                      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <CreditCard size={12} className="shrink-0" />
+                        <span>{doc.length === 11 ? formatCpf(doc) : doc.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5')}</span>
+                      </span>
+                    )}
+                  </div>
+                )}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <FileSignature size={12} className="shrink-0" />
+                    <span className="font-medium">Contrato{event.contracts!.length > 1 ? 's' : ''}:</span>
+                  </span>
+                  {event.contracts!.map((c, i) => (
+                    <span key={c.id} className="text-xs font-mono bg-muted px-2 py-0.5 rounded border">
+                      {c.externalId}
+                      {i === 0 && event.contracts!.length > 1 && <span className="ml-1 text-muted-foreground">(principal)</span>}
+                      {i > 0 && <span className="ml-1 text-muted-foreground">(secundário)</span>}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Edit actions */}
           <div className="mt-3 flex justify-end gap-2">

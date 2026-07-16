@@ -1,13 +1,26 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+
+const ALLOWED_ROLES = ['receptionist', 'checkin_staff', 'admin', 'operator', 'event_owner'];
 
 export default function ReceptionistLoginPage() {
   const router = useRouter();
   const [cpf, setCpf] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    fetch('/api/v2/auth/me', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.user && ALLOWED_ROLES.includes(data.user.role)) {
+          router.replace('/checkin/dashboard');
+        }
+      })
+      .catch(() => {});
+  }, [router]);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();

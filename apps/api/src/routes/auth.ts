@@ -86,18 +86,22 @@ export async function authRoutes(app: FastifyInstance) {
       return reply.status(403).send({ error: 'Conta suspensa' });
     }
 
-    // Check if has receptionist service
-    const hasReceptionistService = freelancer.services.some(
-      (fs: any) => fs.service.name.toLowerCase().includes('recepcionista') || fs.service.name.toLowerCase().includes('recepção')
-    );
+    const RECEPTIONIST_TERMS = ['recepcionista', 'recepção', 'recepcao'];
+    const MANAGEMENT_TERMS = ['gestão', 'gestao', 'gerente', 'coordenador', 'supervisor', 'organizador'];
 
-    if (!hasReceptionistService) {
-      return reply.status(403).send({ error: 'Sem permissão de recepcionista' });
+    const serviceNames = freelancer.services.map((fs: any) => fs.service.name.toLowerCase());
+    const isReceptionist = serviceNames.some((n: string) => RECEPTIONIST_TERMS.some(t => n.includes(t)));
+    const isManagement = serviceNames.some((n: string) => MANAGEMENT_TERMS.some(t => n.includes(t)));
+
+    if (!isReceptionist && !isManagement) {
+      return reply.status(403).send({ error: 'CPF não autorizado para check-in' });
     }
+
+    const role = isReceptionist ? 'receptionist' : 'checkin_staff';
 
     const token = app.jwt.sign({
       sub: freelancer.id,
-      role: 'receptionist',
+      role,
       email: freelancer.email,
     }, { expiresIn: '8h' });
 
@@ -114,7 +118,7 @@ export async function authRoutes(app: FastifyInstance) {
       user: {
         id: freelancer.id,
         name: freelancer.name,
-        role: 'receptionist',
+        role,
       },
     };
   });

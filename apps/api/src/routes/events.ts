@@ -100,6 +100,10 @@ export async function eventRoutes(app: FastifyInstance) {
         _count: {
           select: { guests: true },
         },
+        contracts: {
+          select: { id: true, externalId: true, rawJson: true },
+          orderBy: { createdAt: 'asc' },
+        },
       },
     });
 

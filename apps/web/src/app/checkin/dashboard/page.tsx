@@ -37,7 +37,8 @@ export default function ReceptionistDashboard() {
       const res = await fetch('/api/v2/auth/me', { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
-        if (data.user.role !== 'receptionist') {
+        const ALLOWED_ROLES = ['receptionist', 'checkin_staff', 'admin', 'operator', 'event_owner'];
+        if (!ALLOWED_ROLES.includes(data.user.role)) {
           router.push('/checkin');
           return;
         }
