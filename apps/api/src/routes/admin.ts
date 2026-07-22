@@ -104,11 +104,12 @@ export async function adminRoutes(app: FastifyInstance) {
   // Update user (name, role, employerId)
   app.patch('/users/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const body = request.body as { name?: string; role?: string; employerId?: string | null };
+    const body = request.body as { name?: string; role?: string; employerId?: string | null; phone?: string | null };
     const data: any = {};
     if (body.name !== undefined) data.name = body.name;
     if (body.role !== undefined) data.role = body.role;
     if (body.employerId !== undefined) data.employerId = body.employerId || null;
+    if (body.phone !== undefined) data.phone = body.phone?.trim() || null;
     const user = await prisma.user.update({
       where: { id },
       data,

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Layout from '@/components/Layout';
 import { adminApi } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
-import { User, Plus, Search, Edit2, Trash2, Download, X, Check, Loader2, ChevronDown } from 'lucide-react';
+import { User, Plus, Search, Edit2, Trash2, Download, X, Check, Loader2, ChevronDown, Phone } from 'lucide-react';
 
 interface UserData {
   id: string;
@@ -13,6 +13,7 @@ interface UserData {
   email: string;
   role: 'admin' | 'event_owner' | 'operator';
   userpCodigo?: string | null;
+  phone?: string | null;
   employer?: { name: string };
   createdAt: string;
 }
@@ -247,6 +248,8 @@ export default function AdminUsersPage() {
   const [showImport, setShowImport] = useState(false);
   const [editingRole, setEditingRole] = useState<{ id: string; role: string } | null>(null);
   const [savingRole, setSavingRole] = useState<string | null>(null);
+  const [editingPhone, setEditingPhone] = useState<{ id: string; phone: string } | null>(null);
+  const [savingPhone, setSavingPhone] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
@@ -283,6 +286,20 @@ export default function AdminUsersPage() {
       alert('Erro ao salvar: ' + (e.message ?? ''));
     } finally {
       setSavingRole(null);
+    }
+  }
+
+  async function handlePhoneSave() {
+    if (!editingPhone) return;
+    setSavingPhone(true);
+    try {
+      const res = await adminApi.updateUser(editingPhone.id, { phone: editingPhone.phone || null });
+      setUsers(prev => prev.map(u => u.id === editingPhone.id ? { ...u, phone: res.user.phone } : u));
+      setEditingPhone(null);
+    } catch (e: any) {
+      alert('Erro ao salvar telefone: ' + (e.message ?? ''));
+    } finally {
+      setSavingPhone(false);
     }
   }
 
@@ -375,6 +392,34 @@ export default function AdminUsersPage() {
                           <span className="text-xs bg-blue-500/10 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded">
                             UERP #{user.userpCodigo}
                           </span>
+                        )}
+                        {editingPhone?.id === user.id ? (
+                          <span className="flex items-center gap-1">
+                            <input
+                              autoFocus
+                              type="tel"
+                              placeholder="(41) 99999-9999"
+                              value={editingPhone.phone}
+                              onChange={e => setEditingPhone({ id: user.id, phone: e.target.value })}
+                              onKeyDown={e => { if (e.key === 'Enter') handlePhoneSave(); if (e.key === 'Escape') setEditingPhone(null); }}
+                              className="w-36 px-1.5 py-0.5 text-xs border rounded bg-background focus:outline-none focus:ring-1 focus:ring-primary/40"
+                            />
+                            <button onClick={handlePhoneSave} disabled={savingPhone} className="p-0.5 text-success hover:bg-success/10 rounded">
+                              {savingPhone ? <Loader2 className="size-3 animate-spin" /> : <Check className="size-3" />}
+                            </button>
+                            <button onClick={() => setEditingPhone(null)} className="p-0.5 text-muted-foreground hover:bg-muted rounded">
+                              <X className="size-3" />
+                            </button>
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => setEditingPhone({ id: user.id, phone: user.phone ?? '' })}
+                            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition"
+                            title="Editar telefone (usado nos alertas de atividade)"
+                          >
+                            <Phone className="size-3" />
+                            {user.phone || 'sem telefone'}
+                          </button>
                         )}
                       </div>
                     </div>

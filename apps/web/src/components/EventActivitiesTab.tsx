@@ -51,8 +51,16 @@ function fmtDue(iso: string, status: string) {
   const d = new Date(iso);
   const now = new Date();
   const overdue = status === 'open' && d < now;
-  const label = d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+  const label = d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
+    + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   return { label, overdue };
+}
+
+// ISO -> valor para <input type="datetime-local"> no fuso local
+function isoToLocalInput(iso: string) {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function FileIcon({ mime }: { mime: string }) {
@@ -76,7 +84,7 @@ function EditForm({
   const [title, setTitle] = useState(activity.title);
   const [desc, setDesc] = useState(activity.description ?? '');
   const [assignee, setAssignee] = useState(activity.assignedTo?.id ?? '');
-  const [dueAt, setDueAt] = useState(activity.dueAt ? activity.dueAt.slice(0, 10) : '');
+  const [dueAt, setDueAt] = useState(activity.dueAt ? isoToLocalInput(activity.dueAt) : '');
   const [saving, setSaving] = useState(false);
 
   async function save() {
@@ -88,7 +96,7 @@ function EditForm({
       body: JSON.stringify({
         title, description: desc || null,
         assignedToId: assignee || null,
-        dueAt: dueAt || null,
+        dueAt: dueAt ? new Date(dueAt).toISOString() : null,
       }),
     });
     setSaving(false);
@@ -107,7 +115,7 @@ function EditForm({
           <option value="">— Ninguém —</option>
           {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
         </select>
-        <input type="date" value={dueAt} onChange={e => setDueAt(e.target.value)}
+        <input type="datetime-local" value={dueAt} onChange={e => setDueAt(e.target.value)}
           className="flex-1 px-2 py-1.5 border rounded-md text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/30" />
       </div>
       <div className="flex justify-end gap-2">
@@ -458,7 +466,7 @@ export default function EventActivitiesTab({ eventId }: { eventId: string }) {
           title: title.trim(),
           description: desc.trim() || null,
           assignedToId: assignee || null,
-          dueAt: dueAt || null,
+          dueAt: dueAt ? new Date(dueAt).toISOString() : null,
         }),
       });
       if (!r.ok) {
@@ -534,7 +542,7 @@ export default function EventActivitiesTab({ eventId }: { eventId: string }) {
             </div>
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">Prazo</label>
-              <input type="date" value={dueAt} onChange={e => setDueAt(e.target.value)}
+              <input type="datetime-local" value={dueAt} onChange={e => setDueAt(e.target.value)}
                 className="w-full px-3 py-2 border rounded-lg text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/30" />
             </div>
           </div>

@@ -172,6 +172,9 @@ const start = async () => {
     
     await app.listen({ port, host });
     app.log.info(`Server running at http://${host}:${port}`);
+
+    const { startActivityAlerts } = await import('./workers/activity-alerts.js');
+    startActivityAlerts((msg) => app.log.info(msg));
   } catch (err) {
     app.log.error(err);
     process.exit(1);

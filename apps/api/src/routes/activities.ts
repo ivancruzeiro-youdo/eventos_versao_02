@@ -53,6 +53,20 @@ export async function activitiesRoutes(app: FastifyInstance) {
     return { success: true, users };
   });
 
+  // GET /my/activities — atividades abertas atribuídas ao usuário logado (todos os eventos)
+  app.get('/my/activities', { preHandler: requireAuth }, async (request) => {
+    const user = (request as any).user;
+    const activities = await (prisma as any).eventActivity.findMany({
+      where: { assignedToId: user.id, status: 'open' },
+      include: {
+        ...INCLUDE,
+        event: { select: { id: true, name: true, startAt: true } },
+      },
+      orderBy: [{ dueAt: 'asc' }, { createdAt: 'desc' }],
+    });
+    return { success: true, activities };
+  });
+
   // GET /events/:id/activities
   app.get('/events/:id/activities', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId } = request.params as { id: string };

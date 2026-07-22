@@ -25,6 +25,7 @@ model User {
   employerId  String?
   userpCodigo String?  @unique
   userpTipo   String?
+  phone       String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -1521,6 +1522,7 @@ model EventActivity {
   completedAt   DateTime?
   completedById String?
   response      String?
+  lastAlertAt   DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
