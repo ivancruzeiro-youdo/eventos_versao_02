@@ -1066,10 +1066,9 @@ export default function VenueDetailPage() {
                       onClick={() => setTplSelectedId(null)}
                       style={{
                         cursor: tplDraggingId ? 'grabbing' : 'default',
-                        maxWidth: '100%',
-                        maxHeight: '100%',
+                        height: '100%',
                         width: 'auto',
-                        height: 'auto',
+                        maxWidth: '100%',
                         aspectRatio: venue?.floorPlanWidthMeters && venue?.floorPlanHeightMeters
                           ? `${venue.floorPlanWidthMeters}/${venue.floorPlanHeightMeters}`
                           : '4/3',

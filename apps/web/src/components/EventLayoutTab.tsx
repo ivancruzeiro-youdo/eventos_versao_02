@@ -573,10 +573,9 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
                   onClick={() => setSelectedId(null)}
                   style={{
                     cursor: draggingId ? 'grabbing' : 'default',
-                    maxWidth: '100%',
-                    maxHeight: '100%',
+                    height: '100%',
                     width: 'auto',
-                    height: 'auto',
+                    maxWidth: '100%',
                     aspectRatio: imgAspect
                       ? `${imgAspect}`
                       : (hasScale ? `${floorPlanW}/${floorPlanH}` : '4/3'),
