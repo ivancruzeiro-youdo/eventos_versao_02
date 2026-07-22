@@ -23,7 +23,7 @@ import {
   MessageCircle, FileText, Clock, CheckSquare, Users,
   ClipboardList, Briefcase, UtensilsCrossed, HardHat, Trash2, ChevronDown,
   Calendar, MapPin, Pencil, Check, X, Copy, UserCog, ChefHat, LogOut, Star, Plus,
-  GripVertical, Printer, Mail, Phone, CreditCard, FileSignature, Receipt, ListTodo, LayoutGrid
+  GripVertical, Printer, Mail, Phone, CreditCard, FileSignature, Receipt, ListTodo, LayoutGrid, AlertTriangle
 } from 'lucide-react';
 
 interface EventContract {
@@ -114,6 +114,7 @@ export default function EventDetailPage() {
 
   // Tab badges (pending indicators)
   const [tabBadges, setTabBadges] = useState<Record<string, boolean>>({});
+  const [contractHealth, setContractHealth] = useState<Record<string, { missing: boolean; unlinkedInUerp: boolean }>>({});
 
   // Inline date editing
   const [editingDates, setEditingDates] = useState(false);
@@ -171,12 +172,24 @@ export default function EventDetailPage() {
     loadEvent();
     loadChecklist();
     loadTabBadges();
+    loadContractHealth();
   }, [eventId]);
 
   async function loadTabBadges() {
     try {
       const r = await fetch(`/api/v2/events/${eventId}/tab-badges`, { credentials: 'include' });
       if (r.ok) setTabBadges(await r.json());
+    } catch { /* silent */ }
+  }
+
+  async function loadContractHealth() {
+    try {
+      const r = await fetch(`/api/v2/events/${eventId}/userp-status`, { credentials: 'include' });
+      if (!r.ok) return;
+      const data = await r.json();
+      const map: Record<string, { missing: boolean; unlinkedInUerp: boolean }> = {};
+      for (const h of data.contractHealth ?? []) map[h.id] = { missing: h.missing, unlinkedInUerp: h.unlinkedInUerp };
+      setContractHealth(map);
     } catch { /* silent */ }
   }
 
@@ -681,13 +694,26 @@ export default function EventDetailPage() {
                     <FileSignature size={12} className="shrink-0" />
                     <span className="font-medium">Contrato{event.contracts!.length > 1 ? 's' : ''}:</span>
                   </span>
-                  {event.contracts!.map((c, i) => (
-                    <span key={c.id} className="text-xs font-mono bg-muted px-2 py-0.5 rounded border">
-                      {c.externalId}
-                      {i === 0 && event.contracts!.length > 1 && <span className="ml-1 text-muted-foreground">(principal)</span>}
-                      {i > 0 && <span className="ml-1 text-muted-foreground">(secundário)</span>}
-                    </span>
-                  ))}
+                  {event.contracts!.map((c, i) => {
+                    const health = contractHealth[c.id];
+                    const warning = health?.missing
+                      ? 'Contrato não encontrado no UERP'
+                      : health?.unlinkedInUerp
+                        ? 'Este contrato não está mais vinculado como secundário no UERP'
+                        : null;
+                    return (
+                      <span key={c.id} className="flex items-center gap-1 text-xs font-mono bg-muted px-2 py-0.5 rounded border">
+                        {warning && (
+                          <span title={warning} className="shrink-0">
+                            <AlertTriangle size={11} className="text-amber-500" />
+                          </span>
+                        )}
+                        {c.externalId}
+                        {i === 0 && event.contracts!.length > 1 && <span className="ml-1 text-muted-foreground">(principal)</span>}
+                        {i > 0 && <span className="ml-1 text-muted-foreground">(secundário)</span>}
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
             );

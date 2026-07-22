@@ -676,7 +676,8 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     // 1. Get this event's already-imported contracts
     const eventContracts = await (prisma as any).eventContract.findMany({
       where: { eventId },
-      select: { externalId: true, clientCode: true, startDate: true },
+      select: { id: true, externalId: true, clientCode: true, startDate: true },
+      orderBy: { createdAt: 'asc' },
     });
 
     if (eventContracts.length === 0) {
@@ -714,8 +715,10 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     // via their parent main contract's details endpoint. We re-fetch each main contract
     // to detect secondaries added after the original import.
     const secondaryPending: { secId: string; mainDetail: any }[] = [];
+    const detailByExternalId = new Map<string, any | null>();
     for (const ec of eventContracts) {
       const detail = await fetchContratoDetails(baseUrl, Number(ec.externalId));
+      detailByExternalId.set(ec.externalId, detail);
       if (!detail?.secondary?.length) continue;
       for (const sec of detail.secondary) {
         const secId = String(sec.codlocacontrato || '');
@@ -725,8 +728,23 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       }
     }
 
+    // Health check: does each locally-stored contract still match the current UERP state?
+    // - missing: fetchContratoDetails returned null (contract not found / UERP error)
+    // - unlinkedInUerp: contract was imported as a secondary, but no longer appears in the
+    //   main contract's current `secondary[]` list (link was broken on the UERP side)
+    const mainDetail = detailByExternalId.get(eventContracts[0].externalId);
+    const mainSecondaryIds = new Set(
+      (mainDetail?.secondary ?? []).map((s: any) => String(s.codlocacontrato || ''))
+    );
+    const contractHealth = eventContracts.map((ec: any, i: number) => {
+      const detail = detailByExternalId.get(ec.externalId);
+      const missing = detail === null;
+      const unlinkedInUerp = i > 0 && !missing && !mainSecondaryIds.has(String(ec.externalId));
+      return { id: ec.id, externalId: ec.externalId, missing, unlinkedInUerp };
+    });
+
     if (unknownIds.length === 0 && secondaryPending.length === 0) {
-      return { success: true, status: 'up_to_date' };
+      return { success: true, status: 'up_to_date', contractHealth };
     }
 
     // 5. Fetch details for unknown IDs in batches of 10, filter by this event's clientCode+startDate
@@ -756,7 +774,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     }
 
     if (pendingContracts.length === 0) {
-      return { success: true, status: 'up_to_date' };
+      return { success: true, status: 'up_to_date', contractHealth };
     }
 
     // 6. Build preview (same structure as sync-preview) so frontend can pass to sync-import
@@ -876,6 +894,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       status: 'pending',
       pendingContracts: displayContracts,
       preview,
+      contractHealth,
     };
   });
 

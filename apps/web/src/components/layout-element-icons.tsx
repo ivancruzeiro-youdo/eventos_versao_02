@@ -107,6 +107,16 @@ export function PuffRondSvg() {
   );
 }
 
+export function MesaApoioSvg() {
+  return (
+    <svg viewBox="0 0 100 100" className="w-full h-full">
+      <circle cx="52" cy="53" r="34" fill="#0a0a0a" opacity="0.12" />
+      <circle cx="50" cy="50" r="34" fill="#d9b88f" stroke="#a97e51" strokeWidth="3" />
+      <circle cx="50" cy="50" r="27" fill="#e6c9a3" stroke="#c19a6b" strokeWidth="1" />
+    </svg>
+  );
+}
+
 export function PalcoSvg() {
   return (
     <svg viewBox="0 0 160 80" className="w-full h-full">
@@ -242,5 +252,6 @@ export const ELEMENT_ICONS: Record<string, React.ReactNode> = {
   sofa_chester: <SofaChesterfieldSvg />,
   aparador_a:   <AparadorASvg />,
   aparador_b:   <AparadorBSvg />,
+  mesa_apoio:   <MesaApoioSvg />,
   mesa_dj:      <MesaDjSvg />,
 };
