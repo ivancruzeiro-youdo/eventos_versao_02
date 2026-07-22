@@ -46,12 +46,15 @@ async function checkOverdueActivities(log: (msg: string) => void) {
       continue;
     }
 
+    // Quebras de linha como texto literal "\n\n" (o fluxo n8n espera assim;
+    // newlines reais quebram o JSON montado dentro do workflow)
+    const BR = '\\n\\n';
     const mensagem =
-      `⚠️ *ATIVIDADE ATRASADA*\n\n` +
-      `Olá ${act.assignedTo.name}! Você tem uma atividade pendente que já passou do prazo.\n\n` +
-      `📋 *Atividade:* ${act.title}\n\n` +
-      `🎪 *Evento:* ${act.event?.name ?? '—'}\n\n` +
-      `🕐 *Prazo:* ${fmtDateTime(new Date(act.dueAt))}\n\n` +
+      `⚠️ *ATIVIDADE ATRASADA*${BR}` +
+      `Olá ${act.assignedTo.name}! Você tem uma atividade pendente que já passou do prazo.${BR}` +
+      `📋 *Atividade:* ${act.title}${BR}` +
+      `🎪 *Evento:* ${act.event?.name ?? '—'}${BR}` +
+      `🕐 *Prazo:* ${fmtDateTime(new Date(act.dueAt))}${BR}` +
       `Acesse https://eventos.youdobrasil.com.br para concluir ou reagendar.`;
 
     try {
