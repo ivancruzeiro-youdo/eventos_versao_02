@@ -6,10 +6,12 @@ const WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || 'https://n8n.youdobrasil.com.
 const CHECK_INTERVAL_MS = 5 * 60 * 1000;   // verifica a cada 5 min
 const ALERT_INTERVAL_MS = 30 * 60 * 1000;  // re-alerta a cada 30 min
 
+// O fluxo n8n prefixa "+55" — enviar apenas DDD + número (dígitos, sem código do país)
 function normalizePhone(raw: string): string | null {
-  const digits = raw.replace(/\D/g, '');
+  let digits = raw.replace(/\D/g, '');
+  if (digits.startsWith('55') && digits.length > 11) digits = digits.slice(2);
   if (digits.length < 10) return null;
-  return digits.startsWith('55') ? `+${digits}` : `+55${digits}`;
+  return digits;
 }
 
 function fmtDateTime(d: Date): string {
