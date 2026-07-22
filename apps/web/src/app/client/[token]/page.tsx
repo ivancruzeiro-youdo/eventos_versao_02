@@ -6,8 +6,9 @@ import {
   FileText, Users, Calendar, Clock, Download, Eye, EyeOff,
   Upload, Trash2, Plus, Search, CheckCircle, AlertCircle,
   FileImage, FileVideo, User, ChevronDown, ChevronRight, X,
-  Utensils, Circle,
+  Utensils, Circle, LayoutGrid, Lock,
 } from 'lucide-react';
+import { ELEMENT_ICONS } from '@/components/layout-element-icons';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -921,6 +922,176 @@ function StatusBanner({ token, jwt, approvals }: { token: string; jwt: string; a
   );
 }
 
+// ── Layout tab ────────────────────────────────────────────────────────────────
+
+const API_URL_CLIENT = process.env.NEXT_PUBLIC_API_URL || '';
+
+interface LayoutElement { id: string; type: string; x: number; y: number; rotation: number; }
+interface ClientLayout { id: string; name: string; elements: LayoutElement[]; isLocked: boolean; }
+interface ElementCfg { type: string; widthMeters: number; heightMeters: number; iconUrl?: string; }
+
+function LayoutTab({ eventId }: { eventId: string }) {
+  const [floorPlanUrl, setFloorPlanUrl]   = useState<string | null>(null);
+  const [floorPlanW,   setFloorPlanW]     = useState<number | null>(null);
+  const [floorPlanH,   setFloorPlanH]     = useState<number | null>(null);
+  const [imgAspect,    setImgAspect]      = useState<number | null>(null);
+  const [layouts,      setLayouts]        = useState<ClientLayout[]>([]);
+  const [activeId,     setActiveId]       = useState<string | null>(null);
+  const [configs,      setConfigs]        = useState<ElementCfg[]>([]);
+  const [loading,      setLoading]        = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [meta, layoutsRes, cfgRes] = await Promise.all([
+          fetch(`${API_URL_CLIENT}/api/v2/events/${eventId}/layout`, { credentials: 'include' }).then(r => r.json()),
+          fetch(`${API_URL_CLIENT}/api/v2/events/${eventId}/layouts`, { credentials: 'include' }).then(r => r.json()),
+          fetch(`${API_URL_CLIENT}/api/v2/admin/layout-config`, { credentials: 'include' }).then(r => r.json()),
+        ]);
+        setFloorPlanUrl(meta.floorPlanUrl ?? null);
+        setFloorPlanW(meta.floorPlanWidthMeters ?? null);
+        setFloorPlanH(meta.floorPlanHeightMeters ?? null);
+        const visible: ClientLayout[] = (layoutsRes.layouts ?? []).filter((l: ClientLayout) => !l.isLocked);
+        setLayouts(visible);
+        if (visible.length > 0) setActiveId(visible[0].id);
+        setConfigs(cfgRes.elements ?? []);
+      } catch { /* ignore */ } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, [eventId]);
+
+  const active = layouts.find(l => l.id === activeId);
+
+  function elementStyle(el: LayoutElement): React.CSSProperties {
+    const cfg = configs.find(c => c.type === el.type);
+    const base: React.CSSProperties = {
+      position: 'absolute',
+      left: `${el.x * 100}%`,
+      top: `${el.y * 100}%`,
+      transform: `translate(-50%, -50%) rotate(${el.rotation}deg)`,
+      pointerEvents: 'none',
+    };
+    if (floorPlanW && floorPlanH && cfg?.widthMeters && cfg?.heightMeters) {
+      return { ...base, width: `${(cfg.widthMeters / floorPlanW) * 100}%`, height: `${(cfg.heightMeters / floorPlanH) * 100}%` };
+    }
+    return { ...base, width: '6%', aspectRatio: '1' };
+  }
+
+  if (loading) {
+    return <div className="flex justify-center py-20"><div className="size-8 rounded-full border-2 border-primary border-t-transparent animate-spin" /></div>;
+  }
+
+  if (!floorPlanUrl) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-20 text-muted-foreground">
+        <LayoutGrid className="size-10 opacity-30" />
+        <p className="text-sm">Planta baixa ainda não configurada para este espaço.</p>
+      </div>
+    );
+  }
+
+  if (layouts.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-20 text-muted-foreground text-center px-4">
+        <Lock className="size-10 opacity-30" />
+        <p className="text-sm font-medium uppercase tracking-widest max-w-xs leading-relaxed">
+          Layout em preparação. Confira o layout final com a equipe de produção.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* Layout tabs */}
+      {layouts.length > 1 && (
+        <div className="flex gap-2 flex-wrap">
+          {layouts.map(l => (
+            <button
+              key={l.id}
+              onClick={() => setActiveId(l.id)}
+              className={`px-3 py-1.5 rounded-lg text-sm border transition ${
+                l.id === activeId
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'bg-card border-input hover:bg-muted/50'
+              }`}
+            >
+              {l.name}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Floor plan */}
+      <div className="border rounded-xl overflow-hidden bg-muted/20">
+        <div className="flex items-center justify-center p-2">
+          <div
+            className="relative select-none"
+            style={{
+              width: '100%',
+              aspectRatio: imgAspect
+                ? `${imgAspect}`
+                : (floorPlanW && floorPlanH ? `${floorPlanW}/${floorPlanH}` : undefined),
+              maxHeight: '70vh',
+            }}
+          >
+            <img
+              src={floorPlanUrl}
+              alt="Planta baixa"
+              className="absolute inset-0 w-full h-full"
+              style={{ objectFit: 'fill', pointerEvents: 'none' }}
+              draggable={false}
+              onLoad={e => {
+                const img = e.target as HTMLImageElement;
+                setImgAspect(img.naturalWidth / img.naturalHeight);
+              }}
+            />
+
+            {/* Scale lines */}
+            {floorPlanW && floorPlanH && (
+              <svg
+                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 30 }}
+                viewBox="0 0 100 100"
+                preserveAspectRatio="none"
+              >
+                <line x1="2" y1="96" x2="98" y2="96" stroke="#ef4444" strokeWidth="0.4" strokeDasharray="1.5,0.8" />
+                <line x1="2" y1="93.5" x2="2" y2="98.5" stroke="#ef4444" strokeWidth="0.4" />
+                <line x1="98" y1="93.5" x2="98" y2="98.5" stroke="#ef4444" strokeWidth="0.4" />
+                <text x="50" y="100" textAnchor="middle" fontSize="2.8" fill="#ef4444" fontFamily="sans-serif" fontWeight="600">{floorPlanW}m</text>
+                <line x1="97" y1="2" x2="97" y2="95" stroke="#3b82f6" strokeWidth="0.4" strokeDasharray="1.5,0.8" />
+                <line x1="94.5" y1="2" x2="99.5" y2="2" stroke="#3b82f6" strokeWidth="0.4" />
+                <line x1="94.5" y1="95" x2="99.5" y2="95" stroke="#3b82f6" strokeWidth="0.4" />
+                <text x="100" y="50" textAnchor="middle" fontSize="2.8" fill="#3b82f6" fontFamily="sans-serif" fontWeight="600" transform="rotate(90, 100, 50)">{floorPlanH}m</text>
+              </svg>
+            )}
+
+            {/* Placed elements */}
+            {(active?.elements ?? []).map(el => {
+              const cfg = configs.find(c => c.type === el.type);
+              return (
+                <div key={el.id} style={elementStyle(el)}>
+                  {cfg?.iconUrl
+                    ? <img src={cfg.iconUrl} alt={el.type} className="w-full h-full object-contain drop-shadow" draggable={false} />
+                    : <div className="w-full h-full drop-shadow">{ELEMENT_ICONS[el.type]}</div>
+                  }
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {active && (
+        <p className="text-xs text-muted-foreground text-center">
+          Layout: <span className="font-medium">{active.name}</span> · Visualização apenas
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 const TABS = [
@@ -929,6 +1100,7 @@ const TABS = [
   { id: 'ab', label: 'A&B', icon: Utensils },
   { id: 'guests', label: 'Convidados', icon: Users },
   { id: 'files', label: 'Arquivos', icon: FileText },
+  { id: 'layout', label: 'Layout', icon: LayoutGrid },
 ];
 
 export default function ClientPortalPage() {
@@ -1030,6 +1202,7 @@ export default function ClientPortalPage() {
         {activeTab === 'ab' && <FoodTab token={token} jwt={jwt} approvals={approvals} onToggle={toggleApproval} />}
         {activeTab === 'plan' && <PlanTab token={token} jwt={jwt} approvals={approvals} onToggle={toggleApproval} />}
         {activeTab === 'schedule' && <ScheduleTab token={token} jwt={jwt} approvals={approvals} onToggle={toggleApproval} />}
+        {activeTab === 'layout' && <LayoutTab eventId={event.id} />}
       </div>
     </div>
   );

@@ -362,7 +362,7 @@ export default function EventsPage() {
                         {event.venues.length > 0 && (
                           <span className="flex items-center gap-1">
                             <MapPin className="size-3.5 shrink-0" />
-                            <span className="text-xs">{event.venues.map(v => v.venue.name).join(' + ')}</span>
+                            <span className="text-xs">{event.venues.filter(v => v.venue).map(v => v.venue.name).join(' + ')}</span>
                           </span>
                         )}
                       </div>

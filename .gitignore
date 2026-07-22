@@ -36,3 +36,10 @@ coverage/
 # Misc
 *.pem
 .vercel
+
+# Local artifacts (não versionar)
+outputs/
+design/
+tmp/
+*.tsbuildinfo
+packages/db/packages/

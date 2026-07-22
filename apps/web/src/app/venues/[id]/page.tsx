@@ -1,11 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
 import { venuesApiExtended } from '@/lib/api';
-import { MapPin, Users, Phone, User, ArrowLeft, Edit2, Trash2, Plus, HelpCircle, X, Check, GripVertical } from 'lucide-react';
+import { MapPin, Users, Phone, User, ArrowLeft, Edit2, Trash2, Plus, HelpCircle, X, Check, GripVertical, Upload, Image, Package, Save, Loader2, LayoutGrid, RotateCw, AlertCircle } from 'lucide-react';
+import { ELEMENT_ICONS } from '@/components/layout-element-icons';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 interface VenueQuestion {
   id: string;
@@ -25,10 +28,38 @@ interface Venue {
   capacity: number | null;
   contactName: string | null;
   contactPhone: string | null;
+  floorPlanWidthMeters: number | null;
+  floorPlanHeightMeters: number | null;
+  layoutStock: Record<string, number> | null;
   createdAt: string;
   questions: VenueQuestion[];
   _count?: { events: number };
 }
+
+interface LayoutElementConfig {
+  type: string;
+  label: string;
+  widthMeters: number;
+  heightMeters: number;
+  active: boolean;
+  iconUrl?: string;
+}
+
+interface PlacedElement {
+  id: string;
+  type: string;
+  x: number;
+  y: number;
+  rotation: number;
+}
+
+interface LayoutTemplate {
+  id: string;
+  name: string;
+  elements: PlacedElement[];
+}
+
+function uid() { return Math.random().toString(36).slice(2) + Date.now().toString(36); }
 
 const QUESTION_TYPES = [
   { value: 'text', label: 'Texto' },
@@ -47,6 +78,37 @@ export default function VenueDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [isEditing, setIsEditing] = useState(false);
+  const [floorPlanUrl, setFloorPlanUrl] = useState<string | null>(null);
+  const [uploadingPlan, setUploadingPlan] = useState(false);
+  const floorPlanInputRef = useRef<HTMLInputElement>(null);
+
+  // Stock state
+  const [layoutStock, setLayoutStock] = useState<Record<string, number>>({});
+  const [stockElements, setStockElements] = useState<LayoutElementConfig[]>([]);
+  const [savingStock, setSavingStock] = useState(false);
+  const [stockMsg, setStockMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // Calibration state
+  const [calMode, setCalMode] = useState<'off' | 'p1' | 'p2' | 'confirm'>('off');
+  const [calP1, setCalP1] = useState<{ x: number; y: number } | null>(null);
+  const [calP2, setCalP2] = useState<{ x: number; y: number } | null>(null);
+  const [calMeters, setCalMeters] = useState('');
+  const [calSaving, setCalSaving] = useState(false);
+  const [imgNatSize, setImgNatSize] = useState<{ w: number; h: number } | null>(null);
+
+  // Layout template state
+  const [templates, setTemplates] = useState<LayoutTemplate[]>([]);
+  const [editingTemplate, setEditingTemplate] = useState<LayoutTemplate | null>(null);
+  const [templateElements, setTemplateElements] = useState<PlacedElement[]>([]);
+  const [templateName, setTemplateName] = useState('');
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [templateMsg, setTemplateMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [tplDraggingId, setTplDraggingId] = useState<string | null>(null);
+  const [tplDragOffset, setTplDragOffset] = useState({ ox: 0, oy: 0 });
+  const [tplOverTrash, setTplOverTrash] = useState(false);
+  const [tplSelectedId, setTplSelectedId] = useState<string | null>(null);
+  const tplCanvasRef = useRef<HTMLDivElement>(null);
+  const tplTrashRef = useRef<HTMLDivElement>(null);
 
   // Question form state
   const [addingQ, setAddingQ] = useState(false);
@@ -62,13 +124,259 @@ export default function VenueDetailPage() {
   async function loadVenue() {
     try {
       setLoading(true);
-      const response = await venuesApiExtended.get(venueId);
-      setVenue(response.venue);
+      const [venueRes, planRes, configRes, tplRes] = await Promise.allSettled([
+        venuesApiExtended.get(venueId),
+        fetch(`${API_URL}/api/v2/venues/${venueId}/floorplan-url`, { credentials: 'include' }).then(r => r.json()),
+        fetch(`${API_URL}/api/v2/admin/layout-config`, { credentials: 'include' }).then(r => r.json()),
+        fetch(`${API_URL}/api/v2/venues/${venueId}/layout-templates`, { credentials: 'include' }).then(r => r.json()),
+      ]);
+      if (venueRes.status === 'fulfilled') {
+        const v = venueRes.value.venue;
+        setVenue(v);
+        setLayoutStock(v.layoutStock ?? {});
+      }
+      if (planRes.status === 'fulfilled') setFloorPlanUrl(planRes.value.url ?? null);
+      if (configRes.status === 'fulfilled') {
+        setStockElements((configRes.value.elements ?? []).filter((e: LayoutElementConfig) => e.active));
+      }
+      if (tplRes.status === 'fulfilled') setTemplates(tplRes.value.templates ?? []);
     } catch (err: any) {
       setError(err.message || 'Erro ao carregar local');
     } finally {
       setLoading(false);
     }
+  }
+
+  async function saveStock() {
+    setSavingStock(true);
+    setStockMsg(null);
+    try {
+      const res = await fetch(`${API_URL}/api/v2/venues/${venueId}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ layoutStock }),
+      });
+      if (!res.ok) throw new Error();
+      setStockMsg({ ok: true, text: 'Estoque salvo!' });
+    } catch {
+      setStockMsg({ ok: false, text: 'Erro ao salvar.' });
+    } finally {
+      setSavingStock(false);
+      setTimeout(() => setStockMsg(null), 3000);
+    }
+  }
+
+  // ── Template functions ──────────────────────────────────────────────────────
+
+  function openNewTemplate() {
+    const tpl: LayoutTemplate = { id: '', name: 'Novo Modelo', elements: [] };
+    setEditingTemplate(tpl);
+    setTemplateElements([]);
+    setTemplateName('Novo Modelo');
+    setTplSelectedId(null);
+  }
+
+  function openEditTemplate(tpl: LayoutTemplate) {
+    setEditingTemplate(tpl);
+    setTemplateElements(tpl.elements ?? []);
+    setTemplateName(tpl.name);
+    setTplSelectedId(null);
+  }
+
+  async function saveTemplate() {
+    if (!templateName.trim()) return;
+    setSavingTemplate(true); setTemplateMsg(null);
+    try {
+      if (editingTemplate?.id) {
+        const res = await fetch(`${API_URL}/api/v2/venues/${venueId}/layout-templates/${editingTemplate.id}`, {
+          method: 'PUT', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: templateName, elements: templateElements }),
+        });
+        const data = await res.json();
+        setTemplates(prev => prev.map(t => t.id === editingTemplate.id ? data.template : t));
+      } else {
+        const res = await fetch(`${API_URL}/api/v2/venues/${venueId}/layout-templates`, {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: templateName, elements: templateElements }),
+        });
+        const data = await res.json();
+        setTemplates(prev => [...prev, data.template]);
+        setEditingTemplate(data.template);
+      }
+      setTemplateMsg({ ok: true, text: 'Salvo!' });
+    } catch {
+      setTemplateMsg({ ok: false, text: 'Erro ao salvar.' });
+    } finally {
+      setSavingTemplate(false);
+      setTimeout(() => setTemplateMsg(null), 3000);
+    }
+  }
+
+  async function deleteTemplate(id: string) {
+    if (!confirm('Excluir este modelo?')) return;
+    await fetch(`${API_URL}/api/v2/venues/${venueId}/layout-templates/${id}`, {
+      method: 'DELETE', credentials: 'include',
+    });
+    setTemplates(prev => prev.filter(t => t.id !== id));
+    if (editingTemplate?.id === id) setEditingTemplate(null);
+  }
+
+  function tplHandleSidebarDrag(e: React.DragEvent, type: string) {
+    e.dataTransfer.setData('elementType', type);
+    e.dataTransfer.effectAllowed = 'copy';
+  }
+
+  function tplHandleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    const type = e.dataTransfer.getData('elementType');
+    if (!type || !tplCanvasRef.current) return;
+    const rect = tplCanvasRef.current.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
+    setTemplateElements(prev => [...prev, { id: uid(), type, x, y, rotation: 0 }]);
+  }
+
+  function tplHandleElementMouseDown(e: React.MouseEvent, id: string) {
+    e.stopPropagation();
+    setTplSelectedId(id);
+    if (!tplCanvasRef.current) return;
+    const rect = tplCanvasRef.current.getBoundingClientRect();
+    const el = templateElements.find(x => x.id === id)!;
+    setTplDragOffset({
+      ox: (e.clientX - rect.left) / rect.width - el.x,
+      oy: (e.clientY - rect.top) / rect.height - el.y,
+    });
+    setTplDraggingId(id);
+  }
+
+  // Window-level drag for template canvas
+  useEffect(() => {
+    if (!tplDraggingId) return;
+    const onMove = (e: MouseEvent) => {
+      if (!tplCanvasRef.current) return;
+      const rect = tplCanvasRef.current.getBoundingClientRect();
+      const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width - tplDragOffset.ox));
+      const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height - tplDragOffset.oy));
+      setTemplateElements(prev => prev.map(el => el.id === tplDraggingId ? { ...el, x, y } : el));
+      if (tplTrashRef.current) {
+        const tr = tplTrashRef.current.getBoundingClientRect();
+        setTplOverTrash(e.clientX >= tr.left && e.clientX <= tr.right && e.clientY >= tr.top && e.clientY <= tr.bottom);
+      }
+    };
+    const onUp = (e: MouseEvent) => {
+      if (tplTrashRef.current) {
+        const tr = tplTrashRef.current.getBoundingClientRect();
+        if (e.clientX >= tr.left && e.clientX <= tr.right && e.clientY >= tr.top && e.clientY <= tr.bottom) {
+          setTemplateElements(prev => prev.filter(el => el.id !== tplDraggingId));
+          if (tplSelectedId === tplDraggingId) setTplSelectedId(null);
+        }
+      }
+      setTplDraggingId(null); setTplOverTrash(false);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+  }, [tplDraggingId, tplDragOffset, tplSelectedId]);
+
+  function tplRotate(id: string) {
+    setTemplateElements(prev => prev.map(el => el.id === id ? { ...el, rotation: (el.rotation + 45) % 360 } : el));
+  }
+
+  function tplRemove(id: string) {
+    setTemplateElements(prev => prev.filter(el => el.id !== id));
+    if (tplSelectedId === id) setTplSelectedId(null);
+  }
+
+  function tplElementStyle(el: PlacedElement): React.CSSProperties {
+    const cfg = stockElements.find(c => c.type === el.type);
+    const base: React.CSSProperties = {
+      position: 'absolute',
+      left: `${el.x * 100}%`,
+      top: `${el.y * 100}%`,
+      transform: `translate(-50%, -50%) rotate(${el.rotation}deg)`,
+      zIndex: tplSelectedId === el.id ? 20 : 10,
+      cursor: tplDraggingId === el.id ? 'grabbing' : 'grab',
+    };
+    const w = venue?.floorPlanWidthMeters;
+    const h = venue?.floorPlanHeightMeters;
+    if (w && h && cfg?.widthMeters && cfg?.heightMeters) {
+      return { ...base, width: `${(cfg.widthMeters / w) * 100}%`, height: `${(cfg.heightMeters / h) * 100}%` };
+    }
+    return { ...base, width: '6%', aspectRatio: '1' };
+  }
+
+  async function handleFloorPlanUpload(file: File) {
+    setUploadingPlan(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch(`${API_URL}/api/v2/venues/${venueId}/floorplan`, {
+        method: 'POST',
+        credentials: 'include',
+        body: form,
+      });
+      const data = await res.json();
+      if (data.url) setFloorPlanUrl(data.url);
+    } catch (e: any) {
+      alert('Erro ao enviar planta: ' + (e.message ?? ''));
+    } finally {
+      setUploadingPlan(false);
+    }
+  }
+
+  function handleCalClick(e: React.MouseEvent<SVGSVGElement>) {
+    if (calMode !== 'p1' && calMode !== 'p2') return;
+    const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
+    if (calMode === 'p1') {
+      setCalP1({ x, y });
+      setCalP2(null);
+      setCalMode('p2');
+    } else {
+      setCalP2({ x, y });
+      setCalMode('confirm');
+    }
+  }
+
+  async function confirmCal() {
+    if (!calP1 || !calP2 || !calMeters || !imgNatSize) return;
+    const realM = parseFloat(calMeters);
+    if (!realM || realM <= 0) return;
+    setCalSaving(true);
+    try {
+      const dx_px = (calP2.x - calP1.x) * imgNatSize.w;
+      const dy_px = (calP2.y - calP1.y) * imgNatSize.h;
+      const linePx = Math.sqrt(dx_px * dx_px + dy_px * dy_px);
+      const mPerPx = realM / linePx;
+      const totalW = Math.round(imgNatSize.w * mPerPx * 10) / 10;
+      const totalH = Math.round(imgNatSize.h * mPerPx * 10) / 10;
+      await fetch(`${API_URL}/api/v2/venues/${venueId}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ floorPlanWidthMeters: totalW, floorPlanHeightMeters: totalH }),
+      });
+      setVenue(prev => prev ? { ...prev, floorPlanWidthMeters: totalW, floorPlanHeightMeters: totalH } : prev);
+      setCalMode('off');
+      setCalP1(null);
+      setCalP2(null);
+      setCalMeters('');
+    } catch (e: any) {
+      alert('Erro ao salvar escala: ' + (e.message ?? ''));
+    } finally {
+      setCalSaving(false);
+    }
+  }
+
+  function cancelCal() {
+    setCalMode('off');
+    setCalP1(null);
+    setCalP2(null);
+    setCalMeters('');
   }
 
   async function handleDelete() {
@@ -415,7 +723,403 @@ export default function VenueDetailPage() {
               </div>
             </div>
           </div>
+
+          {/* Floor Plan */}
+          <div className="bg-card rounded-lg border shadow-sm">
+            <div className="px-6 py-4 border-b flex items-center justify-between">
+              <h2 className="text-lg font-medium text-card-foreground flex items-center gap-2">
+                <Image className="size-4" />
+                Planta Baixa
+              </h2>
+              <button
+                onClick={() => floorPlanInputRef.current?.click()}
+                disabled={uploadingPlan}
+                className="px-3 py-1.5 text-xs border border-input rounded-md hover:bg-muted transition flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <Upload className="size-3" />
+                {floorPlanUrl ? 'Substituir' : 'Enviar'}
+              </button>
+              <input
+                ref={floorPlanInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={e => {
+                  const f = e.target.files?.[0];
+                  if (f) handleFloorPlanUpload(f);
+                  e.target.value = '';
+                }}
+              />
+            </div>
+            <div className="p-4 space-y-3">
+              {uploadingPlan ? (
+                <div className="flex items-center justify-center py-8 text-muted-foreground">
+                  <svg className="animate-spin size-6" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                </div>
+              ) : floorPlanUrl ? (
+                <>
+                  {/* Floor plan image with calibration overlay */}
+                  <div className="relative rounded border overflow-hidden">
+                    <img
+                      src={floorPlanUrl}
+                      alt="Planta baixa"
+                      className="w-full block"
+                      style={{ maxHeight: calMode !== 'off' ? '340px' : '200px', objectFit: 'contain' }}
+                      onLoad={e => {
+                        const img = e.target as HTMLImageElement;
+                        setImgNatSize({ w: img.naturalWidth, h: img.naturalHeight });
+                      }}
+                    />
+                    {/* Calibration SVG overlay */}
+                    {calMode !== 'off' && (
+                      <svg
+                        className="absolute inset-0 w-full h-full"
+                        style={{ cursor: calMode === 'confirm' ? 'default' : 'crosshair' }}
+                        onClick={handleCalClick}
+                      >
+                        {calP1 && (
+                          <circle cx={`${calP1.x * 100}%`} cy={`${calP1.y * 100}%`} r="5" fill="#ef4444" stroke="white" strokeWidth="1.5" />
+                        )}
+                        {calP1 && calP2 && (
+                          <>
+                            <line
+                              x1={`${calP1.x * 100}%`} y1={`${calP1.y * 100}%`}
+                              x2={`${calP2.x * 100}%`} y2={`${calP2.y * 100}%`}
+                              stroke="#ef4444" strokeWidth="2" strokeDasharray="6,3"
+                            />
+                            <circle cx={`${calP2.x * 100}%`} cy={`${calP2.y * 100}%`} r="5" fill="#ef4444" stroke="white" strokeWidth="1.5" />
+                          </>
+                        )}
+                      </svg>
+                    )}
+                  </div>
+
+                  {/* Calibration controls */}
+                  {calMode === 'off' && (
+                    <div className="flex items-center justify-between border-t pt-2">
+                      <span className="text-xs text-muted-foreground">
+                        {venue.floorPlanWidthMeters && venue.floorPlanHeightMeters
+                          ? `Escala: ${venue.floorPlanWidthMeters}m × ${venue.floorPlanHeightMeters}m`
+                          : 'Escala não calibrada'}
+                      </span>
+                      <button
+                        onClick={() => setCalMode('p1')}
+                        className="text-xs text-primary hover:underline"
+                      >
+                        {venue.floorPlanWidthMeters ? 'Recalibrar escala' : '+ Calibrar escala'}
+                      </button>
+                    </div>
+                  )}
+
+                  {calMode === 'p1' && (
+                    <div className="flex items-center gap-2 border-t pt-2">
+                      <span className="text-xs text-muted-foreground flex-1">Clique no <strong>ponto inicial</strong> da linha de referência</span>
+                      <button onClick={cancelCal} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"><X size={11} /> Cancelar</button>
+                    </div>
+                  )}
+
+                  {calMode === 'p2' && (
+                    <div className="flex items-center gap-2 border-t pt-2">
+                      <span className="text-xs text-muted-foreground flex-1">Clique no <strong>ponto final</strong> da linha de referência</span>
+                      <button onClick={cancelCal} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"><X size={11} /> Cancelar</button>
+                    </div>
+                  )}
+
+                  {calMode === 'confirm' && (
+                    <div className="flex items-center gap-2 border-t pt-2 flex-wrap">
+                      <span className="text-xs text-muted-foreground">Esta linha mede</span>
+                      <input
+                        autoFocus
+                        type="number"
+                        min={0.1}
+                        step={0.1}
+                        placeholder="0"
+                        value={calMeters}
+                        onChange={e => setCalMeters(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && confirmCal()}
+                        className="w-20 text-sm border border-input rounded px-2 py-1 bg-background focus:ring-1 focus:ring-ring text-right"
+                      />
+                      <span className="text-xs text-muted-foreground">metros</span>
+                      <div className="ml-auto flex gap-2">
+                        <button onClick={cancelCal} className="text-xs px-2 py-1 border rounded hover:bg-muted transition flex items-center gap-1"><X size={11} /> Cancelar</button>
+                        <button
+                          onClick={confirmCal}
+                          disabled={calSaving || !calMeters}
+                          className="text-xs px-3 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 transition disabled:opacity-50 flex items-center gap-1"
+                        >
+                          {calSaving ? <svg className="animate-spin size-3" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> : <Check size={11} />}
+                          Confirmar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-8 gap-2 text-muted-foreground border-2 border-dashed rounded-lg">
+                  <Image className="size-8" />
+                  <p className="text-sm text-center">Nenhuma planta cadastrada.<br />Clique em "Enviar" para adicionar.</p>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
+
+        {/* ── Estoque de Elementos ──────────────────────────────────────── */}
+        {stockElements.length > 0 && (
+          <div className="bg-card rounded-lg border shadow-sm">
+            <div className="px-6 py-4 border-b flex items-center justify-between">
+              <h2 className="text-lg font-medium text-card-foreground flex items-center gap-2">
+                <Package className="size-4" />
+                Estoque de Elementos
+              </h2>
+              <div className="flex items-center gap-3">
+                {stockMsg && (
+                  <span className={`text-xs ${stockMsg.ok ? 'text-green-600' : 'text-destructive'}`}>{stockMsg.text}</span>
+                )}
+                <button
+                  onClick={saveStock}
+                  disabled={savingStock}
+                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition disabled:opacity-50"
+                >
+                  {savingStock ? <Loader2 className="size-3 animate-spin" /> : <Save className="size-3" />}
+                  Salvar
+                </button>
+              </div>
+            </div>
+            <div className="p-4">
+              <p className="text-xs text-muted-foreground mb-4">
+                Defina quantas unidades de cada elemento este espaço possui. O editor de layout bloqueará ao atingir o limite.
+                Deixe 0 para bloquear o uso ou vazio para ilimitado.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {stockElements.map(el => (
+                  <div key={el.type} className="flex items-center gap-2 p-2 border rounded-lg bg-muted/20">
+                    <div className="w-9 h-9 flex-shrink-0 bg-card rounded border p-0.5">
+                      {el.iconUrl
+                        ? <img src={el.iconUrl} alt={el.label} className="w-full h-full object-contain" />
+                        : (ELEMENT_ICONS[el.type] ?? <div className="w-full h-full bg-muted rounded" />)
+                      }
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium leading-tight truncate">{el.label}</p>
+                      <p className="text-[10px] text-muted-foreground">{el.widthMeters}m × {el.heightMeters}m</p>
+                    </div>
+                    <input
+                      type="number"
+                      min={0}
+                      max={999}
+                      value={layoutStock[el.type] ?? ''}
+                      placeholder="∞"
+                      onChange={e => {
+                        const v = e.target.value;
+                        setLayoutStock(prev => {
+                          if (v === '') {
+                            const next = { ...prev };
+                            delete next[el.type];
+                            return next;
+                          }
+                          return { ...prev, [el.type]: parseInt(v) };
+                        });
+                      }}
+                      className="w-14 text-sm text-center border border-input rounded px-1 py-1 bg-background focus:ring-1 focus:ring-ring"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Layouts Modelo ────────────────────────────────────────────── */}
+        {floorPlanUrl && (
+          <div className="bg-card rounded-lg border shadow-sm">
+            <div className="px-6 py-4 border-b flex items-center justify-between">
+              <h2 className="text-lg font-medium text-card-foreground flex items-center gap-2">
+                <LayoutGrid className="size-4" />
+                Layouts Modelo
+              </h2>
+              <button
+                onClick={openNewTemplate}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border border-input hover:bg-muted transition"
+              >
+                <Plus className="size-3" />
+                Novo Modelo
+              </button>
+            </div>
+
+            {/* Template list */}
+            {templates.length > 0 && (
+              <div className="px-6 py-3 border-b flex flex-wrap gap-2">
+                {templates.map(tpl => (
+                  <div
+                    key={tpl.id}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm cursor-pointer transition ${
+                      editingTemplate?.id === tpl.id
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'bg-muted/30 border-input hover:bg-muted/60'
+                    }`}
+                    onClick={() => openEditTemplate(tpl)}
+                  >
+                    <span className="font-medium">{tpl.name}</span>
+                    <span className="text-xs opacity-60">({(tpl.elements ?? []).length} el.)</span>
+                    <button
+                      onClick={e => { e.stopPropagation(); deleteTemplate(tpl.id); }}
+                      className="ml-1 opacity-50 hover:opacity-100 transition"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {templates.length === 0 && !editingTemplate && (
+              <div className="px-6 py-8 text-center text-muted-foreground text-sm">
+                Nenhum modelo criado. Clique em "Novo Modelo" para criar um layout reutilizável.
+              </div>
+            )}
+
+            {/* Template editor */}
+            {editingTemplate !== null && (
+              <div className="p-4 flex flex-col gap-3">
+                {/* Name + actions */}
+                <div className="flex items-center gap-3 flex-wrap">
+                  <input
+                    type="text"
+                    value={templateName}
+                    onChange={e => setTemplateName(e.target.value)}
+                    placeholder="Nome do modelo (ex: Jantar 120 Pessoas)"
+                    className="flex-1 min-w-48 text-sm border border-input rounded-lg px-3 py-2 bg-background focus:ring-1 focus:ring-ring"
+                  />
+                  {templateMsg && (
+                    <span className={`text-xs ${templateMsg.ok ? 'text-green-600' : 'text-destructive'}`}>{templateMsg.text}</span>
+                  )}
+                  <button
+                    onClick={saveTemplate}
+                    disabled={savingTemplate || !templateName.trim()}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-primary text-primary-foreground text-xs font-medium rounded-lg hover:bg-primary/90 transition disabled:opacity-50"
+                  >
+                    {savingTemplate ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+                    Salvar Modelo
+                  </button>
+                  <button
+                    onClick={() => setEditingTemplate(null)}
+                    className="px-3 py-2 text-xs border border-input rounded-lg hover:bg-muted transition text-muted-foreground"
+                  >
+                    Fechar
+                  </button>
+                </div>
+
+                {/* Canvas + sidebar */}
+                <div className="flex gap-3" style={{ height: 'calc(100vh - 360px)', minHeight: '580px' }}>
+
+                  {/* Sidebar */}
+                  <div className="w-36 flex-shrink-0 flex flex-col gap-2">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Elementos</p>
+                    <div className="flex-1 overflow-y-auto space-y-1 pr-0.5 min-h-0">
+                      {stockElements.map(cfg => (
+                        <div
+                          key={cfg.type}
+                          draggable
+                          onDragStart={e => tplHandleSidebarDrag(e, cfg.type)}
+                          className="flex items-center gap-1.5 p-1.5 border rounded-lg bg-card cursor-grab hover:bg-muted/50 hover:border-primary/40 select-none active:cursor-grabbing"
+                        >
+                          <div className="w-7 h-7 flex-shrink-0">
+                            {cfg.iconUrl
+                              ? <img src={cfg.iconUrl} alt={cfg.label} className="w-full h-full object-contain" />
+                              : (ELEMENT_ICONS[cfg.type] ?? <div className="w-full h-full bg-muted rounded" />)}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[11px] font-medium leading-tight truncate">{cfg.label}</p>
+                            <p className="text-[10px] text-muted-foreground">{cfg.widthMeters}×{cfg.heightMeters}m</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Trash */}
+                    <div
+                      ref={tplTrashRef}
+                      className={`flex flex-col items-center justify-center gap-1 py-3 rounded-lg border-2 border-dashed transition-all flex-shrink-0 ${
+                        tplOverTrash ? 'border-destructive bg-destructive/10 text-destructive scale-105'
+                          : tplDraggingId ? 'border-destructive/40 bg-destructive/5 text-destructive/50'
+                          : 'border-muted-foreground/20 text-muted-foreground/25'
+                      }`}
+                    >
+                      <Trash2 className={`size-4 ${tplOverTrash ? 'scale-125' : ''} transition-transform`} />
+                      <span className="text-[10px]">Arraste aqui</span>
+                    </div>
+                  </div>
+
+                  {/* Canvas — fills all remaining space; inner div uses max-width + max-height to fit proportionally */}
+                  <div className="flex-1 border rounded-xl bg-muted/30 flex items-center justify-center overflow-hidden relative">
+                    {!venue?.floorPlanWidthMeters && (
+                      <div className="absolute top-2 left-2 right-2 flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 z-40 pointer-events-none">
+                        <AlertCircle className="size-3 flex-shrink-0" />
+                        Calibre a escala da planta para ver proporções reais
+                      </div>
+                    )}
+                    <div
+                      ref={tplCanvasRef}
+                      className="relative select-none"
+                      onDragOver={e => e.preventDefault()}
+                      onDrop={tplHandleDrop}
+                      onClick={() => setTplSelectedId(null)}
+                      style={{
+                        cursor: tplDraggingId ? 'grabbing' : 'default',
+                        maxWidth: '100%',
+                        maxHeight: '100%',
+                        width: 'auto',
+                        height: 'auto',
+                        aspectRatio: venue?.floorPlanWidthMeters && venue?.floorPlanHeightMeters
+                          ? `${venue.floorPlanWidthMeters}/${venue.floorPlanHeightMeters}`
+                          : '4/3',
+                      }}
+                    >
+                      <img
+                        src={floorPlanUrl}
+                        alt="Planta baixa"
+                        className="absolute inset-0 w-full h-full pointer-events-none"
+                        style={{ objectFit: 'fill' }}
+                        draggable={false}
+                      />
+
+                      {/* Elements */}
+                      {templateElements.map(el => {
+                        const isSel = tplSelectedId === el.id;
+                        return (
+                          <div key={el.id} style={tplElementStyle(el)} onMouseDown={e => tplHandleElementMouseDown(e, el.id)}>
+                            <div className={`w-full h-full drop-shadow-md ${isSel ? 'ring-2 ring-primary ring-offset-1 rounded' : ''}`}>
+                              {stockElements.find(c => c.type === el.type)?.iconUrl
+                                ? <img src={stockElements.find(c => c.type === el.type)!.iconUrl!} alt={el.type} className="w-full h-full object-contain" draggable={false} />
+                                : <div className="w-full h-full">{ELEMENT_ICONS[el.type] ?? <div className="w-full h-full bg-primary/40 rounded" />}</div>
+                              }
+                            </div>
+                            {isSel && (
+                              <div
+                                className="absolute -top-7 left-1/2 flex gap-1"
+                                style={{ transform: `translateX(-50%) rotate(${-el.rotation}deg)` }}
+                                onMouseDown={e => e.stopPropagation()}
+                              >
+                                <button onClick={e => { e.stopPropagation(); tplRotate(el.id); }}
+                                  className="p-1 bg-card border rounded shadow text-muted-foreground hover:text-foreground">
+                                  <RotateCw className="size-3" />
+                                </button>
+                                <button onClick={e => { e.stopPropagation(); tplRemove(el.id); }}
+                                  className="p-1 bg-card border rounded shadow text-muted-foreground hover:text-destructive">
+                                  <X className="size-3" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </Layout>
   );

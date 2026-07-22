@@ -42,6 +42,7 @@ RUN pnpm install --frozen-lockfile --prod
 # Copy compiled output from builder (no node_modules — pnpm installed fresh above)
 COPY --from=builder /app/apps/web/.next ./apps/web/.next
 COPY --from=builder /app/apps/web/next.config.mjs ./apps/web/next.config.mjs
+COPY --from=builder /app/apps/web/public ./apps/web/public
 
 WORKDIR /app/apps/web
 

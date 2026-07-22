@@ -104,6 +104,7 @@ export async function eventRoutes(app: FastifyInstance) {
           select: { id: true, externalId: true, rawJson: true },
           orderBy: { createdAt: 'asc' },
         },
+        npsOrganizador: { select: { submittedAt: true } },
       },
     });
 
@@ -459,5 +460,98 @@ export async function eventRoutes(app: FastifyInstance) {
       select: { id: true, clientToken: true, reservationNumber: true },
     });
     return { success: true, event };
+  });
+
+  // GET /:id/tab-badges — lightweight summary of pending items per tab
+  app.get('/:id/tab-badges', { preHandler: requireAuth }, async (request) => {
+    const { id: eventId } = request.params as { id: string };
+
+    const [
+      abItems,
+      infraItems,
+      staffSlots,
+      teamCount,
+      planItems,
+      planVenues,
+      planVenueAnswers,
+      openActivities,
+    ] = await Promise.all([
+      // A&B items: any item with no choices selected AND no answers
+      (prisma as any).eventItem.findMany({
+        where: { eventId, category: 'ab' },
+        select: {
+          id: true,
+          choices: { where: { chosen: { isEmpty: false } }, select: { id: true } },
+          answers: { select: { id: true } },
+        },
+      }),
+      // Infra items
+      (prisma as any).eventItem.findMany({
+        where: { eventId, category: 'infra' },
+        select: {
+          id: true,
+          choices: { where: { chosen: { isEmpty: false } }, select: { id: true } },
+        },
+      }),
+      // Mão de obra: slots where filledCount < quantity
+      (prisma as any).eventStaffSlot.findMany({
+        where: { eventItem: { eventId } },
+        select: { quantity: true, filledCount: true },
+      }),
+      // Team members
+      (prisma as any).eventMember.count({ where: { eventId } }),
+      // Plan: items with product questions + their answers
+      (prisma as any).eventItem.findMany({
+        where: { eventId },
+        select: {
+          product: { select: { questions: { select: { id: true } } } },
+          answers: { select: { questionId: true, answer: true } },
+        },
+      }),
+      // Plan: venue questions
+      (prisma as any).eventVenue.findMany({
+        where: { eventId },
+        select: { venue: { select: { questions: { select: { id: true } } } } },
+      }),
+      // Plan: venue answers
+      (prisma as any).eventVenueAnswer.findMany({
+        where: { eventId },
+        select: { questionId: true, answer: true },
+      }),
+      // Atividades: open activities
+      (prisma as any).eventActivity.count({ where: { eventId, status: 'open' } }),
+    ]);
+
+    const abPending = abItems.filter((i: any) => i.choices.length === 0 && i.answers.length === 0).length;
+    const infraPending = infraItems.filter((i: any) => i.choices.length === 0).length;
+    const staffPending = (staffSlots as any[]).some((s: any) => s.filledCount < s.quantity);
+
+    // Compute plan completeness
+    let totalQ = 0, answeredQ = 0;
+    for (const item of planItems as any[]) {
+      if (!item.product?.questions) continue;
+      for (const q of item.product.questions) {
+        totalQ++;
+        const ans = (item.answers as any[]).find(a => a.questionId === q.id);
+        if (ans && ans.answer !== null && ans.answer !== '' && !(Array.isArray(ans.answer) && ans.answer.length === 0)) answeredQ++;
+      }
+    }
+    for (const ev of planVenues as any[]) {
+      if (!ev.venue?.questions) continue;
+      for (const q of ev.venue.questions) {
+        totalQ++;
+        const ans = (planVenueAnswers as any[]).find(a => a.questionId === q.id);
+        if (ans && ans.answer !== null && ans.answer !== '') answeredQ++;
+      }
+    }
+
+    return {
+      food: abPending > 0,
+      infra: infraPending > 0,
+      maoDeObra: staffPending,
+      team: teamCount === 0,
+      plan: totalQ > 0 && answeredQ < totalQ,
+      atividades: (openActivities as number) > 0,
+    };
   });
 }

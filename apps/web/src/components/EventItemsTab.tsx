@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ChevronDown, ChevronRight, HelpCircle, CheckCircle2, Clock, History, MessageSquare, Send, Trash2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { ChevronDown, ChevronRight, HelpCircle, CheckCircle2, Clock, History, MessageSquare, Send, Trash2, Printer } from 'lucide-react';
 import { formatDateTime } from '@/lib/utils';
 
 interface Question {
@@ -63,6 +64,8 @@ interface Props {
 }
 
 export default function EventItemsTab({ eventId, category }: Props) {
+  const router = useRouter();
+  const [selectedForMenu, setSelectedForMenu] = useState<Set<string>>(new Set());
   const [items, setItems] = useState<EventItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -320,7 +323,31 @@ export default function EventItemsTab({ eventId, category }: Props) {
                   </div>
                 </div>
               </div>
-              <div className="text-sm text-muted-foreground">{item.quantity} {item.unit || 'un'}</div>
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-muted-foreground">{item.quantity} {item.unit || 'un'}</span>
+                {category === 'ab' && (
+                  <label
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none"
+                    onClick={e => e.stopPropagation()}
+                    title="Incluir no cardápio"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedForMenu.has(item.id)}
+                      onChange={e => {
+                        e.stopPropagation();
+                        setSelectedForMenu(prev => {
+                          const next = new Set(prev);
+                          if (next.has(item.id)) next.delete(item.id); else next.add(item.id);
+                          return next;
+                        });
+                      }}
+                      className="accent-primary"
+                    />
+                    Cardápio
+                  </label>
+                )}
+              </div>
             </div>
 
             {open && (
@@ -482,6 +509,27 @@ export default function EventItemsTab({ eventId, category }: Props) {
           </div>
         );
       })}
+
+      {/* Cardápio print bar — only for A&B tab */}
+      {category === 'ab' && items.length > 0 && (
+        <div className="flex items-center justify-between px-4 py-3 bg-muted/40 border rounded-xl">
+          <p className="text-sm text-muted-foreground">
+            {selectedForMenu.size === 0
+              ? 'Selecione os itens acima para imprimir o cardápio'
+              : `${selectedForMenu.size} item(s) selecionado(s)`}
+          </p>
+          <button
+            disabled={selectedForMenu.size === 0}
+            onClick={() => {
+              const ids = Array.from(selectedForMenu).join(',');
+              window.open(`/events/${eventId}/cardapio?items=${ids}`, '_blank');
+            }}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition"
+          >
+            <Printer size={14} /> Imprimir Cardápio
+          </button>
+        </div>
+      )}
     </div>
   );
 }

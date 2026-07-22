@@ -417,6 +417,9 @@ export async function uerpRoutes(app: FastifyInstance) {
       capacity?: number;
       contactName?: string;
       contactPhone?: string;
+      floorPlanWidthMeters?: number;
+      floorPlanHeightMeters?: number;
+      layoutStock?: Record<string, number>;
     };
 
     const venue = await prisma.venue.findUnique({

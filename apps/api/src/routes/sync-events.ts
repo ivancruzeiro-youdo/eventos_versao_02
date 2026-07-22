@@ -114,34 +114,46 @@ function groupContracts(contracts: any[]): Map<string, any[]> {
   return map;
 }
 
-// Build items snapshot from experience contracts
+// Build items snapshot from experience contracts — keeps duplicates separate (one entry per occurrence)
 // Fields: id, prodct-id, name, qtde, details.category, details.unity
-function buildItemsSnapshot(contracts: any[]): { name: string; qty: number; unit: string; externalProductCode: string | null; categoryName: string | null }[] {
-  const items: Record<string, { name: string; qty: number; unit: string; externalProductCode: string | null; categoryName: string | null }> = {};
+function buildItemsSnapshot(contracts: any[]): { name: string; qty: number; unit: string; externalProductCode: string | null; categoryName: string | null; occurrenceIndex: number }[] {
+  const list: { name: string; qty: number; unit: string; externalProductCode: string | null; categoryName: string | null; occurrenceIndex: number }[] = [];
+  const counts: Record<string, number> = {};
   for (const c of contracts) {
-    // Main contract products
     const produtos: any[] = c.produtos || [];
-    // Also include secondary contracts' products
     const secondary: any[] = c._secondary || [];
     const allProdutos = [...produtos, ...secondary.flatMap((s: any) => s.produtos || [])];
     for (const p of allProdutos) {
       const extId = String(p['prodct-id'] || p.id || '');
       const key = extId || p.name || '';
       if (!key) continue;
-      if (items[key]) {
-        items[key].qty += Number(p.qtde || 1);
-      } else {
-        items[key] = {
-          name: p.name || p.details?.description || key,
-          qty: Number(p.qtde || 1),
-          unit: p.details?.unity || '',
-          externalProductCode: extId || null,
-          categoryName: p.details?.category || null,
-        };
-      }
+      const occ = counts[key] ?? 0;
+      counts[key] = occ + 1;
+      list.push({
+        name: p.name || p.details?.description || key,
+        qty: Number(p.qtde || 1),
+        unit: p.details?.unity || '',
+        externalProductCode: extId || null,
+        categoryName: p.details?.category || null,
+        occurrenceIndex: occ,
+      });
     }
   }
-  return Object.values(items);
+  return list;
+}
+
+// Collapse duplicate products by summing quantities (used when operator chooses to group)
+function collapseItemsSnapshot(items: { name: string; qty: number; unit: string; externalProductCode: string | null; categoryName: string | null; occurrenceIndex: number }[]) {
+  const map: Record<string, typeof items[0]> = {};
+  for (const item of items) {
+    const key = item.externalProductCode || item.name;
+    if (map[key]) {
+      map[key].qty += item.qty;
+    } else {
+      map[key] = { ...item, occurrenceIndex: 0 };
+    }
+  }
+  return Object.values(map);
 }
 
 // ---------------------------------------------------------------------------
@@ -152,6 +164,7 @@ interface PreviewEventItem {
   qty: number;
   unit: string;
   externalProductCode: string | null;
+  occurrenceIndex: number;
   category: 'ab' | 'infra' | 'staff' | 'venue' | 'unknown';
   productId: string | null;
   productName: string | null;
@@ -174,6 +187,8 @@ interface PreviewEvent {
   items: PreviewEventItem[];
   canImport: boolean;
   blockingReasons: string[];
+  hasDuplicates: boolean;
+  duplicateNames: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -303,6 +318,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
           previewItems.push({
             name: ri.name, qty: ri.qty, unit: ri.unit,
             externalProductCode: ri.externalProductCode,
+            occurrenceIndex: ri.occurrenceIndex,
             category: 'venue',
             productId: null, productName: null,
             venueId: venueMatch.id, venueName: venueMatch.name,
@@ -337,6 +353,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
         previewItems.push({
           name: ri.name, qty: ri.qty, unit: ri.unit,
           externalProductCode: ri.externalProductCode,
+          occurrenceIndex: ri.occurrenceIndex,
           category: resolvedCategory,
           productId: product?.id || null,
           productName: product?.name || null,
@@ -346,6 +363,9 @@ export async function syncEventsRoutes(app: FastifyInstance) {
         });
       }
 
+      const duplicateNames = [...new Set(
+        previewItems.filter(i => i.occurrenceIndex > 0).map(i => i.name)
+      )];
       previews.push({
         key, clientCode, startDate, clientName,
         existingEventId,
@@ -354,6 +374,8 @@ export async function syncEventsRoutes(app: FastifyInstance) {
         items: previewItems,
         canImport: blockingReasons.length === 0,
         blockingReasons,
+        hasDuplicates: duplicateNames.length > 0,
+        duplicateNames,
       });
     }
 
@@ -368,7 +390,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     const employerId: string = user.employerId;
     if (!employerId) return reply.status(400).send({ error: 'Usuário sem employerId.' });
 
-    const { previews } = request.body as { previews: PreviewEvent[] };
+    const { previews, groupDuplicates = false } = request.body as { previews: PreviewEvent[]; groupDuplicates?: boolean };
     if (!Array.isArray(previews) || previews.length === 0) {
       return reply.status(400).send({ error: 'Nenhum evento para importar.' });
     }
@@ -489,7 +511,9 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       // Use primary contract as sourceContractId for items in this sync batch
       const primaryContractId = contractIds[0] || null;
 
-      for (const item of items) {
+      const resolvedItems = groupDuplicates ? (collapseItemsSnapshot(items as any) as unknown as PreviewEventItem[]) : items;
+
+      for (const item of resolvedItems) {
         if (item.category === 'venue' && item.venueId) {
           // Upsert EventVenue link
           const exists = await (prisma as any).eventVenue.findFirst({ where: { eventId, venueId: item.venueId } });
@@ -517,9 +541,10 @@ export async function syncEventsRoutes(app: FastifyInstance) {
 
         if (!item.productId) continue;
 
-        // Upsert by (eventId, productId) — preserves choices/answers/history
+        // Upsert by (eventId, productId, occurrenceIndex) — preserves choices/answers/history
+        const occIdx = item.occurrenceIndex ?? 0;
         const existing = await (prisma as any).eventItem.findFirst({
-          where: { eventId, productId: item.productId },
+          where: { eventId, productId: item.productId, occurrenceIndex: occIdx },
         });
 
         let eventItemId: string;
@@ -544,7 +569,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
             syncUpdatedQty.push({ name: item.name, oldQty, newQty });
           }
         } else {
-          // New item — create with sourceContractId
+          // New item — create with sourceContractId and occurrenceIndex
           const eventItem = await (prisma as any).eventItem.create({
             data: {
               eventId,
@@ -554,6 +579,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
               name: item.name,
               quantity: item.qty,
               unit: item.unit || null,
+              occurrenceIndex: occIdx,
             },
           });
           eventItemId = eventItem.id;
@@ -765,6 +791,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
         previewItems.push({
           name: ri.name, qty: ri.qty, unit: ri.unit,
           externalProductCode: ri.externalProductCode,
+          occurrenceIndex: ri.occurrenceIndex,
           category: 'venue',
           productId: null, productName: null,
           venueId: venueMatch.id, venueName: venueMatch.name,
@@ -798,6 +825,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       previewItems.push({
         name: ri.name, qty: ri.qty, unit: ri.unit,
         externalProductCode: ri.externalProductCode,
+        occurrenceIndex: ri.occurrenceIndex,
         category: resolvedCategory,
         productId: product?.id || null, productName: product?.name || null,
         venueId: null, venueName: null,
@@ -806,6 +834,9 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       });
     }
 
+    const duplicateNames = [...new Set(
+      previewItems.filter(i => i.occurrenceIndex > 0).map(i => i.name)
+    )];
     const preview: PreviewEvent = {
       key: `${clientCode}__${startDate}`,
       clientCode, startDate, clientName,
@@ -815,6 +846,8 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       items: previewItems,
       canImport: blockingReasons.length === 0,
       blockingReasons,
+      hasDuplicates: duplicateNames.length > 0,
+      duplicateNames,
     };
 
     // Build display list: new main contracts + newly-discovered secondary contracts
@@ -865,6 +898,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
         choices: true,
         slots: true,
         product: { include: { questions: { orderBy: { order: 'asc' } } } },
+        answers: { include: { updatedBy: { select: { id: true, name: true } } } },
       },
       orderBy: { category: 'asc' },
     });

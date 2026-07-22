@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { ChevronDown, ChevronRight, LayoutDashboard, Calendar, MapPin, Users, FileText, Settings, LogOut, ChefHat, Package, UtensilsCrossed, ShoppingCart, ClipboardList, BrainCircuit, SlidersHorizontal, Menu, X, Truck } from 'lucide-react';
+import { ChevronDown, ChevronRight, LayoutDashboard, Calendar, MapPin, Users, FileText, Settings, LogOut, ChefHat, Package, UtensilsCrossed, ShoppingCart, ClipboardList, BrainCircuit, SlidersHorizontal, Menu, X, Truck, UserRound } from 'lucide-react';
 import { logoutHub } from '@/lib/sso';
 import { authApi, ApiError } from '@/lib/api';
 
@@ -25,6 +25,7 @@ const mainNavigation = [
   { name: 'Locais', href: '/venues', icon: MapPin },
   { name: 'Freelancers', href: '/freelancers', icon: Users },
   { name: 'Fornecedores', href: '/fornecedores', icon: Truck },
+  { name: 'Pessoas', href: '/people', icon: UserRound },
   { name: 'Relatórios', href: '/reports', icon: FileText },
 ];
 
@@ -49,6 +50,7 @@ const adminNavigation = [
   { name: 'Logs', href: '/admin/audit-log' },
   { name: 'Acessos por Serviço', href: '/admin/acessos' },
   { name: 'Integrações', href: '/admin/integrations/userp' },
+  { name: 'Elementos de Layout', href: '/admin/layout-elements' },
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {

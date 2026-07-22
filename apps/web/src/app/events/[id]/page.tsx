@@ -11,7 +11,11 @@ import EventFilesTab from '@/components/EventFilesTab';
 import EventScheduleTab from '@/components/EventScheduleTab';
 import EventItemsTab from '@/components/EventItemsTab';
 import EventMaoDeObraTab from '@/components/EventMaoDeObraTab';
+import EventTaxasTab from '@/components/EventTaxasTab';
+import EventActivitiesTab from '@/components/EventActivitiesTab';
+import EventLayoutTab from '@/components/EventLayoutTab';
 import EventKitchenTab from '@/components/EventKitchenTab';
+import EventTeamTab from '@/components/EventTeamTab';
 import UserpStatusBanner from '@/components/UserpStatusBanner';
 import { eventsApi, guestsApi } from '@/lib/api';
 import { formatDateTime, getStatusColor, getStatusLabel, getEventDisplayStatus, formatPhone, formatCpf } from '@/lib/utils';
@@ -19,7 +23,7 @@ import {
   MessageCircle, FileText, Clock, CheckSquare, Users,
   ClipboardList, Briefcase, UtensilsCrossed, HardHat, Trash2, ChevronDown,
   Calendar, MapPin, Pencil, Check, X, Copy, UserCog, ChefHat, LogOut, Star, Plus,
-  GripVertical, Printer, Mail, Phone, CreditCard, FileSignature
+  GripVertical, Printer, Mail, Phone, CreditCard, FileSignature, Receipt, ListTodo, LayoutGrid
 } from 'lucide-react';
 
 interface EventContract {
@@ -72,6 +76,7 @@ interface EventChecklist {
 
 const tabs = [
   { id: 'comments', label: 'Comentários', icon: MessageCircle },
+  { id: 'atividades', label: 'Atividades', icon: ListTodo },
   { id: 'files', label: 'Arquivos', icon: FileText },
   { id: 'schedule', label: 'Cronograma', icon: Clock },
   { id: 'checklists', label: 'Checklists', icon: CheckSquare },
@@ -81,6 +86,8 @@ const tabs = [
   { id: 'food', label: 'A&B', icon: UtensilsCrossed },
   { id: 'infra', label: 'Infraestrutura', icon: HardHat },
   { id: 'kitchen', label: 'Cozinha', icon: ChefHat },
+  { id: 'team', label: 'Pessoas', icon: UserCog },
+  { id: 'layout', label: 'Layout', icon: LayoutGrid },
 ];
 
 export default function EventDetailPage() {
@@ -104,6 +111,9 @@ export default function EventDetailPage() {
   // Briefing state
   const [briefing, setBriefing] = useState<any>(null);
   const [briefingTemplates, setBriefingTemplates] = useState<{id: string; title: string}[]>([]);
+
+  // Tab badges (pending indicators)
+  const [tabBadges, setTabBadges] = useState<Record<string, boolean>>({});
 
   // Inline date editing
   const [editingDates, setEditingDates] = useState(false);
@@ -160,7 +170,15 @@ export default function EventDetailPage() {
   useEffect(() => {
     loadEvent();
     loadChecklist();
+    loadTabBadges();
   }, [eventId]);
+
+  async function loadTabBadges() {
+    try {
+      const r = await fetch(`/api/v2/events/${eventId}/tab-badges`, { credentials: 'include' });
+      if (r.ok) setTabBadges(await r.json());
+    } catch { /* silent */ }
+  }
 
   async function loadChecklist() {
     try {
@@ -619,7 +637,7 @@ export default function EventDetailPage() {
               <div>
                 <p className="text-xs text-muted-foreground">Local</p>
                 {event.venues?.length > 0 ? (
-                  <p className="font-semibold text-sm">{event.venues.map(v => v.venue.name).join(' + ')}</p>
+                  <p className="font-semibold text-sm">{event.venues.filter(v => v.venue).map(v => v.venue.name).join(' + ')}</p>
                 ) : (
                   <p className="italic text-muted-foreground text-sm">A definir</p>
                 )}
@@ -727,21 +745,31 @@ export default function EventDetailPage() {
         </div>
       </div>
 
-      {/* Tabs Navigation */}
-      <div className="border-b mb-6 overflow-x-auto">
-        <nav className="flex gap-1 min-w-max">
+      {/* Tabs Navigation — wraps to 2 rows, no horizontal scroll */}
+      <div className="border-b mb-6">
+        <nav className="flex flex-wrap gap-x-0 gap-y-0">
           {tabs.map((tab) => {
             const Icon = tab.icon;
+            // Derive badge from API badges + local data
+            const hasBadge = (() => {
+              if (tab.id === 'checklists') return checklists.some(c => c.items.some(i => !i.done));
+              if (tab.id === 'guests') return pendingGuests > 0;
+              return tabBadges[tab.id === 'food' ? 'food' : tab.id === 'infra' ? 'infra' : tab.id === 'mao-de-obra' ? 'maoDeObra' : tab.id === 'team' ? 'team' : tab.id === 'plan' ? 'plan' : tab.id === 'atividades' ? 'atividades' : ''] === true;
+            })();
+            const isActive = activeTab === tab.id;
             return (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition border-b-2 whitespace-nowrap ${
-                  activeTab === tab.id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
+                className={`relative flex items-center gap-1.5 px-3 py-3 text-sm font-medium transition border-b-2 whitespace-nowrap ${
+                  isActive ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30'
                 }`}
               >
-                <Icon className="size-4" />
+                <Icon className="size-3.5 shrink-0" />
                 {tab.label}
+                {hasBadge && (
+                  <span className="ml-0.5 inline-flex items-center justify-center w-2 h-2 rounded-full bg-amber-400 shrink-0" title="Pendências" />
+                )}
               </button>
             );
           })}
@@ -960,6 +988,9 @@ export default function EventDetailPage() {
       {activeTab === 'plan' && (
         <EventPlanTab eventId={eventId} />
       )}
+      {activeTab === 'atividades' && (
+        <EventActivitiesTab eventId={eventId} />
+      )}
       {activeTab === 'mao-de-obra' && (
         <EventMaoDeObraTab eventId={eventId} eventStartAt={event.startAt} />
       )}
@@ -983,6 +1014,12 @@ export default function EventDetailPage() {
       )}
       {activeTab === 'kitchen' && (
         <EventKitchenTab eventId={eventId} guestCount={event._count?.guests ?? 0} />
+      )}
+      {activeTab === 'team' && (
+        <EventTeamTab eventId={eventId} />
+      )}
+      {activeTab === 'layout' && (
+        <EventLayoutTab eventId={eventId} />
       )}
     </Layout>
   );

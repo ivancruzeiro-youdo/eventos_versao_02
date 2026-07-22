@@ -3,6 +3,25 @@ import { z } from 'zod';
 import { prisma } from '../server.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 
+async function getUserpToken(): Promise<{ token: string; baseUrl: string }> {
+  const rows = await (prisma as any).uerpConfig.findMany();
+  const map: Record<string, string> = {};
+  for (const r of rows) map[r.key] = r.value;
+  const baseUrl = map['userpBaseUrl'] || '';
+  const email = map['userpEmail'] || '';
+  const senha = map['userpSenha'] || '';
+  if (!baseUrl || !email || !senha) throw new Error('Credenciais Userp não configuradas.');
+  const res = await fetch(`${baseUrl}/api/userp-satelite/auth/token.php`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ email, senha }),
+  });
+  if (!res.ok) throw new Error('Falha na autenticação Userp.');
+  const data: any = await res.json();
+  if (!data.access_token) throw new Error('Token não retornado pelo Userp.');
+  return { token: data.access_token, baseUrl };
+}
+
 const createUserSchema = z.object({
   email: z.string().email(),
   name: z.string().min(1),
@@ -80,6 +99,90 @@ export async function adminRoutes(app: FastifyInstance) {
     });
 
     return { success: true, user };
+  });
+
+  // Update user (name, role, employerId)
+  app.patch('/users/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { name?: string; role?: string; employerId?: string | null };
+    const data: any = {};
+    if (body.name !== undefined) data.name = body.name;
+    if (body.role !== undefined) data.role = body.role;
+    if (body.employerId !== undefined) data.employerId = body.employerId || null;
+    const user = await prisma.user.update({
+      where: { id },
+      data,
+      include: { employer: { select: { name: true } } },
+    });
+    return { success: true, user };
+  });
+
+  // List UERP users (with already-imported flag)
+  app.get('/userp-usuarios', async (request, reply) => {
+    let token: string, baseUrl: string;
+    try { ({ token, baseUrl } = await getUserpToken()); } catch (e: any) { return reply.status(400).send({ error: e.message }); }
+
+    const res = await fetch(`${baseUrl}/api/userp-satelite/usuarios/`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    });
+    if (!res.ok) return reply.status(502).send({ error: 'Falha ao buscar usuários do Userp.' });
+    const data: any = await res.json();
+    const userpUsers: any[] = Array.isArray(data) ? data : (data.results ?? data.usuarios ?? []);
+
+    const existingByUerpCodigo = await prisma.user.findMany({
+      where: { userpCodigo: { not: null } },
+      select: { userpCodigo: true, id: true, role: true, email: true },
+    });
+    const importedMap = new Map(existingByUerpCodigo.map(u => [u.userpCodigo, u]));
+
+    const result = userpUsers.map((u: any) => {
+      const codigo = String(u.codigo ?? u.id ?? '');
+      const existing = importedMap.get(codigo);
+      return {
+        codigo,
+        nome: u.nome ?? u.name ?? '',
+        email: u.email ?? '',
+        alreadyImported: !!existing,
+        existingRole: existing?.role ?? null,
+        existingId: existing?.id ?? null,
+      };
+    });
+
+    return { success: true, usuarios: result };
+  });
+
+  // Import users from UERP
+  app.post('/import-userp-users', async (request, reply) => {
+    const requester = (request as any).user;
+    const body = request.body as { users: { codigo: string; nome: string; email: string; role: string }[]; employerId?: string };
+    if (!Array.isArray(body?.users) || body.users.length === 0) {
+      return reply.status(400).send({ error: 'Nenhum usuário selecionado.' });
+    }
+
+    const employerId = body.employerId ?? requester.employerId ?? null;
+    const results = [];
+
+    for (const u of body.users) {
+      const existing = await prisma.user.findFirst({
+        where: { OR: [{ userpCodigo: u.codigo }, { email: u.email }] },
+      });
+      if (existing) {
+        const updated = await prisma.user.update({
+          where: { id: existing.id },
+          data: { role: u.role as any, userpCodigo: u.codigo, name: u.nome || existing.name },
+          include: { employer: { select: { name: true } } },
+        });
+        results.push({ ...updated, action: 'updated' });
+      } else {
+        const created = await prisma.user.create({
+          data: { name: u.nome, email: u.email, role: u.role as any, userpCodigo: u.codigo, employerId },
+          include: { employer: { select: { name: true } } },
+        });
+        results.push({ ...created, action: 'created' });
+      }
+    }
+
+    return { success: true, imported: results.length, users: results };
   });
 
   // Get audit log

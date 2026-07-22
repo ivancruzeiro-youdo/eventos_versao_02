@@ -235,6 +235,7 @@ export default function EventPlanTab({ eventId }: Props) {
     }
   }
   for (const ev of eventVenues) {
+    if (!ev.venue) continue;
     for (const q of ev.venue.questions) {
       totalQ++;
       const ans = venueAnswers.find(a => a.questionId === q.id);
@@ -284,7 +285,7 @@ export default function EventPlanTab({ eventId }: Props) {
       ))}
 
       {/* Venue question sections */}
-      {eventVenues.map(ev => (
+      {eventVenues.filter(ev => ev.venue).map(ev => (
         <Section
           key={ev.id}
           icon={<MapPin size={15} className="text-muted-foreground" />}

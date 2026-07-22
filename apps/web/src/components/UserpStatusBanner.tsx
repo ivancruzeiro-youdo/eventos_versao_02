@@ -20,6 +20,7 @@ export default function UserpStatusBanner({ eventId }: Props) {
   const [pendingContracts, setPendingContracts] = useState<PendingContract[]>([]);
   const [preview, setPreview] = useState<any>(null);
   const [blockingReasons, setBlockingReasons] = useState<string[]>([]);
+  const [groupDuplicates, setGroupDuplicates] = useState(false);
 
   useEffect(() => {
     check();
@@ -54,7 +55,7 @@ export default function UserpStatusBanner({ eventId }: Props) {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ previews: [preview] }),
+        body: JSON.stringify({ previews: [preview], groupDuplicates }),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
@@ -126,6 +127,26 @@ export default function UserpStatusBanner({ eventId }: Props) {
             {blockingReasons.map((r, i) => (
               <p key={i} className="text-xs text-red-600">• {r}</p>
             ))}
+          </div>
+        )}
+
+        {canImport && preview?.hasDuplicates && (
+          <div className="bg-amber-100 border border-amber-300 rounded p-2 space-y-1">
+            <p className="text-xs font-semibold text-amber-800">
+              Itens duplicados detectados: {preview.duplicateNames?.join(', ')}
+            </p>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={groupDuplicates}
+                onChange={e => setGroupDuplicates(e.target.checked)}
+                className="rounded"
+              />
+              <span className="text-xs text-amber-900">Agrupar itens duplicados (somar quantidades)</span>
+            </label>
+            {!groupDuplicates && (
+              <p className="text-xs text-amber-700">Sem agrupar: cada ocorrência será importada como item separado.</p>
+            )}
           </div>
         )}
 

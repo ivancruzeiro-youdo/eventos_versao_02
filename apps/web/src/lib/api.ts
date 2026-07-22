@@ -101,6 +101,7 @@ export const reportsApi = {
 export const adminApi = {
   users: () => fetchApi('/api/v2/admin/users'),
   createUser: (data: any) => fetchApi('/api/v2/admin/users', { method: 'POST', body: JSON.stringify(data) }),
+  updateUser: (id: string, data: any) => fetchApi(`/api/v2/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteUser: (id: string) => fetchApi(`/api/v2/admin/users/${id}`, { method: 'DELETE' }),
   employers: () => fetchApi('/api/v2/admin/employers'),
   createEmployer: (data: any) => fetchApi('/api/v2/admin/employers', { method: 'POST', body: JSON.stringify(data) }),
@@ -111,6 +112,8 @@ export const adminApi = {
   createTeam: (data: any) => fetchApi('/api/v2/admin/teams', { method: 'POST', body: JSON.stringify(data) }),
   updateTeam: (id: string, data: any) => fetchApi(`/api/v2/admin/teams/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteTeam: (id: string) => fetchApi(`/api/v2/admin/teams/${id}`, { method: 'DELETE' }),
+  userpUsuarios: () => fetchApi('/api/v2/admin/userp-usuarios'),
+  importUserpUsers: (data: { users: any[]; employerId?: string }) => fetchApi('/api/v2/admin/import-userp-users', { method: 'POST', body: JSON.stringify(data) }),
 };
 
 // Teams API (for selection in forms)

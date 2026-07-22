@@ -242,13 +242,6 @@ export default function EventGuestsTab({ eventId }: EventGuestsTabProps) {
     g.cpf?.includes(searchTerm)
   );
 
-  const stats = {
-    total: guests.length,
-    confirmed: guests.filter(g => g.status === 'confirmed').length,
-    checkedIn: guests.filter(g => g.status === 'checked_in').length,
-    pending: guests.filter(g => g.status === 'pending').length,
-  };
-
   function getStatusBadge(status: string) {
     switch (status) {
       case 'confirmed':
@@ -264,26 +257,6 @@ export default function EventGuestsTab({ eventId }: EventGuestsTabProps) {
 
   return (
     <div className="space-y-4">
-      {/* Stats */}
-      <div className="grid grid-cols-4 gap-4">
-        <div className="bg-card rounded-lg border p-3 text-center">
-          <p className="text-2xl font-bold">{stats.total}</p>
-          <p className="text-xs text-muted-foreground">Total</p>
-        </div>
-        <div className="bg-card rounded-lg border p-3 text-center">
-          <p className="text-2xl font-bold text-green-600">{stats.confirmed}</p>
-          <p className="text-xs text-muted-foreground">Confirmados</p>
-        </div>
-        <div className="bg-card rounded-lg border p-3 text-center">
-          <p className="text-2xl font-bold text-blue-600">{stats.checkedIn}</p>
-          <p className="text-xs text-muted-foreground">Check-ins</p>
-        </div>
-        <div className="bg-card rounded-lg border p-3 text-center">
-          <p className="text-2xl font-bold text-amber-600">{stats.pending}</p>
-          <p className="text-xs text-muted-foreground">Pendentes</p>
-        </div>
-      </div>
-
       {/* Actions */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
