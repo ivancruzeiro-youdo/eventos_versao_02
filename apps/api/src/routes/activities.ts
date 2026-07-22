@@ -17,8 +17,18 @@ const ALLOWED_MIME = new Set([
   'text/plain',
 ]);
 
+// Pessoas do evento (sem login no sistema) só podem ter alertas diários — evita incomodar quem não usa o app
+const MIN_FREQ_MINUTES_FOR_PERSON = 1440;
+const VALID_FREQS = [30, 60, 120, 240, 480, 1440];
+
+function clampFreq(freq: any, assignedPersonId: string | null): number {
+  const n = VALID_FREQS.includes(Number(freq)) ? Number(freq) : 30;
+  return assignedPersonId ? Math.max(n, MIN_FREQ_MINUTES_FOR_PERSON) : n;
+}
+
 const INCLUDE = {
   assignedTo: { select: { id: true, name: true, email: true } },
+  assignedPerson: { select: { id: true, name: true, whatsapp: true } },
   createdBy: { select: { id: true, name: true } },
   completedBy: { select: { id: true, name: true } },
   files: { orderBy: { createdAt: 'asc' as const } },
@@ -50,7 +60,13 @@ export async function activitiesRoutes(app: FastifyInstance) {
       select: { id: true, name: true, email: true, role: true },
       orderBy: { name: 'asc' },
     });
-    return { success: true, users };
+    const members = await (prisma as any).eventMember.findMany({
+      where: { eventId },
+      include: { person: { select: { id: true, name: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+    const people = members.map((m: any) => ({ id: m.person.id, name: m.person.name, role: m.role }));
+    return { success: true, users, people };
   });
 
   // GET /my/activities — atividades abertas atribuídas ao usuário logado (todos os eventos)
@@ -82,14 +98,16 @@ export async function activitiesRoutes(app: FastifyInstance) {
   app.post('/events/:id/activities', { preHandler: requireAuth }, async (request, reply) => {
     const user = (request as any).user;
     const { id: eventId } = request.params as { id: string };
-    const { title, description, assignedToId, dueAt } = request.body as any;
+    const { title, description, assignedToId, assignedPersonId, dueAt, alertFreqMinutes } = request.body as any;
     if (!title?.trim()) return reply.status(400).send({ error: 'Título obrigatório' });
     const activity = await (prisma as any).eventActivity.create({
       data: {
         eventId,
         title: title.trim(),
         description: description?.trim() || null,
-        assignedToId: assignedToId || null,
+        assignedToId: assignedPersonId ? null : (assignedToId || null),
+        assignedPersonId: assignedPersonId || null,
+        alertFreqMinutes: clampFreq(alertFreqMinutes, assignedPersonId || null),
         createdById: user.id,
         dueAt: dueAt ? new Date(dueAt) : null,
       },
@@ -102,11 +120,25 @@ export async function activitiesRoutes(app: FastifyInstance) {
   app.patch('/events/:id/activities/:actId', { preHandler: requireAuth }, async (request, reply) => {
     const { actId } = request.params as { id: string; actId: string };
     const body = request.body as any;
+    const existing = await (prisma as any).eventActivity.findUnique({ where: { id: actId } });
+    if (!existing) return reply.status(404).send({ error: 'Atividade não encontrada' });
+
     const data: any = {};
     if (body.title !== undefined) data.title = body.title.trim();
     if (body.description !== undefined) data.description = body.description?.trim() || null;
-    if (body.assignedToId !== undefined) data.assignedToId = body.assignedToId || null;
+    if (body.assignedPersonId !== undefined) {
+      data.assignedPersonId = body.assignedPersonId || null;
+      if (body.assignedPersonId) data.assignedToId = null;
+    }
+    if (body.assignedToId !== undefined) {
+      data.assignedToId = body.assignedToId || null;
+      if (body.assignedToId) data.assignedPersonId = null;
+    }
     if (body.dueAt !== undefined) data.dueAt = body.dueAt ? new Date(body.dueAt) : null;
+    if (body.alertFreqMinutes !== undefined || data.assignedPersonId !== undefined) {
+      const finalAssignedPersonId = data.assignedPersonId !== undefined ? data.assignedPersonId : existing.assignedPersonId;
+      data.alertFreqMinutes = clampFreq(body.alertFreqMinutes ?? existing.alertFreqMinutes, finalAssignedPersonId);
+    }
     const activity = await (prisma as any).eventActivity.update({
       where: { id: actId }, data, include: INCLUDE,
     });

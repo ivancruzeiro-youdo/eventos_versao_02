@@ -11,6 +11,7 @@ import { formatDateTime } from '@/lib/utils';
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface AssignableUser { id: string; name: string; email: string; role: string }
+interface AssignablePerson { id: string; name: string; role: string }
 interface ActivityFile { id: string; name: string; mimeType: string; sizeBytes: number; createdAt: string }
 interface EventActivity {
   id: string;
@@ -20,11 +21,41 @@ interface EventActivity {
   dueAt: string | null;
   createdAt: string;
   assignedTo: { id: string; name: string; email: string } | null;
+  assignedPerson: { id: string; name: string } | null;
   createdBy: { id: string; name: string } | null;
   completedBy: { id: string; name: string } | null;
   completedAt: string | null;
   response: string | null;
+  alertFreqMinutes: number;
   files: ActivityFile[];
+}
+
+// Pessoas do evento não têm login no sistema — alertá-las só 1x por dia (em horário útil) evita incomodar
+const MIN_FREQ_FOR_PERSON = 1440;
+const FREQ_OPTIONS = [
+  { value: 30, label: 'A cada 30 min' },
+  { value: 60, label: 'A cada 1 hora' },
+  { value: 120, label: 'A cada 2 horas' },
+  { value: 240, label: 'A cada 4 horas' },
+  { value: 480, label: 'A cada 8 horas' },
+  { value: 1440, label: '1x por dia' },
+];
+function freqOptionsFor(assigneeVal: string) {
+  return assigneeVal.startsWith('person:')
+    ? FREQ_OPTIONS.filter(o => o.value >= MIN_FREQ_FOR_PERSON)
+    : FREQ_OPTIONS;
+}
+
+// Combina Users (equipe interna) e Pessoas (convidados/equipe do evento) num único valor de select
+function assigneeValue(a: Pick<EventActivity, 'assignedTo' | 'assignedPerson'>) {
+  if (a.assignedPerson) return `person:${a.assignedPerson.id}`;
+  if (a.assignedTo) return `user:${a.assignedTo.id}`;
+  return '';
+}
+function assigneePayload(value: string) {
+  if (value.startsWith('person:')) return { assignedPersonId: value.slice(7), assignedToId: null };
+  if (value.startsWith('user:')) return { assignedToId: value.slice(5), assignedPersonId: null };
+  return { assignedToId: null, assignedPersonId: null };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -72,20 +103,28 @@ function FileIcon({ mime }: { mime: string }) {
 // ── Edit Form (inline) ────────────────────────────────────────────────────────
 
 function EditForm({
-  activity, users, eventId,
+  activity, users, people, eventId,
   onCancel, onSaved,
 }: {
   activity: EventActivity;
   users: AssignableUser[];
+  people: AssignablePerson[];
   eventId: string;
   onCancel: () => void;
   onSaved: () => void;
 }) {
   const [title, setTitle] = useState(activity.title);
   const [desc, setDesc] = useState(activity.description ?? '');
-  const [assignee, setAssignee] = useState(activity.assignedTo?.id ?? '');
+  const [assignee, setAssignee] = useState(assigneeValue(activity));
   const [dueAt, setDueAt] = useState(activity.dueAt ? isoToLocalInput(activity.dueAt) : '');
+  const [alertFreq, setAlertFreq] = useState(activity.alertFreqMinutes ?? 30);
   const [saving, setSaving] = useState(false);
+
+  function handleAssigneeChange(v: string) {
+    setAssignee(v);
+    const opts = freqOptionsFor(v);
+    if (!opts.some(o => o.value === alertFreq)) setAlertFreq(opts[0].value);
+  }
 
   async function save() {
     if (!title.trim()) return;
@@ -95,7 +134,8 @@ function EditForm({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         title, description: desc || null,
-        assignedToId: assignee || null,
+        ...assigneePayload(assignee),
+        alertFreqMinutes: alertFreq,
         dueAt: dueAt ? new Date(dueAt).toISOString() : null,
       }),
     });
@@ -110,14 +150,29 @@ function EditForm({
       <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={2} placeholder="Descrição…"
         className="w-full px-2 py-1.5 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none" />
       <div className="flex gap-2">
-        <select value={assignee} onChange={e => setAssignee(e.target.value)}
+        <select value={assignee} onChange={e => handleAssigneeChange(e.target.value)}
           className="flex-1 px-2 py-1.5 border rounded-md text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/30">
           <option value="">— Ninguém —</option>
-          {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+          {users.length > 0 && (
+            <optgroup label="Equipe interna">
+              {users.map(u => <option key={u.id} value={`user:${u.id}`}>{u.name}</option>)}
+            </optgroup>
+          )}
+          {people.length > 0 && (
+            <optgroup label="Pessoas do evento">
+              {people.map(p => <option key={p.id} value={`person:${p.id}`}>{p.name}</option>)}
+            </optgroup>
+          )}
         </select>
         <input type="datetime-local" value={dueAt} onChange={e => setDueAt(e.target.value)}
           className="flex-1 px-2 py-1.5 border rounded-md text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/30" />
       </div>
+      {assignee && (
+        <select value={alertFreq} onChange={e => setAlertFreq(Number(e.target.value))}
+          className="w-full px-2 py-1.5 border rounded-md text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/30">
+          {freqOptionsFor(assignee).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      )}
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} className="px-3 py-1 text-xs border rounded hover:bg-muted transition">Cancelar</button>
         <button onClick={save} disabled={saving || !title.trim()}
@@ -249,11 +304,12 @@ function CompletionModal({
 // ── Activity Card ─────────────────────────────────────────────────────────────
 
 function ActivityCard({
-  activity, users, eventId,
+  activity, users, people, eventId,
   onDelete, onUpdated,
 }: {
   activity: EventActivity;
   users: AssignableUser[];
+  people: AssignablePerson[];
   eventId: string;
   onDelete: (id: string) => void;
   onUpdated: () => void;
@@ -288,7 +344,7 @@ function ActivityCard({
             <div className="flex-1 min-w-0">
               {editing ? (
                 <EditForm
-                  activity={activity} users={users} eventId={eventId}
+                  activity={activity} users={users} people={people} eventId={eventId}
                   onCancel={() => setEditing(false)}
                   onSaved={() => { setEditing(false); onUpdated(); }}
                 />
@@ -318,10 +374,10 @@ function ActivityCard({
 
                   {/* Meta row */}
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2">
-                    {activity.assignedTo && (
+                    {(activity.assignedTo || activity.assignedPerson) && (
                       <div className="flex items-center gap-1">
-                        <Avatar name={activity.assignedTo.name} />
-                        <span className="text-xs text-muted-foreground">{activity.assignedTo.name}</span>
+                        <Avatar name={(activity.assignedTo ?? activity.assignedPerson)!.name} />
+                        <span className="text-xs text-muted-foreground">{(activity.assignedTo ?? activity.assignedPerson)!.name}</span>
                       </div>
                     )}
                     {due && (
@@ -430,6 +486,7 @@ function ActivityCard({
 export default function EventActivitiesTab({ eventId }: { eventId: string }) {
   const [activities, setActivities] = useState<EventActivity[]>([]);
   const [users, setUsers] = useState<AssignableUser[]>([]);
+  const [people, setPeople] = useState<AssignablePerson[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
 
@@ -438,8 +495,15 @@ export default function EventActivitiesTab({ eventId }: { eventId: string }) {
   const [desc, setDesc] = useState('');
   const [assignee, setAssignee] = useState('');
   const [dueAt, setDueAt] = useState('');
+  const [alertFreq, setAlertFreq] = useState(30);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
+
+  function handleAssigneeChange(v: string) {
+    setAssignee(v);
+    const opts = freqOptionsFor(v);
+    if (!opts.some(o => o.value === alertFreq)) setAlertFreq(opts[0].value);
+  }
 
   const load = useCallback(async () => {
     const [actRes, usersRes] = await Promise.all([
@@ -450,6 +514,7 @@ export default function EventActivitiesTab({ eventId }: { eventId: string }) {
     const usersData = await usersRes.json();
     setActivities(actData.activities || []);
     setUsers(usersData.users || []);
+    setPeople(usersData.people || []);
     setLoading(false);
   }, [eventId]);
 
@@ -465,7 +530,8 @@ export default function EventActivitiesTab({ eventId }: { eventId: string }) {
         body: JSON.stringify({
           title: title.trim(),
           description: desc.trim() || null,
-          assignedToId: assignee || null,
+          ...assigneePayload(assignee),
+          alertFreqMinutes: alertFreq,
           dueAt: dueAt ? new Date(dueAt).toISOString() : null,
         }),
       });
@@ -473,7 +539,7 @@ export default function EventActivitiesTab({ eventId }: { eventId: string }) {
         const d = await r.json();
         throw new Error(d.error);
       }
-      setTitle(''); setDesc(''); setAssignee(''); setDueAt('');
+      setTitle(''); setDesc(''); setAssignee(''); setDueAt(''); setAlertFreq(30);
       setShowForm(false);
       await load();
     } catch (e: any) {
@@ -534,10 +600,19 @@ export default function EventActivitiesTab({ eventId }: { eventId: string }) {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">Atribuir a</label>
-              <select value={assignee} onChange={e => setAssignee(e.target.value)}
+              <select value={assignee} onChange={e => handleAssigneeChange(e.target.value)}
                 className="w-full px-3 py-2 border rounded-lg text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/30">
                 <option value="">— Ninguém —</option>
-                {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                {users.length > 0 && (
+                  <optgroup label="Equipe interna">
+                    {users.map(u => <option key={u.id} value={`user:${u.id}`}>{u.name}</option>)}
+                  </optgroup>
+                )}
+                {people.length > 0 && (
+                  <optgroup label="Pessoas do evento">
+                    {people.map(p => <option key={p.id} value={`person:${p.id}`}>{p.name}</option>)}
+                  </optgroup>
+                )}
               </select>
             </div>
             <div>
@@ -546,6 +621,19 @@ export default function EventActivitiesTab({ eventId }: { eventId: string }) {
                 className="w-full px-3 py-2 border rounded-lg text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/30" />
             </div>
           </div>
+
+          {assignee && (
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">
+                Avisar por WhatsApp{assignee.startsWith('person:') && ' (pessoa sem login: mínimo 1x/dia)'}
+              </label>
+              <select value={alertFreq} onChange={e => setAlertFreq(Number(e.target.value))}
+                className="w-full px-3 py-2 border rounded-lg text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/30">
+                {freqOptionsFor(assignee).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              <p className="text-[11px] text-muted-foreground mt-1">Alertas só são enviados em horário útil (dias úteis, 08h–18h).</p>
+            </div>
+          )}
 
           {createError && (
             <p className="text-xs text-destructive bg-destructive/10 px-3 py-2 rounded-lg">{createError}</p>
@@ -583,6 +671,7 @@ export default function EventActivitiesTab({ eventId }: { eventId: string }) {
               key={a.id}
               activity={a}
               users={users}
+              people={people}
               eventId={eventId}
               onDelete={deleteActivity}
               onUpdated={load}
@@ -603,6 +692,7 @@ export default function EventActivitiesTab({ eventId }: { eventId: string }) {
                 key={a.id}
                 activity={a}
                 users={users}
+                people={people}
                 eventId={eventId}
                 onDelete={deleteActivity}
                 onUpdated={load}

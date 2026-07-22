@@ -4,7 +4,17 @@ import { prisma } from '../server.js';
 // URL de produção do fluxo ENVIAR_MSG; sobrescrever com N8N_WEBHOOK_URL se necessário.
 const WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || 'https://n8n.youdobrasil.com.br/webhook/ENVIAR_MSG';
 const CHECK_INTERVAL_MS = 5 * 60 * 1000;   // verifica a cada 5 min
-const ALERT_INTERVAL_MS = 30 * 60 * 1000;  // re-alerta a cada 30 min
+const TZ = 'America/Sao_Paulo';
+const BUSINESS_HOUR_START = 8;
+const BUSINESS_HOUR_END = 18;
+
+// Alertas só saem em horário útil (dias úteis, 08h–18h no fuso de SP), independente da frequência escolhida
+function isBusinessHours(d: Date): boolean {
+  const weekday = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short' }).format(d);
+  if (weekday === 'Sat' || weekday === 'Sun') return false;
+  const hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', hour12: false }).format(d));
+  return hour >= BUSINESS_HOUR_START && hour < BUSINESS_HOUR_END;
+}
 
 // O fluxo n8n prefixa "+55" — enviar apenas DDD + número (dígitos, sem código do país)
 function normalizePhone(raw: string): string | null {
@@ -24,24 +34,33 @@ function fmtDateTime(d: Date): string {
 
 async function checkOverdueActivities(log: (msg: string) => void) {
   const now = new Date();
-  const alertCutoff = new Date(now.getTime() - ALERT_INTERVAL_MS);
+
+  if (!isBusinessHours(now)) return; // alertas só em horário útil, qualquer que seja a frequência
 
   const overdue = await (prisma as any).eventActivity.findMany({
     where: {
       status: 'open',
       dueAt: { lt: now },
-      assignedToId: { not: null },
-      OR: [{ lastAlertAt: null }, { lastAlertAt: { lt: alertCutoff } }],
+      OR: [
+        { assignedToId: { not: null } },
+        { assignedPersonId: { not: null } },
+      ],
     },
     include: {
       assignedTo: { select: { name: true, phone: true } },
+      assignedPerson: { select: { name: true, whatsapp: true } },
       event: { select: { name: true } },
     },
-    take: 50,
+    take: 200,
   });
 
   for (const act of overdue) {
-    const phone = act.assignedTo?.phone ? normalizePhone(act.assignedTo.phone) : null;
+    const freqMs = (act.alertFreqMinutes ?? 30) * 60 * 1000;
+    if (act.lastAlertAt && now.getTime() - new Date(act.lastAlertAt).getTime() < freqMs) continue;
+
+    const assigneeName = act.assignedTo?.name ?? act.assignedPerson?.name ?? null;
+    const rawPhone = act.assignedTo?.phone ?? act.assignedPerson?.whatsapp ?? null;
+    const phone = rawPhone ? normalizePhone(rawPhone) : null;
     if (!phone) {
       // Sem telefone cadastrado — marca para não reprocessar toda rodada
       await (prisma as any).eventActivity.update({ where: { id: act.id }, data: { lastAlertAt: now } });
@@ -53,7 +72,7 @@ async function checkOverdueActivities(log: (msg: string) => void) {
     const BR = '\\n\\n';
     const mensagem =
       `⚠️ *ATIVIDADE ATRASADA*${BR}` +
-      `Olá ${act.assignedTo.name}! Você tem uma atividade pendente que já passou do prazo.${BR}` +
+      `Olá ${assigneeName}! Você tem uma atividade pendente que já passou do prazo.${BR}` +
       `📋 *Atividade:* ${act.title}${BR}` +
       `🎪 *Evento:* ${act.event?.name ?? '—'}${BR}` +
       `🕐 *Prazo:* ${fmtDateTime(new Date(act.dueAt))}${BR}` +

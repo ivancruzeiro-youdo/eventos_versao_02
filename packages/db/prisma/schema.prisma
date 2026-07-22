@@ -1484,8 +1484,9 @@ model Person {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  employer   Employer      @relation(fields: [employerId], references: [id])
-  eventLinks EventMember[]
+  employer          Employer        @relation(fields: [employerId], references: [id])
+  eventLinks        EventMember[]
+  activitiesAssigned EventActivity[] @relation("ActivityAssignedPerson")
 
   @@unique([employerId, cpf])
   @@index([employerId])
@@ -1512,28 +1513,32 @@ model EventMember {
 
 model EventActivity {
   id            String    @id @default(uuid())
-  eventId       String
-  title         String
-  description   String?
-  assignedToId  String?
-  createdById   String?
-  dueAt         DateTime?
-  status        String    @default("open")
-  completedAt   DateTime?
-  completedById String?
-  response      String?
-  lastAlertAt   DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  eventId         String
+  title           String
+  description     String?
+  assignedToId    String?
+  assignedPersonId String?
+  createdById     String?
+  dueAt           DateTime?
+  status          String    @default("open")
+  completedAt     DateTime?
+  completedById   String?
+  response        String?
+  lastAlertAt     DateTime?
+  alertFreqMinutes Int      @default(30)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  event       Event               @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  assignedTo  User?               @relation("ActivityAssignedTo", fields: [assignedToId], references: [id])
-  createdBy   User?               @relation("ActivityCreatedBy", fields: [createdById], references: [id])
-  completedBy User?               @relation("ActivityCompletedBy", fields: [completedById], references: [id])
-  files       EventActivityFile[]
+  event          Event               @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  assignedTo     User?               @relation("ActivityAssignedTo", fields: [assignedToId], references: [id])
+  assignedPerson Person?             @relation("ActivityAssignedPerson", fields: [assignedPersonId], references: [id])
+  createdBy      User?               @relation("ActivityCreatedBy", fields: [createdById], references: [id])
+  completedBy    User?               @relation("ActivityCompletedBy", fields: [completedById], references: [id])
+  files          EventActivityFile[]
 
   @@index([eventId])
   @@index([status])
+  @@index([assignedPersonId])
 }
 
 model EventActivityFile {
