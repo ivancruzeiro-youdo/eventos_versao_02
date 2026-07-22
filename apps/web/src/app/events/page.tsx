@@ -459,7 +459,6 @@ export default function EventsPage() {
             <div className="flex items-center justify-between px-6 py-4 border-b">
               <div>
                 <h2 className="text-lg font-semibold">Sincronizar Contratos Userp</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">Família &quot;experience&quot; · apenas de hoje em diante</p>
               </div>
               <button onClick={() => setSyncOpen(false)} className="p-1.5 rounded hover:bg-muted"><X size={18} /></button>
             </div>
