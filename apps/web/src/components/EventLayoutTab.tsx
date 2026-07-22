@@ -96,6 +96,7 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
   const [dragOffset,  setDragOffset]  = useState({ ox: 0, oy: 0 });
   const [overTrash,   setOverTrash]   = useState(false);
   const [selectedId,  setSelectedId]  = useState<string | null>(null);
+  const [hoverId,     setHoverId]     = useState<string | null>(null);
 
   const activeLayout = layouts.find(l => l.id === activeLayoutId) ?? null;
 
@@ -318,7 +319,7 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
 
   function getElementCss(el: PlacedElement): React.CSSProperties {
     const cfg = configs.find(c => c.type === el.type);
-    const isSel = selectedId === el.id;
+    const isActive = selectedId === el.id || hoverId === el.id;
     if (floorPlanW && floorPlanH && cfg?.widthMeters && cfg?.heightMeters) {
       return {
         position: 'absolute',
@@ -327,7 +328,7 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
         width: `${(cfg.widthMeters / floorPlanW) * 100}%`,
         height: `${(cfg.heightMeters / floorPlanH) * 100}%`,
         transform: `translate(-50%, -50%) rotate(${el.rotation}deg)`,
-        zIndex: isSel ? 20 : 10,
+        zIndex: isActive ? 20 : 10,
         cursor: draggingId === el.id ? 'grabbing' : 'grab',
       };
     }
@@ -340,7 +341,7 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
       width: `${wPct * 100}%`,
       aspectRatio: `${wPct}/${hPct}`,
       transform: `translate(-50%, -50%) rotate(${el.rotation}deg)`,
-      zIndex: isSel ? 20 : 10,
+      zIndex: isActive ? 20 : 10,
       cursor: draggingId === el.id ? 'grabbing' : 'grab',
     };
   }
@@ -614,37 +615,40 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
                   {/* Placed elements */}
                   {elements.map(el => {
                     const isSelected = selectedId === el.id;
+                    const isActive = isSelected || hoverId === el.id;
                     return (
                       <div
                         key={el.id}
                         style={getElementCss(el)}
                         onMouseDown={e => handleElementMouseDown(e, el.id)}
+                        onClick={e => e.stopPropagation()}
+                        onMouseEnter={() => setHoverId(el.id)}
+                        onMouseLeave={() => setHoverId(prev => (prev === el.id ? null : prev))}
                       >
                         <div className={`w-full h-full drop-shadow-md transition-all ${isSelected ? 'ring-2 ring-primary ring-offset-1 rounded' : ''}`}>
                           <ElementIcon type={el.type} iconUrl={configs.find(c => c.type === el.type)?.iconUrl} />
                         </div>
-                        {isSelected && (
-                          <div
-                            className="absolute -top-7 left-1/2 flex gap-1"
-                            style={{ transform: `translateX(-50%) rotate(${-el.rotation}deg)` }}
-                            onMouseDown={e => e.stopPropagation()}
+                        <div
+                          className={`absolute -top-7 left-1/2 flex gap-1 transition-opacity ${isActive ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                          style={{ transform: `translateX(-50%) rotate(${-el.rotation}deg)` }}
+                          onMouseDown={e => e.stopPropagation()}
+                          onMouseEnter={() => setHoverId(el.id)}
+                        >
+                          <button
+                            onClick={e => { e.stopPropagation(); rotateElement(el.id); }}
+                            className="p-1 bg-card border rounded shadow text-muted-foreground hover:text-foreground"
+                            title="Girar 45°"
                           >
-                            <button
-                              onClick={e => { e.stopPropagation(); rotateElement(el.id); }}
-                              className="p-1 bg-card border rounded shadow text-muted-foreground hover:text-foreground"
-                              title="Girar 45°"
-                            >
-                              <RotateCw className="size-3" />
-                            </button>
-                            <button
-                              onClick={e => { e.stopPropagation(); removeElement(el.id); }}
-                              className="p-1 bg-card border rounded shadow text-muted-foreground hover:text-destructive"
-                              title="Remover"
-                            >
-                              <X className="size-3" />
-                            </button>
-                          </div>
-                        )}
+                            <RotateCw className="size-3" />
+                          </button>
+                          <button
+                            onClick={e => { e.stopPropagation(); removeElement(el.id); }}
+                            className="p-1 bg-card border rounded shadow text-muted-foreground hover:text-destructive"
+                            title="Remover"
+                          >
+                            <X className="size-3" />
+                          </button>
+                        </div>
                       </div>
                     );
                   })}

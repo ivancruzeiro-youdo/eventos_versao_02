@@ -107,6 +107,7 @@ export default function VenueDetailPage() {
   const [tplDragOffset, setTplDragOffset] = useState({ ox: 0, oy: 0 });
   const [tplOverTrash, setTplOverTrash] = useState(false);
   const [tplSelectedId, setTplSelectedId] = useState<string | null>(null);
+  const [tplHoverId, setTplHoverId] = useState<string | null>(null);
   const tplCanvasRef = useRef<HTMLDivElement>(null);
   const tplTrashRef = useRef<HTMLDivElement>(null);
 
@@ -297,7 +298,7 @@ export default function VenueDetailPage() {
       left: `${el.x * 100}%`,
       top: `${el.y * 100}%`,
       transform: `translate(-50%, -50%) rotate(${el.rotation}deg)`,
-      zIndex: tplSelectedId === el.id ? 20 : 10,
+      zIndex: (tplSelectedId === el.id || tplHoverId === el.id) ? 20 : 10,
       cursor: tplDraggingId === el.id ? 'grabbing' : 'grab',
     };
     const w = venue?.floorPlanWidthMeters;
@@ -1085,30 +1086,37 @@ export default function VenueDetailPage() {
                       {/* Elements */}
                       {templateElements.map(el => {
                         const isSel = tplSelectedId === el.id;
+                        const isActive = isSel || tplHoverId === el.id;
                         return (
-                          <div key={el.id} style={tplElementStyle(el)} onMouseDown={e => tplHandleElementMouseDown(e, el.id)}>
+                          <div
+                            key={el.id}
+                            style={tplElementStyle(el)}
+                            onMouseDown={e => tplHandleElementMouseDown(e, el.id)}
+                            onClick={e => e.stopPropagation()}
+                            onMouseEnter={() => setTplHoverId(el.id)}
+                            onMouseLeave={() => setTplHoverId(prev => (prev === el.id ? null : prev))}
+                          >
                             <div className={`w-full h-full drop-shadow-md ${isSel ? 'ring-2 ring-primary ring-offset-1 rounded' : ''}`}>
                               {stockElements.find(c => c.type === el.type)?.iconUrl
                                 ? <img src={stockElements.find(c => c.type === el.type)!.iconUrl!} alt={el.type} className="w-full h-full object-contain" draggable={false} />
                                 : <div className="w-full h-full">{ELEMENT_ICONS[el.type] ?? <div className="w-full h-full bg-primary/40 rounded" />}</div>
                               }
                             </div>
-                            {isSel && (
-                              <div
-                                className="absolute -top-7 left-1/2 flex gap-1"
-                                style={{ transform: `translateX(-50%) rotate(${-el.rotation}deg)` }}
-                                onMouseDown={e => e.stopPropagation()}
-                              >
-                                <button onClick={e => { e.stopPropagation(); tplRotate(el.id); }}
-                                  className="p-1 bg-card border rounded shadow text-muted-foreground hover:text-foreground">
-                                  <RotateCw className="size-3" />
-                                </button>
-                                <button onClick={e => { e.stopPropagation(); tplRemove(el.id); }}
-                                  className="p-1 bg-card border rounded shadow text-muted-foreground hover:text-destructive">
-                                  <X className="size-3" />
-                                </button>
-                              </div>
-                            )}
+                            <div
+                              className={`absolute -top-7 left-1/2 flex gap-1 transition-opacity ${isActive ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                              style={{ transform: `translateX(-50%) rotate(${-el.rotation}deg)` }}
+                              onMouseDown={e => e.stopPropagation()}
+                              onMouseEnter={() => setTplHoverId(el.id)}
+                            >
+                              <button onClick={e => { e.stopPropagation(); tplRotate(el.id); }}
+                                className="p-1 bg-card border rounded shadow text-muted-foreground hover:text-foreground">
+                                <RotateCw className="size-3" />
+                              </button>
+                              <button onClick={e => { e.stopPropagation(); tplRemove(el.id); }}
+                                className="p-1 bg-card border rounded shadow text-muted-foreground hover:text-destructive">
+                                <X className="size-3" />
+                              </button>
+                            </div>
                           </div>
                         );
                       })}
