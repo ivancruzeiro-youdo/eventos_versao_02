@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronDown, ChevronRight, HelpCircle, CheckCircle2, Clock, History, MessageSquare, Send, Trash2, Printer } from 'lucide-react';
+import { ChevronDown, ChevronRight, HelpCircle, CheckCircle2, Clock, History, MessageSquare, Send, Trash2, Printer, X, FileText, Grid3x3 } from 'lucide-react';
 import { formatDateTime } from '@/lib/utils';
 
 interface Question {
@@ -66,6 +66,7 @@ interface Props {
 export default function EventItemsTab({ eventId, category }: Props) {
   const router = useRouter();
   const [selectedForMenu, setSelectedForMenu] = useState<Set<string>>(new Set());
+  const [showPrintFormatModal, setShowPrintFormatModal] = useState(false);
   const [items, setItems] = useState<EventItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -520,14 +521,55 @@ export default function EventItemsTab({ eventId, category }: Props) {
           </p>
           <button
             disabled={selectedForMenu.size === 0}
-            onClick={() => {
-              const ids = Array.from(selectedForMenu).join(',');
-              window.open(`/events/${eventId}/cardapio?items=${ids}`, '_blank');
-            }}
+            onClick={() => setShowPrintFormatModal(true)}
             className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition"
           >
             <Printer size={14} /> Imprimir Cardápio
           </button>
+        </div>
+      )}
+
+      {/* Print format modal */}
+      {showPrintFormatModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-card border rounded-xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <h3 className="font-semibold text-sm">Escolha o formato de impressão</h3>
+              <button onClick={() => setShowPrintFormatModal(false)} className="p-1 rounded hover:bg-muted transition">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="p-5 space-y-3">
+              <button
+                onClick={() => {
+                  const ids = Array.from(selectedForMenu).join(',');
+                  window.open(`/events/${eventId}/cardapio?items=${ids}`, '_blank');
+                  setShowPrintFormatModal(false);
+                }}
+                className="w-full flex items-start gap-3 p-4 border rounded-lg hover:border-primary hover:bg-primary/5 transition text-left"
+              >
+                <FileText size={20} className="text-primary shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-sm">Cartão A6</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Cartão de mesa frente/verso (comida e bebida), 4 por folha A4.</p>
+                </div>
+              </button>
+              <button
+                onClick={() => {
+                  const ids = Array.from(selectedForMenu).join(',');
+                  window.open(`/events/${eventId}/cardapio/placas?items=${ids}`, '_blank');
+                  setShowPrintFormatModal(false);
+                }}
+                className="w-full flex items-start gap-3 p-4 border rounded-lg hover:border-primary hover:bg-primary/5 transition text-left"
+              >
+                <Grid3x3 size={20} className="text-primary shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-sm">Placas de Buffet</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Uma placa por prato/bebida, para identificar cada item no buffet.</p>
+                </div>
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
