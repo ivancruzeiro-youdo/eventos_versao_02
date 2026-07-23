@@ -506,7 +506,6 @@ export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
             const hours = svc.startAt && svc.endAt
               ? ((new Date(svc.endAt).getTime() - new Date(svc.startAt).getTime()) / 3600000).toFixed(1)
               : null;
-            const totalValue = hours ? (Number(hours) * svc.valuePerHour).toFixed(2) : null;
             const isExpanded = expandedId === svc.id;
             const filledCount = getFilledCount(svc.service.name);
             const remainingSlots = svc.maxSlots - filledCount;
@@ -560,7 +559,7 @@ export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
                 {/* Card details (expandable) */}
                 {isExpanded && (
                   <div className="px-4 py-3 space-y-3">
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-sm">
                       <div>
                         <p className="text-xs text-muted-foreground">Início</p>
                         <p className="font-medium">{svc.startAt ? formatDateTime(svc.startAt) : <span className="text-muted-foreground italic text-xs">A definir</span>}</p>
@@ -583,6 +582,21 @@ export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
                             <span className="text-muted-foreground text-xs ml-1">({remainingSlots} em aberto)</span>
                           )}
                         </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Valor Total</p>
+                        {hours ? (
+                          <>
+                            <p className="font-semibold text-green-700">
+                              R$ {(Number(hours) * svc.valuePerHour * filledCount).toFixed(2)}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {filledCount} pessoa{filledCount !== 1 ? 's' : ''} × {hours}h × R$ {svc.valuePerHour.toFixed(2)}
+                            </p>
+                          </>
+                        ) : (
+                          <p className="text-muted-foreground italic text-xs">Defina início/término</p>
+                        )}
                       </div>
                     </div>
 
