@@ -76,10 +76,11 @@ const STATUS_COLORS: Record<string, string> = {
   filled: 'bg-blue-100 text-blue-800',
 };
 
-const applicationStatusConfig = {
-  pending:  { label: 'Pendente',  color: 'bg-yellow-100 text-yellow-800' },
-  approved: { label: 'Confirmado', color: 'bg-green-100 text-green-800'  },
-  rejected: { label: 'Removido',  color: 'bg-red-100 text-red-800'      },
+const applicationStatusConfig: Record<string, { label: string; color: string }> = {
+  pending:   { label: 'Pendente',   color: 'bg-yellow-100 text-yellow-800' },
+  approved:  { label: 'Confirmado', color: 'bg-green-100 text-green-800'  },
+  rejected:  { label: 'Removido',   color: 'bg-red-100 text-red-800'      },
+  cancelled: { label: 'Cancelado',  color: 'bg-muted text-muted-foreground' },
 };
 
 const emptyForm = {
@@ -909,8 +910,8 @@ export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
                         </div>
 
                         {/* Status badge */}
-                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium shrink-0 ${cfg.color}`}>
-                          {cfg.label}
+                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium shrink-0 ${cfg?.color ?? 'bg-muted text-muted-foreground'}`}>
+                          {cfg?.label ?? app.status}
                         </span>
 
                         {/* Actions */}
