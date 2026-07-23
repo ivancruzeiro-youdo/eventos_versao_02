@@ -14,6 +14,7 @@ export default function NewEventPage() {
   
   const [formData, setFormData] = useState({
     name: '',
+    publicName: '',
     clientName: '',
     venueIds: [] as string[],
     setupAt: '',
@@ -89,6 +90,19 @@ export default function NewEventPage() {
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
                 placeholder="Ex: Conferência Anual 2026"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Nome do Evento (como cliente divulga) *
+              </label>
+              <input
+                type="text"
+                required
+                value={formData.publicName}
+                onChange={(e) => setFormData({ ...formData, publicName: e.target.value })}
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                placeholder="Ex: Baile de Formatura Turma 2026"
               />
             </div>
             <div>

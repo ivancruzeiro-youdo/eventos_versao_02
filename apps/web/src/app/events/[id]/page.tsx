@@ -45,6 +45,7 @@ interface EventContract {
 interface Event {
   id: string;
   name: string;
+  publicName: string | null;
   clientName: string;
   status: string;
   setupAt: string | null;
@@ -121,6 +122,11 @@ export default function EventDetailPage() {
   const [dateForm, setDateForm] = useState({ startAt: '', teardownAt: '' });
   const [savingDates, setSavingDates] = useState(false);
 
+  // Inline public name editing
+  const [editingPublicName, setEditingPublicName] = useState(false);
+  const [publicNameForm, setPublicNameForm] = useState('');
+  const [savingPublicName, setSavingPublicName] = useState(false);
+
   // Client portal
   const [showClientPanel, setShowClientPanel] = useState(false);
   const [reservationInput, setReservationInput] = useState('');
@@ -139,6 +145,35 @@ export default function EventDetailPage() {
   function openDateEdit() {
     setDateForm({ startAt: toLocalInput(event!.startAt), teardownAt: toLocalInput(event!.teardownAt) });
     setEditingDates(true);
+  }
+
+  function openPublicNameEdit() {
+    setPublicNameForm(event!.publicName || '');
+    setEditingPublicName(true);
+  }
+
+  async function savePublicName() {
+    if (!publicNameForm.trim()) { alert('Campo obrigatório.'); return; }
+    setSavingPublicName(true);
+    try {
+      const response = await fetch(`/api/v2/events/${eventId}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ publicName: publicNameForm.trim() }),
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        alert(error.error || 'Erro ao salvar o nome de divulgação.');
+        return;
+      }
+      await loadEvent();
+      setEditingPublicName(false);
+    } catch (err) {
+      alert('Erro ao salvar o nome de divulgação.');
+    } finally {
+      setSavingPublicName(false);
+    }
   }
 
   async function saveDates() {
@@ -476,6 +511,37 @@ export default function EventDetailPage() {
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold text-foreground">{event.name}</h1>
+            {editingPublicName ? (
+              <div className="flex items-center gap-2 mt-1">
+                <input
+                  autoFocus
+                  value={publicNameForm}
+                  onChange={e => setPublicNameForm(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') savePublicName(); if (e.key === 'Escape') setEditingPublicName(false); }}
+                  placeholder="Nome do evento (como cliente divulga)"
+                  className="px-2 py-1 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 w-72 max-w-full"
+                />
+                <button onClick={savePublicName} disabled={savingPublicName}
+                  className="p-1.5 text-success hover:bg-success/10 rounded transition disabled:opacity-50">
+                  <Check size={14} />
+                </button>
+                <button onClick={() => setEditingPublicName(false)}
+                  className="p-1.5 text-muted-foreground hover:bg-muted rounded transition">
+                  <X size={14} />
+                </button>
+              </div>
+            ) : (
+              <button onClick={openPublicNameEdit} className="flex items-center gap-1.5 mt-1 group">
+                {event.publicName ? (
+                  <span className="text-sm text-muted-foreground group-hover:text-foreground transition">{event.publicName}</span>
+                ) : (
+                  <span className="flex items-center gap-1 text-sm text-destructive font-medium">
+                    <AlertTriangle size={12} /> Preencher nome de divulgação (obrigatório)
+                  </span>
+                )}
+                <Pencil size={11} className="text-muted-foreground opacity-0 group-hover:opacity-100 transition shrink-0" />
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(getEventDisplayStatus(event))}`}>

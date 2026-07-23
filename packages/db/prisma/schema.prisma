@@ -165,6 +165,7 @@ enum EventStatus {
 model Event {
   id                String      @id @default(uuid())
   name              String
+  publicName        String?
   clientName        String
   employerId        String
   status            EventStatus @default(draft)

@@ -6,6 +6,7 @@ import { EventStatus } from '@youdo/db';
 
 const createEventSchema = z.object({
   name: z.string().min(1),
+  publicName: z.string().min(1, 'Campo obrigatório'),
   clientName: z.string().min(1),
   venueIds: z.array(z.string()).optional(),
   setupAt: z.string().datetime().optional(),
@@ -60,6 +61,7 @@ export async function eventRoutes(app: FastifyInstance) {
     const event = await prisma.event.create({
       data: {
         name: data.name,
+        publicName: data.publicName,
         clientName: data.clientName,
         employerId,
         setupAt: data.setupAt ? new Date(data.setupAt) : null,
@@ -128,7 +130,7 @@ export async function eventRoutes(app: FastifyInstance) {
 
     const eventBefore = await prisma.event.findUnique({
       where: { id },
-      select: { employerId: true, name: true, clientName: true, setupAt: true, startAt: true, teardownAt: true, notes: true },
+      select: { employerId: true, name: true, publicName: true, clientName: true, setupAt: true, startAt: true, teardownAt: true, notes: true },
     });
 
     if (!eventBefore) {
@@ -143,6 +145,7 @@ export async function eventRoutes(app: FastifyInstance) {
       where: { id },
       data: {
         name: data.name,
+        publicName: data.publicName,
         clientName: data.clientName,
         setupAt: data.setupAt ? new Date(data.setupAt) : undefined,
         startAt: data.startAt ? new Date(data.startAt) : undefined,
@@ -161,8 +164,8 @@ export async function eventRoutes(app: FastifyInstance) {
         action: 'update',
         entityType: 'Event',
         entityId: id,
-        before: { name: eventBefore.name, clientName: eventBefore.clientName, startAt: eventBefore.startAt, teardownAt: eventBefore.teardownAt, setupAt: eventBefore.setupAt, notes: eventBefore.notes },
-        after: { name: data.name, clientName: data.clientName, startAt: data.startAt, teardownAt: data.teardownAt, setupAt: data.setupAt, notes: data.notes },
+        before: { name: eventBefore.name, publicName: eventBefore.publicName, clientName: eventBefore.clientName, startAt: eventBefore.startAt, teardownAt: eventBefore.teardownAt, setupAt: eventBefore.setupAt, notes: eventBefore.notes },
+        after: { name: data.name, publicName: data.publicName, clientName: data.clientName, startAt: data.startAt, teardownAt: data.teardownAt, setupAt: data.setupAt, notes: data.notes },
         ip: request.ip,
       },
     });
