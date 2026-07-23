@@ -80,6 +80,15 @@ export default function ReportsPage() {
   const [npsMonths, setNpsMonths] = useState<NpsMonth[]>([]);
   const [npsLoading, setNpsLoading] = useState(true);
   const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
+  const [expandedComments, setExpandedComments] = useState<Set<string>>(new Set());
+
+  function toggleComment(id: string) {
+    setExpandedComments(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   useEffect(() => {
     loadReports();
@@ -326,7 +335,19 @@ export default function ReportsPage() {
                                 {entry.score}
                               </span>
                             </td>
-                            <td className="px-4 py-3 text-muted-foreground max-w-xs truncate">{entry.comentario || '—'}</td>
+                            <td className="px-4 py-3 text-muted-foreground max-w-xs">
+                              {entry.comentario ? (
+                                <button
+                                  onClick={() => toggleComment(entry.id)}
+                                  className={`text-left w-full hover:text-foreground transition ${
+                                    expandedComments.has(entry.id) ? 'whitespace-normal break-words' : 'line-clamp-1'
+                                  }`}
+                                  title={expandedComments.has(entry.id) ? 'Clique para recolher' : 'Clique para ver o comentário completo'}
+                                >
+                                  {entry.comentario}
+                                </button>
+                              ) : '—'}
+                            </td>
                             <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{formatDate(entry.submittedAt)}</td>
                           </tr>
                         ))}
