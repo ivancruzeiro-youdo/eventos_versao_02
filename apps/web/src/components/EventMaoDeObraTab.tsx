@@ -588,10 +588,10 @@ export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
                         {hours ? (
                           <>
                             <p className="font-semibold text-green-700">
-                              R$ {(Number(hours) * svc.valuePerHour * filledCount).toFixed(2)}
+                              R$ {(Number(hours) * svc.valuePerHour * svc.maxSlots).toFixed(2)}
                             </p>
                             <p className="text-[11px] text-muted-foreground">
-                              {filledCount} pessoa{filledCount !== 1 ? 's' : ''} × {hours}h × R$ {svc.valuePerHour.toFixed(2)}
+                              {svc.maxSlots} vaga{svc.maxSlots !== 1 ? 's' : ''} × {hours}h × R$ {svc.valuePerHour.toFixed(2)}
                             </p>
                           </>
                         ) : (
