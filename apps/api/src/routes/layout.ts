@@ -70,48 +70,57 @@ export async function layoutRoutes(app: FastifyInstance) {
     return { success: true, url };
   });
 
-  // GET /events/:id/layout — load event layout + floor plan URL
-  app.get('/events/:id/layout', { preHandler: requireAuth }, async (request, reply) => {
+  // GET /events/:id/layout-venues — floor plan info for EVERY venue linked to the event
+  // (an event can have multiple venues; each has its own independent floor plan/scale/stock)
+  app.get('/events/:id/layout-venues', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId } = request.params as { id: string };
 
-    const eventVenue = await prisma.eventVenue.findFirst({
+    const eventVenues = await prisma.eventVenue.findMany({
       where: { eventId },
-      include: { venue: { select: { floorPlanS3Key: true, floorPlanWidthMeters: true, floorPlanHeightMeters: true, layoutStock: true } as any } },
+      include: { venue: { select: { id: true, name: true, floorPlanS3Key: true, floorPlanWidthMeters: true, floorPlanHeightMeters: true, layoutStock: true } as any } },
       orderBy: { id: 'asc' },
     });
 
-    let floorPlanUrl: string | null = null;
-    if ((eventVenue?.venue as any)?.floorPlanS3Key) {
-      floorPlanUrl = await getFloorPlanUrl((eventVenue?.venue as any).floorPlanS3Key);
-    }
+    const venues = await Promise.all(eventVenues.map(async (ev: any) => {
+      const v = ev.venue;
+      const floorPlanUrl = v?.floorPlanS3Key ? await getFloorPlanUrl(v.floorPlanS3Key) : null;
+      return {
+        venueId: ev.venueId,
+        venueName: v?.name ?? '',
+        floorPlanUrl,
+        floorPlanWidthMeters: v?.floorPlanWidthMeters ?? null,
+        floorPlanHeightMeters: v?.floorPlanHeightMeters ?? null,
+        layoutStock: v?.layoutStock ?? null,
+      };
+    }));
 
-    return {
-      success: true,
-      floorPlanUrl,
-      venueId: eventVenue?.venueId ?? null,
-      floorPlanWidthMeters: (eventVenue?.venue as any)?.floorPlanWidthMeters ?? null,
-      floorPlanHeightMeters: (eventVenue?.venue as any)?.floorPlanHeightMeters ?? null,
-      layoutStock: (eventVenue?.venue as any)?.layoutStock ?? null,
-    };
+    return { success: true, venues };
   });
 
-  // GET /events/:id/layouts — list all layouts for an event
+  // GET /events/:id/layouts — list all layouts for an event (optionally filtered by venueId)
   app.get('/events/:id/layouts', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId } = request.params as { id: string };
+    const { venueId } = request.query as { venueId?: string };
     const layouts = await (prisma as any).eventLayout.findMany({
-      where: { eventId },
+      where: venueId ? { eventId, venueId } : { eventId },
       orderBy: { createdAt: 'asc' },
     });
     return { success: true, layouts };
   });
 
-  // POST /events/:id/layouts — create a new layout
+  // POST /events/:id/layouts — create a new layout, scoped to one of the event's venues
   app.post('/events/:id/layouts', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId } = request.params as { id: string };
-    const { name = 'Novo Layout', elements = [] } = request.body as any;
+    const { name = 'Novo Layout', elements = [], venueId } = request.body as any;
     const user = (request as any).user;
+
+    if (venueId) {
+      const link = await prisma.eventVenue.findFirst({ where: { eventId, venueId } });
+      if (!link) return reply.status(400).send({ error: 'Espaço não vinculado a este evento' });
+    }
+
     const layout = await (prisma as any).eventLayout.create({
-      data: { eventId, name, elements, createdById: user.id },
+      data: { eventId, venueId: venueId || null, name, elements, createdById: user.id },
     });
     return { success: true, layout };
   });

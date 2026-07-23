@@ -927,15 +927,18 @@ function StatusBanner({ token, jwt, approvals }: { token: string; jwt: string; a
 const API_URL_CLIENT = process.env.NEXT_PUBLIC_API_URL || '';
 
 interface LayoutElement { id: string; type: string; x: number; y: number; rotation: number; }
-interface ClientLayout { id: string; name: string; elements: LayoutElement[]; isLocked: boolean; }
+interface ClientLayout { id: string; venueId: string | null; name: string; elements: LayoutElement[]; isLocked: boolean; }
 interface ElementCfg { type: string; widthMeters: number; heightMeters: number; iconUrl?: string; }
+interface ClientVenueInfo {
+  venueId: string; venueName: string;
+  floorPlanUrl: string | null; floorPlanWidthMeters: number | null; floorPlanHeightMeters: number | null;
+}
 
 function LayoutTab({ eventId }: { eventId: string }) {
-  const [floorPlanUrl, setFloorPlanUrl]   = useState<string | null>(null);
-  const [floorPlanW,   setFloorPlanW]     = useState<number | null>(null);
-  const [floorPlanH,   setFloorPlanH]     = useState<number | null>(null);
+  const [venues,       setVenues]         = useState<ClientVenueInfo[]>([]);
+  const [activeVenueId, setActiveVenueId] = useState<string | null>(null);
   const [imgAspect,    setImgAspect]      = useState<number | null>(null);
-  const [layouts,      setLayouts]        = useState<ClientLayout[]>([]);
+  const [allLayouts,   setAllLayouts]     = useState<ClientLayout[]>([]);
   const [activeId,     setActiveId]       = useState<string | null>(null);
   const [configs,      setConfigs]        = useState<ElementCfg[]>([]);
   const [loading,      setLoading]        = useState(true);
@@ -943,17 +946,15 @@ function LayoutTab({ eventId }: { eventId: string }) {
   useEffect(() => {
     async function load() {
       try {
-        const [meta, layoutsRes, cfgRes] = await Promise.all([
-          fetch(`${API_URL_CLIENT}/api/v2/events/${eventId}/layout`, { credentials: 'include' }).then(r => r.json()),
+        const [venuesRes, layoutsRes, cfgRes] = await Promise.all([
+          fetch(`${API_URL_CLIENT}/api/v2/events/${eventId}/layout-venues`, { credentials: 'include' }).then(r => r.json()),
           fetch(`${API_URL_CLIENT}/api/v2/events/${eventId}/layouts`, { credentials: 'include' }).then(r => r.json()),
           fetch(`${API_URL_CLIENT}/api/v2/admin/layout-config`, { credentials: 'include' }).then(r => r.json()),
         ]);
-        setFloorPlanUrl(meta.floorPlanUrl ?? null);
-        setFloorPlanW(meta.floorPlanWidthMeters ?? null);
-        setFloorPlanH(meta.floorPlanHeightMeters ?? null);
-        const visible: ClientLayout[] = (layoutsRes.layouts ?? []).filter((l: ClientLayout) => !l.isLocked);
-        setLayouts(visible);
-        if (visible.length > 0) setActiveId(visible[0].id);
+        const venueList: ClientVenueInfo[] = venuesRes.venues ?? [];
+        setVenues(venueList);
+        if (venueList.length > 0) setActiveVenueId(venueList[0].venueId);
+        setAllLayouts((layoutsRes.layouts ?? []).filter((l: ClientLayout) => !l.isLocked));
         setConfigs(cfgRes.elements ?? []);
       } catch { /* ignore */ } finally {
         setLoading(false);
@@ -961,6 +962,20 @@ function LayoutTab({ eventId }: { eventId: string }) {
     }
     load();
   }, [eventId]);
+
+  const activeVenue = venues.find(v => v.venueId === activeVenueId) ?? null;
+  const floorPlanUrl = activeVenue?.floorPlanUrl ?? null;
+  const floorPlanW   = activeVenue?.floorPlanWidthMeters ?? null;
+  const floorPlanH   = activeVenue?.floorPlanHeightMeters ?? null;
+
+  const layouts = allLayouts.filter(l =>
+    l.venueId ? l.venueId === activeVenueId : activeVenueId === venues[0]?.venueId
+  );
+
+  useEffect(() => {
+    setActiveId(layouts[0]?.id ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeVenueId]);
 
   const active = layouts.find(l => l.id === activeId);
 
@@ -983,28 +998,63 @@ function LayoutTab({ eventId }: { eventId: string }) {
     return <div className="flex justify-center py-20"><div className="size-8 rounded-full border-2 border-primary border-t-transparent animate-spin" /></div>;
   }
 
-  if (!floorPlanUrl) {
+  if (venues.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-20 text-muted-foreground">
         <LayoutGrid className="size-10 opacity-30" />
-        <p className="text-sm">Planta baixa ainda não configurada para este espaço.</p>
+        <p className="text-sm">Nenhum espaço vinculado a este evento.</p>
+      </div>
+    );
+  }
+
+  const venueSwitcher = venues.length > 1 && (
+    <div className="flex gap-2 flex-wrap">
+      {venues.map(v => (
+        <button
+          key={v.venueId}
+          onClick={() => setActiveVenueId(v.venueId)}
+          className={`px-3 py-1.5 rounded-lg text-sm border transition ${
+            v.venueId === activeVenueId
+              ? 'bg-primary text-primary-foreground border-primary'
+              : 'bg-card border-input hover:bg-muted/50'
+          }`}
+        >
+          {v.venueName}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (!floorPlanUrl) {
+    return (
+      <div className="flex flex-col gap-3">
+        {venueSwitcher}
+        <div className="flex flex-col items-center justify-center gap-3 py-20 text-muted-foreground">
+          <LayoutGrid className="size-10 opacity-30" />
+          <p className="text-sm">Planta baixa ainda não configurada para {activeVenue?.venueName ?? 'este espaço'}.</p>
+        </div>
       </div>
     );
   }
 
   if (layouts.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 py-20 text-muted-foreground text-center px-4">
-        <Lock className="size-10 opacity-30" />
-        <p className="text-sm font-medium uppercase tracking-widest max-w-xs leading-relaxed">
-          Layout em preparação. Confira o layout final com a equipe de produção.
-        </p>
+      <div className="flex flex-col gap-3">
+        {venueSwitcher}
+        <div className="flex flex-col items-center justify-center gap-3 py-20 text-muted-foreground text-center px-4">
+          <Lock className="size-10 opacity-30" />
+          <p className="text-sm font-medium uppercase tracking-widest max-w-xs leading-relaxed">
+            Layout em preparação. Confira o layout final com a equipe de produção.
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col gap-3">
+      {venueSwitcher}
+
       {/* Layout tabs */}
       {layouts.length > 1 && (
         <div className="flex gap-2 flex-wrap">

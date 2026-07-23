@@ -248,6 +248,7 @@ model Venue {
   events           EventVenue[]
   questions        VenueQuestion[]
   layoutTemplates  VenueLayoutTemplate[]
+  eventLayouts     EventLayout[]
 
   @@index([employerId])
 }
@@ -1559,6 +1560,7 @@ model EventActivityFile {
 model EventLayout {
   id          String   @id @default(uuid())
   eventId     String
+  venueId     String?
   name        String   @default("Layout Padrão")
   elements    Json
   createdById String?
@@ -1566,9 +1568,11 @@ model EventLayout {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  event Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  venue Venue? @relation(fields: [venueId], references: [id])
 
   @@index([eventId])
+  @@index([venueId])
 }
 
 model EventLayoutConfig {

@@ -19,7 +19,7 @@ interface EventCardProps {
 }
 
 export default function EventCard({ event }: EventCardProps) {
-  const venueName = event.venues?.length > 0 ? event.venues.filter(v => v.venue).map(v => v.venue.name).join(' + ') || 'Sem local definido' : 'Sem local definido';
+  const venueNames = event.venues?.filter(v => v.venue).map(v => v.venue.name) ?? [];
   const guestCount = event._count?.guests || 0;
 
   return (
@@ -40,9 +40,15 @@ export default function EventCard({ event }: EventCardProps) {
             <Calendar className="size-4" />
             <span>{event.startAt ? formatDate(event.startAt) : 'Data não definida'}</span>
           </div>
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <MapPin className="size-4" />
-            <span>{venueName}</span>
+          <div className="flex items-start gap-2 text-muted-foreground">
+            <MapPin className="size-4 mt-0.5 shrink-0" />
+            {venueNames.length > 0 ? (
+              <div className="flex flex-col">
+                {venueNames.map((name, i) => <span key={i}>{name}</span>)}
+              </div>
+            ) : (
+              <span>Sem local definido</span>
+            )}
           </div>
           <div className="flex items-center gap-2 text-muted-foreground">
             <Users className="size-4" />

@@ -716,7 +716,9 @@ export default function EventDetailPage() {
               <div>
                 <p className="text-xs text-muted-foreground">Local</p>
                 {event.venues?.length > 0 ? (
-                  <p className="font-semibold text-sm">{event.venues.filter(v => v.venue).map(v => v.venue.name).join(' + ')}</p>
+                  event.venues.filter(v => v.venue).map((v, i) => (
+                    <p key={i} className="font-semibold text-sm">{v.venue.name}</p>
+                  ))
                 ) : (
                   <p className="italic text-muted-foreground text-sm">A definir</p>
                 )}

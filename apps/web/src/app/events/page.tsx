@@ -359,12 +359,12 @@ export default function EventsPage() {
                             {event.teardownAt ? formatDateTime(event.teardownAt) : <em>A definir</em>}
                           </span>
                         </span>
-                        {event.venues.length > 0 && (
-                          <span className="flex items-center gap-1">
+                        {event.venues.filter(v => v.venue).map((v, i) => (
+                          <span key={i} className="flex items-center gap-1">
                             <MapPin className="size-3.5 shrink-0" />
-                            <span className="text-xs">{event.venues.filter(v => v.venue).map(v => v.venue.name).join(' + ')}</span>
+                            <span className="text-xs">{v.venue.name}</span>
                           </span>
-                        )}
+                        ))}
                       </div>
                     </div>
                     <ChevronRight className="size-5 text-muted-foreground shrink-0 mt-1" />

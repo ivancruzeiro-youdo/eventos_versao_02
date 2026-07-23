@@ -27,10 +27,20 @@ interface PlacedElement {
 
 interface SavedLayout {
   id: string;
+  venueId: string | null;
   name: string;
   elements: PlacedElement[];
   isLocked: boolean;
   createdById: string | null;
+}
+
+interface EventVenueInfo {
+  venueId: string;
+  venueName: string;
+  floorPlanUrl: string | null;
+  floorPlanWidthMeters: number | null;
+  floorPlanHeightMeters: number | null;
+  layoutStock: Record<string, number> | null;
 }
 
 function ElementIcon({ type, iconUrl }: { type: string; iconUrl?: string }) {
@@ -63,20 +73,30 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const trashRef  = useRef<HTMLDivElement>(null);
 
-  // Floor plan meta
-  const [floorPlanUrl, setFloorPlanUrl] = useState<string | null>(null);
-  const [floorPlanW,   setFloorPlanW]   = useState<number | null>(null);
-  const [floorPlanH,   setFloorPlanH]   = useState<number | null>(null);
-  const [imgAspect,    setImgAspect]    = useState<number | null>(null);
+  // Venues linked to this event — each has its own independent floor plan
+  const [venues,          setVenues]          = useState<EventVenueInfo[]>([]);
+  const [activeVenueId,   setActiveVenueId]   = useState<string | null>(null);
+  const [imgAspect,       setImgAspect]       = useState<number | null>(null);
 
-  // Layouts
-  const [layouts,        setLayouts]        = useState<SavedLayout[]>([]);
+  const activeVenue = venues.find(v => v.venueId === activeVenueId) ?? null;
+  const floorPlanUrl = activeVenue?.floorPlanUrl ?? null;
+  const floorPlanW   = activeVenue?.floorPlanWidthMeters ?? null;
+  const floorPlanH   = activeVenue?.floorPlanHeightMeters ?? null;
+  const maxCounts    = activeVenue?.layoutStock ?? {};
+
+  // Layouts (all venues loaded once; filtered by activeVenueId for display)
+  const [allLayouts,     setAllLayouts]     = useState<SavedLayout[]>([]);
   const [activeLayoutId, setActiveLayoutId] = useState<string | null>(null);
   const [elements,       setElements]       = useState<PlacedElement[]>([]);
 
+  // Layouts belonging to the currently selected venue (legacy layouts with no venueId
+  // fall back to the first venue, since they predate multi-venue support)
+  const layouts = allLayouts.filter(l =>
+    l.venueId ? l.venueId === activeVenueId : activeVenueId === venues[0]?.venueId
+  );
+
   // Element configs
   const [configs,    setConfigs]    = useState<ElementConfig[]>(DEFAULT_CONFIGS);
-  const [maxCounts,  setMaxCounts]  = useState<Record<string, number>>({});
 
   // UI
   const [loading,          setLoading]          = useState(true);
@@ -86,10 +106,9 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
   const [editingName,      setEditingName]      = useState(false);
   const [nameDraft,        setNameDraft]        = useState('');
 
-  // Templates
+  // Templates (per active venue)
   const [templates,        setTemplates]        = useState<{id:string;name:string;elements:PlacedElement[]}[]>([]);
   const [showTplPicker,    setShowTplPicker]    = useState(false);
-  const [venueId,          setVenueId]          = useState<string | null>(null);
 
   // Drag
   const [draggingId,  setDraggingId]  = useState<string | null>(null);
@@ -105,30 +124,18 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
   useEffect(() => {
     async function load() {
       try {
-        const [metaRes, layoutsRes, cfgRes] = await Promise.allSettled([
-          api(`${API_URL}/api/v2/events/${eventId}/layout`),
+        const [venuesRes, layoutsRes, cfgRes] = await Promise.allSettled([
+          api(`${API_URL}/api/v2/events/${eventId}/layout-venues`),
           api(`${API_URL}/api/v2/events/${eventId}/layouts`),
           api(`${API_URL}/api/v2/admin/layout-config`),
         ]);
-        if (metaRes.status === 'fulfilled') {
-          setFloorPlanUrl(metaRes.value.floorPlanUrl ?? null);
-          setFloorPlanW(metaRes.value.floorPlanWidthMeters ?? null);
-          setFloorPlanH(metaRes.value.floorPlanHeightMeters ?? null);
-          if (metaRes.value.layoutStock) setMaxCounts(metaRes.value.layoutStock);
-          // Load templates for this event's venue
-          if (metaRes.value.venueId) {
-            setVenueId(metaRes.value.venueId);
-            const tplRes = await fetch(`${API_URL}/api/v2/venues/${metaRes.value.venueId}/layout-templates`, { credentials: 'include' });
-            if (tplRes.ok) { const d = await tplRes.json(); setTemplates(d.templates ?? []); }
-          }
+        if (venuesRes.status === 'fulfilled') {
+          const list: EventVenueInfo[] = venuesRes.value.venues ?? [];
+          setVenues(list);
+          if (list.length > 0) setActiveVenueId(list[0].venueId);
         }
         if (layoutsRes.status === 'fulfilled') {
-          const list: SavedLayout[] = layoutsRes.value.layouts ?? [];
-          setLayouts(list);
-          if (list.length > 0) {
-            setActiveLayoutId(list[0].id);
-            setElements(list[0].elements ?? []);
-          }
+          setAllLayouts(layoutsRes.value.layouts ?? []);
         }
         if (cfgRes.status === 'fulfilled') {
           setConfigs((cfgRes.value.elements ?? DEFAULT_CONFIGS).filter((c: ElementConfig) => c.active));
@@ -139,6 +146,26 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
     }
     load();
   }, [eventId]);
+
+  // When the active venue changes, select its first layout and load its templates
+  useEffect(() => {
+    if (!activeVenueId) return;
+    setSelectedId(null);
+    setEditingName(false);
+    setShowTplPicker(false);
+    if (layouts.length > 0) {
+      setActiveLayoutId(layouts[0].id);
+      setElements(layouts[0].elements ?? []);
+    } else {
+      setActiveLayoutId(null);
+      setElements([]);
+    }
+    fetch(`${API_URL}/api/v2/venues/${activeVenueId}/layout-templates`, { credentials: 'include' })
+      .then(r => r.ok ? r.json() : { templates: [] })
+      .then(d => setTemplates(d.templates ?? []))
+      .catch(() => setTemplates([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeVenueId, allLayouts]);
 
   // ── Layout management ─────────────────────────────────────────────────────
 
@@ -152,15 +179,16 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
   }
 
   async function createLayout(fromElements: PlacedElement[] = [], fromName?: string) {
+    if (!activeVenueId) return;
     setCreatingLayout(true); setShowTplPicker(false);
     try {
       const data = await api(`${API_URL}/api/v2/events/${eventId}/layouts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: fromName ?? `Layout ${layouts.length + 1}`, elements: fromElements }),
+        body: JSON.stringify({ name: fromName ?? `Layout ${layouts.length + 1}`, elements: fromElements, venueId: activeVenueId }),
       });
       const l: SavedLayout = data.layout;
-      setLayouts(prev => [...prev, l]);
+      setAllLayouts(prev => [...prev, l]);
       setActiveLayoutId(l.id);
       setElements(fromElements);
       setSelectedId(null);
@@ -186,7 +214,7 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ elements, name: activeLayout.name }),
       });
-      setLayouts(prev => prev.map(l => l.id === activeLayoutId ? { ...l, elements, name: activeLayout.name } : l));
+      setAllLayouts(prev => prev.map(l => l.id === activeLayoutId ? { ...l, elements, name: activeLayout.name } : l));
       setSaveMsg({ ok: true, text: 'Salvo!' });
     } catch {
       setSaveMsg({ ok: false, text: 'Erro ao salvar.' });
@@ -201,9 +229,9 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
     if (!confirm('Excluir este layout?')) return;
     try {
       await api(`${API_URL}/api/v2/events/${eventId}/layouts/${id}`, { method: 'DELETE' });
-      const remaining = layouts.filter(l => l.id !== id);
-      setLayouts(remaining);
+      setAllLayouts(prev => prev.filter(l => l.id !== id));
       if (activeLayoutId === id) {
+        const remaining = layouts.filter(l => l.id !== id);
         setActiveLayoutId(remaining[0]?.id ?? null);
         setElements(remaining[0]?.elements ?? []);
       }
@@ -220,7 +248,7 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isLocked: newLocked }),
       });
-      setLayouts(prev => prev.map(x => x.id === id ? { ...x, isLocked: newLocked } : x));
+      setAllLayouts(prev => prev.map(x => x.id === id ? { ...x, isLocked: newLocked } : x));
     } catch { /* ignore */ }
   }
 
@@ -232,7 +260,7 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name }),
       });
-      setLayouts(prev => prev.map(l => l.id === id ? { ...l, name } : l));
+      setAllLayouts(prev => prev.map(l => l.id === id ? { ...l, name } : l));
     } catch { /* ignore */ }
     setEditingName(false);
   }
@@ -354,8 +382,39 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
 
   const hasScale = !!(floorPlanW && floorPlanH);
 
+  if (venues.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-3 text-muted-foreground">
+        <AlertCircle className="size-10" />
+        <p className="text-sm text-center max-w-xs">Nenhum espaço vinculado a este evento ainda.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-[calc(100vh-220px)] min-h-[500px]">
+
+      {/* ── Venue selector (only shown when the event has more than one venue) ── */}
+      {venues.length > 1 && (
+        <div className="flex items-center gap-1.5 pb-2 mb-1 flex-wrap">
+          {venues.map(v => (
+            <button
+              key={v.venueId}
+              onClick={() => setActiveVenueId(v.venueId)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm border transition ${
+                v.venueId === activeVenueId
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'bg-card border-input hover:bg-muted/50 text-card-foreground'
+              }`}
+            >
+              {v.venueName}
+              {!v.floorPlanUrl && (
+                <AlertCircle className={`size-3 ${v.venueId === activeVenueId ? 'opacity-90' : 'text-amber-500'}`} />
+              )}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* ── Layout tabs bar ── */}
       <div className="flex items-center gap-2 pb-2 mb-2 border-b flex-wrap">
@@ -542,7 +601,8 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
             <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
               <AlertCircle className="size-12" />
               <p className="text-sm text-center max-w-xs">
-                Nenhuma planta baixa configurada para o espaço deste evento.
+                Nenhuma planta baixa configurada para <strong>{activeVenue?.venueName ?? 'este espaço'}</strong>.
+                {venues.length > 1 && ' Selecione outro espaço acima ou cadastre a planta em Espaços.'}
               </p>
             </div>
           ) : layouts.length === 0 ? (
