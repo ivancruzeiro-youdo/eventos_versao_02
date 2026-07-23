@@ -168,8 +168,8 @@ export default function EventsPage() {
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
     const daysInMonth = lastDay.getDate();
-    const startingDayOfWeek = firstDay.getDay();
-    
+    const startingDayOfWeek = (firstDay.getDay() + 6) % 7; // semana começa na segunda (0 = Seg ... 6 = Dom)
+
     const days: (Date | null)[] = [];
     for (let i = 0; i < startingDayOfWeek; i++) {
       days.push(null);
@@ -253,6 +253,14 @@ export default function EventsPage() {
             Novo Evento
           </Link>
         </div>
+      </div>
+
+      {/* Status legend */}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 mb-6 text-xs text-muted-foreground">
+        <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-full bg-green-500 shrink-0" /> Em planejamento</span>
+        <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-full bg-amber-500 shrink-0" /> Em execução</span>
+        <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-full bg-purple-500 shrink-0" /> Aguardando NPS</span>
+        <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-full bg-gray-400 shrink-0" /> Finalizado</span>
       </div>
 
       {/* Filters */}
@@ -406,7 +414,7 @@ export default function EventsPage() {
 
           {/* Calendar Grid */}
           <div className="grid grid-cols-7 gap-px bg-border rounded-lg overflow-hidden">
-            {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((day) => (
+            {['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map((day) => (
               <div key={day} className="bg-muted p-2 text-center text-sm font-medium text-muted-foreground">
                 {day}
               </div>
