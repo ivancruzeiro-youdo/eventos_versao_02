@@ -149,6 +149,19 @@ export default function ClosurePage() {
           )}
         </div>
 
+        {/* A&B excedente */}
+        {!!closure.abExcessQty && (
+          <div className="bg-card border rounded-xl p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <AlertTriangle size={16} className="text-amber-500" />
+              <h2 className="font-semibold">Excedente de A&B confirmado</h2>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Contratado: <strong className="text-foreground">{closure.abContractedQty}</strong> · Check-ins: <strong className="text-foreground">{closure.abCheckedInCount}</strong> · Cobrança adicional confirmada: <strong className="text-foreground">{closure.abExcessQty}</strong> pessoa{closure.abExcessQty === 1 ? '' : 's'}.
+            </p>
+          </div>
+        )}
+
         {/* Itens Quebrados */}
         {closure.itensQuebrados && (
           <div className="bg-card border rounded-xl p-5">

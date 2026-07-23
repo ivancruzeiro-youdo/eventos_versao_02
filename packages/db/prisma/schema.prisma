@@ -1414,6 +1414,9 @@ model EventClosure {
   eventId             String   @unique
   itensQuebrados      String?
   situacoesReportadas String?
+  abContractedQty     Float?   // quantidade de A&B contratada (snapshot no encerramento)
+  abCheckedInCount    Int?     // quantidade de convidados com check-in (snapshot no encerramento)
+  abExcessQty         Float?   // excedente confirmado pelo operador para cobrança adicional
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 

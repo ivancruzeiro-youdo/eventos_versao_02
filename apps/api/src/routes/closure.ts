@@ -7,6 +7,7 @@ import { randomUUID } from 'crypto';
 const closureSchema = z.object({
   itensQuebrados: z.string().optional(),
   situacoesReportadas: z.string().optional(),
+  abExcessQty: z.number().min(0).optional(),
   // attachments sent as array of base64 objects
   attachments: z
     .array(
@@ -48,11 +49,22 @@ export async function closureRoutes(app: FastifyInstance) {
     const body = closureSchema.parse(request.body);
     const npsToken = randomUUID();
 
+    // Snapshot A&B contracted quantity vs. actual check-ins, for excedente billing
+    const [abItems, guests] = await Promise.all([
+      (prisma as any).eventItem.findMany({ where: { eventId, category: 'ab' }, select: { quantity: true } }),
+      prisma.guest.findMany({ where: { eventId }, select: { status: true } }),
+    ]);
+    const abContractedQty = abItems.length > 0 ? Math.max(...abItems.map((i: any) => i.quantity)) : null;
+    const abCheckedInCount = guests.filter((g) => g.status === 'checked_in').length;
+
     const closure = await (prisma as any).eventClosure.create({
       data: {
         eventId,
         itensQuebrados: body.itensQuebrados ?? null,
         situacoesReportadas: body.situacoesReportadas ?? null,
+        abContractedQty,
+        abCheckedInCount,
+        abExcessQty: body.abExcessQty ?? null,
         attachments: body.attachments?.length
           ? {
               create: body.attachments.map((a) => ({

@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
 import { closureApi } from '@/lib/api';
-import { Copy, Upload, X, CheckCircle } from 'lucide-react';
+import { Copy, Upload, X, CheckCircle, AlertTriangle } from 'lucide-react';
 
 interface Attachment {
   filename: string;
@@ -30,6 +30,39 @@ export default function EncerrarEventoPage() {
   const [error, setError] = useState('');
   const [npsUrl, setNpsUrl] = useState('');
   const [copied, setCopied] = useState(false);
+
+  // A&B excedente: check-ins vs. quantidade contratada
+  const [abContractedQty, setAbContractedQty] = useState<number | null>(null);
+  const [abCheckedInCount, setAbCheckedInCount] = useState<number | null>(null);
+  const [abExcessQty, setAbExcessQty] = useState<string>('');
+
+  useEffect(() => {
+    async function loadAbSummary() {
+      try {
+        const [evRes, itemsRes] = await Promise.all([
+          fetch(`/api/v2/events/${eventId}`, { credentials: 'include' }),
+          fetch(`/api/v2/events/${eventId}/items?category=ab`, { credentials: 'include' }),
+        ]);
+        if (!evRes.ok || !itemsRes.ok) return;
+        const evData = await evRes.json();
+        const itemsData = await itemsRes.json();
+        const guests: { status: string }[] = evData.event?.guests ?? [];
+        const items: { quantity: number }[] = itemsData.items ?? [];
+        const checkedIn = guests.filter(g => g.status === 'checked_in').length;
+        const contracted = items.length > 0 ? Math.max(...items.map(i => i.quantity)) : null;
+        setAbCheckedInCount(checkedIn);
+        setAbContractedQty(contracted);
+        if (contracted !== null && checkedIn > contracted) {
+          setAbExcessQty(String(checkedIn - contracted));
+        }
+      } catch { /* silent — não bloqueia o encerramento */ }
+    }
+    loadAbSummary();
+  }, [eventId]);
+
+  const suggestedExcess = abContractedQty !== null && abCheckedInCount !== null
+    ? Math.max(0, abCheckedInCount - abContractedQty)
+    : 0;
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files || []);
@@ -70,9 +103,11 @@ export default function EncerrarEventoPage() {
     setError('');
     setSubmitting(true);
     try {
+      const excessNum = abExcessQty.trim() ? Number(abExcessQty) : undefined;
       const res = await closureApi.encerrar(eventId, {
         itensQuebrados: form.itensQuebrados || undefined,
         situacoesReportadas: form.situacoesReportadas || undefined,
+        abExcessQty: excessNum !== undefined && !isNaN(excessNum) ? excessNum : undefined,
         attachments: attachments.map(({ filename, mimeType, sizeBytes, dataBase64 }) => ({
           filename,
           mimeType,
@@ -154,6 +189,31 @@ export default function EncerrarEventoPage() {
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-6">
+          {/* A&B excedente */}
+          {suggestedExcess > 0 && (
+            <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800 rounded-xl p-5">
+              <div className="flex items-center gap-2 mb-2">
+                <AlertTriangle size={16} className="text-amber-600" />
+                <h2 className="font-semibold text-amber-900 dark:text-amber-300">Check-ins acima do contratado para A&B</h2>
+              </div>
+              <p className="text-sm text-amber-800 dark:text-amber-400 mb-3">
+                Contratado: <strong>{abContractedQty}</strong> · Check-ins realizados: <strong>{abCheckedInCount}</strong> ·
+                {' '}Sugestão de cobrança adicional: <strong>{suggestedExcess}</strong> pessoa{suggestedExcess === 1 ? '' : 's'}.
+              </p>
+              <label className="block text-xs font-medium text-amber-900 dark:text-amber-300 mb-1">
+                Quantidade a cobrar como adicional (ajuste se necessário)
+              </label>
+              <input
+                type="number"
+                min={0}
+                step="1"
+                value={abExcessQty}
+                onChange={(e) => setAbExcessQty(e.target.value)}
+                className="w-40 border border-amber-300 dark:border-amber-700 rounded-lg px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-amber-500"
+              />
+            </div>
+          )}
+
           {/* Itens Quebrados */}
           <div className="bg-card border rounded-xl p-5">
             <label className="block text-sm font-semibold mb-2">Itens Quebrados / Danificados</label>
