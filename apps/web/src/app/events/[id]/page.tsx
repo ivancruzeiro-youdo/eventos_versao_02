@@ -16,6 +16,7 @@ import EventActivitiesTab from '@/components/EventActivitiesTab';
 import EventLayoutTab from '@/components/EventLayoutTab';
 import EventKitchenTab from '@/components/EventKitchenTab';
 import EventTeamTab from '@/components/EventTeamTab';
+import EventProfessionalsTab from '@/components/EventProfessionalsTab';
 import UserpStatusBanner from '@/components/UserpStatusBanner';
 import { eventsApi, guestsApi } from '@/lib/api';
 import { formatDateTime, getStatusColor, getStatusLabel, getEventDisplayStatus, formatPhone, formatCpf } from '@/lib/utils';
@@ -23,7 +24,7 @@ import {
   MessageCircle, FileText, Clock, CheckSquare, Users,
   ClipboardList, Briefcase, UtensilsCrossed, HardHat, Trash2, ChevronDown,
   Calendar, MapPin, Pencil, Check, X, Copy, UserCog, ChefHat, LogOut, Star, Plus,
-  GripVertical, Printer, Mail, Phone, CreditCard, FileSignature, Receipt, ListTodo, LayoutGrid, AlertTriangle
+  GripVertical, Printer, Mail, Phone, CreditCard, FileSignature, Receipt, ListTodo, LayoutGrid, AlertTriangle, Camera
 } from 'lucide-react';
 
 interface EventContract {
@@ -88,6 +89,7 @@ const tabs = [
   { id: 'infra', label: 'Infraestrutura', icon: HardHat },
   { id: 'kitchen', label: 'Cozinha', icon: ChefHat },
   { id: 'team', label: 'Pessoas', icon: UserCog },
+  { id: 'professionals', label: 'Profissionais', icon: Camera },
   { id: 'layout', label: 'Layout', icon: LayoutGrid },
 ];
 
@@ -1111,6 +1113,9 @@ export default function EventDetailPage() {
       )}
       {activeTab === 'team' && (
         <EventTeamTab eventId={eventId} />
+      )}
+      {activeTab === 'professionals' && (
+        <EventProfessionalsTab eventId={eventId} />
       )}
       {activeTab === 'layout' && (
         <EventLayoutTab eventId={eventId} />

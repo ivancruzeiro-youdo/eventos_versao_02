@@ -38,7 +38,7 @@ function formatWa(v: string) {
 interface Person {
   id: string;
   name: string;
-  cpf: string;
+  cpf: string | null;
   whatsapp: string | null;
   photoUrl: string | null;
   createdAt: string;
@@ -78,7 +78,7 @@ function CpfField({ value, onChange }: { value: string; onChange: (v: string) =>
 
   return (
     <div className="space-y-1">
-      <label className="text-xs font-medium text-muted-foreground block">CPF *</label>
+      <label className="text-xs font-medium text-muted-foreground block">CPF (opcional)</label>
       <div className="relative">
         <input
           value={value}
@@ -104,10 +104,11 @@ function CpfField({ value, onChange }: { value: string; onChange: (v: string) =>
 
 // ── Edit modal ────────────────────────────────────────────────────────────────
 
-function EditModal({ person, onClose, onSaved }: { person: Person; onClose: () => void; onSaved: (p: Person) => void }) {
-  const [name, setName] = useState(person.name);
-  const [cpf, setCpf] = useState(formatCpf(person.cpf));
-  const [whatsapp, setWhatsapp] = useState(person.whatsapp ? formatWa(person.whatsapp) : '');
+function EditModal({ person, onClose, onSaved }: { person: Person | null; onClose: () => void; onSaved: (p: Person) => void }) {
+  const isNew = !person;
+  const [name, setName] = useState(person?.name ?? '');
+  const [cpf, setCpf] = useState(person?.cpf ? formatCpf(person.cpf) : '');
+  const [whatsapp, setWhatsapp] = useState(person?.whatsapp ? formatWa(person.whatsapp) : '');
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -123,40 +124,47 @@ function EditModal({ person, onClose, onSaved }: { person: Person; onClose: () =
     reader.readAsDataURL(f);
   }
 
+  async function uploadPhoto(personId: string) {
+    if (!photoFile) return;
+    const fd = new FormData();
+    fd.append('file', photoFile);
+    const rp = await fetch(`/api/v2/people/${personId}/photo`, {
+      method: 'POST', credentials: 'include', body: fd,
+    });
+    if (!rp.ok) {
+      const dp = await rp.json().catch(() => ({}));
+      throw new Error(dp.error || 'Erro ao enviar foto');
+    }
+  }
+
   async function save() {
-    const cpfDigits = cpf.replace(/\D/g, '');
     if (!name.trim()) { setError('Nome é obrigatório'); return; }
-    if (cpfDigits.length !== 11) { setError('CPF incompleto'); return; }
-    if (!cpfDigitsValid(cpfDigits)) { setError('CPF inválido'); return; }
+    if (cpfDigits && !cpfDigitsValid(cpfDigits)) { setError('CPF inválido'); return; }
 
     setSaving(true); setError('');
     try {
-      const r = await fetch(`/api/v2/people/${person.id}`, {
-        method: 'PATCH',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: name.trim(),
-          cpf: cpfDigits,
-          whatsapp: whatsapp.replace(/\D/g, '') || null,
-        }),
-      });
+      const body = {
+        name: name.trim(),
+        cpf: cpfDigits || undefined,
+        whatsapp: whatsapp.replace(/\D/g, '') || null,
+      };
+      const r = isNew
+        ? await fetch('/api/v2/people', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          })
+        : await fetch(`/api/v2/people/${person!.id}`, {
+            method: 'PATCH', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Erro ao salvar');
 
-      if (photoFile) {
-        const fd = new FormData();
-        fd.append('file', photoFile);
-        const rp = await fetch(`/api/v2/people/${person.id}/photo`, {
-          method: 'POST', credentials: 'include', body: fd,
-        });
-        if (!rp.ok) {
-          const dp = await rp.json().catch(() => ({}));
-          throw new Error(dp.error || 'Erro ao enviar foto');
-        }
-      }
+      await uploadPhoto(d.person.id);
 
-      onSaved({ ...d.person, photoUrl: photoFile ? 'uploaded' : person.photoUrl });
+      onSaved({ ...d.person, photoUrl: photoFile ? 'uploaded' : (person?.photoUrl ?? d.person.photoUrl) });
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -165,13 +173,12 @@ function EditModal({ person, onClose, onSaved }: { person: Person; onClose: () =
   }
 
   const cpfDigits = cpf.replace(/\D/g, '');
-  const cpfOk = cpfDigits.length === 11 && cpfDigitsValid(cpfDigits);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="bg-background rounded-2xl shadow-xl w-full max-w-sm overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b">
-          <h2 className="font-semibold text-base">Editar pessoa</h2>
+          <h2 className="font-semibold text-base">{isNew ? 'Nova pessoa' : 'Editar pessoa'}</h2>
           <button onClick={onClose}><X size={18} className="text-muted-foreground" /></button>
         </div>
 
@@ -186,7 +193,7 @@ function EditModal({ person, onClose, onSaved }: { person: Person; onClose: () =
             >
               {photoPreview ? (
                 <img src={photoPreview} alt="preview" className="w-20 h-20 rounded-full object-cover border-2 border-border" />
-              ) : person.photoUrl ? (
+              ) : person?.photoUrl ? (
                 <img src={`/api/v2/people/${person.id}/photo`} alt={person.name} className="w-20 h-20 rounded-full object-cover border-2 border-border" />
               ) : (
                 <div className="w-20 h-20 rounded-full bg-muted border-2 border-dashed border-border flex items-center justify-center">
@@ -220,7 +227,7 @@ function EditModal({ person, onClose, onSaved }: { person: Person; onClose: () =
             <button onClick={onClose} className="flex-1 py-2 text-sm border rounded-lg hover:bg-muted/50 transition">Cancelar</button>
             <button
               onClick={save}
-              disabled={saving || !cpfOk || !name.trim()}
+              disabled={saving || !name.trim() || (cpfDigits.length > 0 && cpfDigits.length !== 11)}
               className="flex-1 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 transition"
             >
               {saving ? 'Salvando…' : 'Salvar'}
@@ -239,6 +246,7 @@ export default function PeoplePage() {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState<Person | null>(null);
+  const [creating, setCreating] = useState(false);
   const searchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async (q = '') => {
@@ -263,9 +271,17 @@ export default function PeoplePage() {
 
   return (
     <Layout>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">Pessoas</h1>
-        <p className="text-muted-foreground text-sm mt-1">Cadastro central de pessoas vinculadas a eventos</p>
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Pessoas</h1>
+          <p className="text-muted-foreground text-sm mt-1">Cadastro central de pessoas vinculadas a eventos</p>
+        </div>
+        <button
+          onClick={() => setCreating(true)}
+          className="shrink-0 px-4 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition"
+        >
+          + Nova Pessoa
+        </button>
       </div>
 
       {/* Search */}
@@ -310,9 +326,11 @@ export default function PeoplePage() {
                   <p className="text-sm font-medium truncate">{p.name}</p>
                   {/* CPF + WhatsApp on mobile */}
                   <div className="flex items-center gap-3 mt-0.5 sm:hidden">
-                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <CreditCard size={10} /> {formatCpf(p.cpf)}
-                    </span>
+                    {p.cpf && (
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <CreditCard size={10} /> {formatCpf(p.cpf)}
+                      </span>
+                    )}
                     {p.whatsapp && (
                       <a href={`https://wa.me/55${p.whatsapp}`} target="_blank" rel="noreferrer"
                         className="flex items-center gap-1 text-xs text-green-600 hover:underline">
@@ -323,7 +341,9 @@ export default function PeoplePage() {
                 </div>
 
                 {/* Desktop columns */}
-                <span className="hidden sm:block text-sm text-muted-foreground font-mono tracking-wide">{formatCpf(p.cpf)}</span>
+                <span className="hidden sm:block text-sm text-muted-foreground font-mono tracking-wide">
+                  {p.cpf ? formatCpf(p.cpf) : <span className="italic text-xs">—</span>}
+                </span>
                 <span className="hidden sm:block">
                   {p.whatsapp ? (
                     <a href={`https://wa.me/55${p.whatsapp}`} target="_blank" rel="noreferrer"
@@ -350,6 +370,17 @@ export default function PeoplePage() {
             {people.length} pessoa{people.length !== 1 ? 's' : ''}
           </div>
         </div>
+      )}
+
+      {creating && (
+        <EditModal
+          person={null}
+          onClose={() => setCreating(false)}
+          onSaved={created => {
+            setPeople(prev => [created, ...prev]);
+            setCreating(false);
+          }}
+        />
       )}
 
       {editing && (

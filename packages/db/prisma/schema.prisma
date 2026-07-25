@@ -182,6 +182,7 @@ model Event {
   venues       EventVenue[]
   guests       Guest[]
   parkingEntries ParkingEntry[]
+  professionals EventProfessional[]
   services     EventService[]
   plan         EventPlan?
   briefing     Briefing?
@@ -1502,15 +1503,16 @@ model Person {
   id         String   @id @default(uuid())
   employerId String
   name       String
-  cpf        String
+  cpf        String?
   whatsapp   String?
   photoUrl   String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  employer          Employer        @relation(fields: [employerId], references: [id])
-  eventLinks        EventMember[]
-  activitiesAssigned EventActivity[] @relation("ActivityAssignedPerson")
+  employer           Employer             @relation(fields: [employerId], references: [id])
+  eventLinks         EventMember[]
+  professionalLinks  EventProfessional[]
+  activitiesAssigned EventActivity[]      @relation("ActivityAssignedPerson")
 
   @@unique([employerId, cpf])
   @@index([employerId])
@@ -1529,6 +1531,25 @@ model EventMember {
 
   @@unique([eventId, personId])
   @@index([eventId])
+}
+
+// Profissionais contratados para o evento (fotógrafo, músico etc.) — cadastro central em
+// Person, com check-in próprio, separado dos convidados.
+model EventProfessional {
+  id            String    @id @default(uuid())
+  eventId       String
+  personId      String
+  role          String    // especialidade: Fotógrafo, Músico, DJ, etc.
+  checkedInAt   DateTime?
+  checkedInById String?
+  createdAt     DateTime  @default(now())
+
+  event Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  person Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, personId])
+  @@index([eventId])
+  @@index([personId])
 }
 
 // ============================================

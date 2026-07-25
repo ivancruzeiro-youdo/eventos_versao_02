@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, LogOut, CheckCircle, XCircle, Clock, Car, Camera, X, User as UserIcon, MapPin, ChevronLeft, Users, ListChecks } from 'lucide-react';
+import { Search, LogOut, CheckCircle, XCircle, Clock, Car, Camera, X, User as UserIcon, MapPin, ChevronLeft, Users, ListChecks, Briefcase } from 'lucide-react';
 
 interface TodayEvent {
   id: string;
@@ -39,6 +39,14 @@ interface ParkingEntry {
   photoUrl: string;
   registeredByName: string | null;
   createdAt: string;
+}
+
+interface EventProfessional {
+  id: string;
+  personId: string;
+  role: string;
+  checkedInAt: string | null;
+  person: { id: string; name: string; cpf: string | null; whatsapp: string | null; photoUrl: string | null };
 }
 
 // ── Parking modal ──────────────────────────────────────────────────────────────
@@ -393,11 +401,15 @@ export default function ReceptionistDashboard() {
   const [guestQuery, setGuestQuery] = useState('');
   const [checkinLoadingId, setCheckinLoadingId] = useState<string | null>(null);
   const [error, setError] = useState('');
-  const [tab, setTab] = useState<'guests' | 'vehicles'>('guests');
+  const [tab, setTab] = useState<'guests' | 'vehicles' | 'professionals'>('guests');
 
   const [parkingEntries, setParkingEntries] = useState<ParkingEntry[]>([]);
   const [loadingVehicles, setLoadingVehicles] = useState(false);
   const vehicleGuestIds = useMemo(() => new Set(parkingEntries.map(e => e.guestId)), [parkingEntries]);
+
+  const [professionals, setProfessionals] = useState<EventProfessional[]>([]);
+  const [loadingProfessionals, setLoadingProfessionals] = useState(false);
+  const [professionalCheckinId, setProfessionalCheckinId] = useState<string | null>(null);
 
   const [parkingTarget, setParkingTarget] = useState<{ id: string; name: string; eventName: string; hasVehicle?: boolean } | 'search' | null>(null);
   const [showAddGuest, setShowAddGuest] = useState(false);
@@ -446,7 +458,7 @@ export default function ReceptionistDashboard() {
     setGuestQuery('');
     setError('');
     setTab('guests');
-    await Promise.all([loadGuests(ev.id), loadVehicles(ev.id)]);
+    await Promise.all([loadGuests(ev.id), loadVehicles(ev.id), loadProfessionals(ev.id)]);
   }
 
   async function loadGuests(eventId: string) {
@@ -472,6 +484,32 @@ export default function ReceptionistDashboard() {
       }
     } catch { /* silent */ } finally {
       setLoadingVehicles(false);
+    }
+  }
+
+  async function loadProfessionals(eventId: string) {
+    setLoadingProfessionals(true);
+    try {
+      const res = await fetch(`/api/v2/events/${eventId}/professionals`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setProfessionals(data.professionals || []);
+      }
+    } catch { /* silent */ } finally {
+      setLoadingProfessionals(false);
+    }
+  }
+
+  async function handleProfessionalCheckin(id: string) {
+    setProfessionalCheckinId(id);
+    try {
+      const res = await fetch(`/api/v2/event-professionals/${id}/checkin`, { method: 'POST', credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setProfessionals(prev => prev.map(p => p.id === id ? data.professional : p));
+      }
+    } catch { /* silent */ } finally {
+      setProfessionalCheckinId(null);
     }
   }
 
@@ -682,6 +720,14 @@ export default function ReceptionistDashboard() {
               >
                 <Car size={15} /> Veículos {parkingEntries.length > 0 && `(${parkingEntries.length})`}
               </button>
+              <button
+                onClick={() => setTab('professionals')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium transition ${
+                  tab === 'professionals' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                <Briefcase size={15} /> Profissionais {professionals.length > 0 && `(${professionals.length})`}
+              </button>
             </div>
 
             {error && (
@@ -690,7 +736,7 @@ export default function ReceptionistDashboard() {
               </div>
             )}
 
-            {tab === 'guests' ? (
+            {tab === 'guests' && (
               loadingGuests ? (
                 <div className="flex justify-center py-10">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -737,7 +783,9 @@ export default function ReceptionistDashboard() {
                   })}
                 </div>
               )
-            ) : (
+            )}
+
+            {tab === 'vehicles' && (
               loadingVehicles ? (
                 <div className="flex justify-center py-10">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -758,6 +806,52 @@ export default function ReceptionistDashboard() {
                           {entry.registeredByName && ` · por ${entry.registeredByName}`}
                         </p>
                       </div>
+                    </div>
+                  ))}
+                </div>
+              )
+            )}
+
+            {tab === 'professionals' && (
+              loadingProfessionals ? (
+                <div className="flex justify-center py-10">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                </div>
+              ) : professionals.length === 0 ? (
+                <div className="bg-white rounded-2xl shadow-lg p-8 text-center text-gray-500">
+                  Nenhum profissional cadastrado para este evento.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {professionals.map(pr => (
+                    <div key={pr.id} className="bg-white rounded-xl shadow-sm p-4 flex items-center gap-3">
+                      {pr.person.photoUrl ? (
+                        <img src={`/api/v2/people/${pr.person.id}/photo`} alt={pr.person.name} className="w-10 h-10 rounded-full object-cover shrink-0" />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-semibold shrink-0">
+                          {pr.person.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-gray-900 truncate">{pr.person.name}</p>
+                        <div className="flex flex-wrap items-center gap-x-3 text-xs text-gray-500 mt-0.5">
+                          <span className="text-blue-700 font-medium">{pr.role}</span>
+                          {pr.checkedInAt && <span>Check-in às {new Date(pr.checkedInAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>}
+                        </div>
+                      </div>
+                      {pr.checkedInAt ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 shrink-0">
+                          <CheckCircle size={12} /> Check-in
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => handleProfessionalCheckin(pr.id)}
+                          disabled={professionalCheckinId === pr.id}
+                          className="px-3 py-2 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 transition disabled:opacity-50 shrink-0"
+                        >
+                          {professionalCheckinId === pr.id ? '...' : 'Check-in'}
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>

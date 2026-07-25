@@ -20,12 +20,17 @@ function cpfValid(digits: string): boolean {
 
 const personBody = z.object({
   name: z.string().min(1),
-  cpf: z.string().min(11).max(14),
+  cpf: z.string().min(11).max(14).optional().nullable(),
   whatsapp: z.string().optional().nullable(),
   photoUrl: z.string().optional().nullable(),
 });
 
 const memberBody = z.object({
+  personId: z.string().uuid(),
+  role: z.string().min(1),
+});
+
+const professionalBody = z.object({
   personId: z.string().uuid(),
   role: z.string().min(1),
 });
@@ -73,13 +78,14 @@ export async function peopleRoutes(app: FastifyInstance) {
 
     if (!user.employerId) return reply.status(403).send({ error: 'Sem empresa vinculada' });
 
+    const qDigits = q ? q.replace(/\D/g, '') : '';
     const people = await (prisma as any).person.findMany({
       where: {
         employerId: user.employerId,
         ...(q ? {
           OR: [
             { name: { contains: q, mode: 'insensitive' } },
-            { cpf: { contains: q.replace(/\D/g, '') } },
+            ...(qDigits.length >= 3 ? [{ cpf: { contains: qDigits } }] : []),
           ],
         } : {}),
       },
@@ -96,17 +102,18 @@ export async function peopleRoutes(app: FastifyInstance) {
     if (!user.employerId) return reply.status(403).send({ error: 'Sem empresa vinculada' });
 
     const data = personBody.parse(request.body);
-    const cpfClean = data.cpf.replace(/\D/g, '');
+    const cpfClean = data.cpf ? data.cpf.replace(/\D/g, '') : null;
 
-    if (!cpfValid(cpfClean)) {
+    if (cpfClean && !cpfValid(cpfClean)) {
       return reply.status(400).send({ error: 'CPF inválido. Verifique os dígitos.' });
     }
 
-    const existing = await (prisma as any).person.findUnique({
-      where: { employerId_cpf: { employerId: user.employerId, cpf: cpfClean } },
-    });
-
-    if (existing) return { success: true, person: existing, existed: true };
+    if (cpfClean) {
+      const existing = await (prisma as any).person.findUnique({
+        where: { employerId_cpf: { employerId: user.employerId, cpf: cpfClean } },
+      });
+      if (existing) return { success: true, person: existing, existed: true };
+    }
 
     const person = await (prisma as any).person.create({
       data: { ...data, cpf: cpfClean, employerId: user.employerId },
@@ -191,5 +198,68 @@ export async function peopleRoutes(app: FastifyInstance) {
     });
 
     return { success: true };
+  });
+
+  // ── Event professionals (fotógrafo, músico, etc. — com check-in próprio) ────
+
+  // List professionals of an event
+  app.get('/events/:eventId/professionals', { preHandler: requireAuth }, async (request, reply) => {
+    const { eventId } = request.params as { eventId: string };
+
+    const professionals = await (prisma as any).eventProfessional.findMany({
+      where: { eventId },
+      include: { person: true },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return { success: true, professionals };
+  });
+
+  // Add professional to event
+  app.post('/events/:eventId/professionals', { preHandler: requireAuth }, async (request, reply) => {
+    const user = (request as any).user;
+    const { eventId } = request.params as { eventId: string };
+    const { personId, role } = professionalBody.parse(request.body);
+
+    const person = await (prisma as any).person.findUnique({ where: { id: personId } });
+    if (!person || (user.employerId && person.employerId !== user.employerId))
+      return reply.status(404).send({ error: 'Pessoa não encontrada' });
+
+    const professional = await (prisma as any).eventProfessional.upsert({
+      where: { eventId_personId: { eventId, personId } },
+      create: { eventId, personId, role },
+      update: { role },
+      include: { person: true },
+    });
+
+    return reply.status(201).send({ success: true, professional });
+  });
+
+  // Remove professional from event
+  app.delete('/events/:eventId/professionals/:personId', { preHandler: requireAuth }, async (request, reply) => {
+    const { eventId, personId } = request.params as { eventId: string; personId: string };
+
+    await (prisma as any).eventProfessional.deleteMany({
+      where: { eventId, personId },
+    });
+
+    return { success: true };
+  });
+
+  // Check-in a professional (receptionist flow)
+  app.post('/event-professionals/:id/checkin', { preHandler: requireAuth }, async (request, reply) => {
+    const user = (request as any).user;
+    const { id } = request.params as { id: string };
+
+    const existing = await (prisma as any).eventProfessional.findUnique({ where: { id } });
+    if (!existing) return reply.status(404).send({ error: 'Profissional não encontrado' });
+
+    const professional = await (prisma as any).eventProfessional.update({
+      where: { id },
+      data: { checkedInAt: new Date(), checkedInById: user?.id ?? null },
+      include: { person: true },
+    });
+
+    return { success: true, professional };
   });
 }
