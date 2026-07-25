@@ -40,7 +40,16 @@ export async function parkingRoutes(app: FastifyInstance) {
       take: 10,
     });
 
-    return { success: true, guests };
+    const guestIds = guests.map(g => g.id);
+    const existingEntries = guestIds.length
+      ? await (prisma as any).parkingEntry.findMany({ where: { guestId: { in: guestIds } }, select: { guestId: true } })
+      : [];
+    const withVehicleSet = new Set(existingEntries.map((e: any) => e.guestId));
+
+    return {
+      success: true,
+      guests: guests.map(g => ({ ...g, hasVehicle: withVehicleSet.has(g.id) })),
+    };
   });
 
   // POST /parking-entries — multipart: guestId (field) + photo (file)
@@ -65,6 +74,9 @@ export async function parkingRoutes(app: FastifyInstance) {
 
     const guest = await prisma.guest.findUnique({ where: { id: guestId } });
     if (!guest) return reply.status(404).send({ error: 'Convidado não encontrado' });
+
+    const existing = await (prisma as any).parkingEntry.findFirst({ where: { guestId } });
+    if (existing) return reply.status(409).send({ error: `${guest.name} já tem um veículo registrado.` });
 
     const ext = photoMime.split('/')[1] || 'jpg';
     const s3Key = `parking/${guest.eventId}/${randomUUID()}.${ext}`;

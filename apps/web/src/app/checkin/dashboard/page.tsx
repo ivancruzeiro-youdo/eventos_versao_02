@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, LogOut, CheckCircle, XCircle, Clock, Car, Camera, X, User as UserIcon, MapPin, ChevronLeft, Users } from 'lucide-react';
+import { Search, LogOut, CheckCircle, XCircle, Clock, Car, Camera, X, User as UserIcon, MapPin, ChevronLeft, Users, ListChecks } from 'lucide-react';
 
 interface TodayEvent {
   id: string;
@@ -29,16 +29,30 @@ interface GuestSearchResult {
   name: string;
   cpf: string | null;
   event: { id: string; name: string };
+  hasVehicle?: boolean;
+}
+
+interface ParkingEntry {
+  id: string;
+  guestId: string;
+  guestName: string;
+  photoUrl: string;
+  registeredByName: string | null;
+  createdAt: string;
 }
 
 // ── Parking modal ──────────────────────────────────────────────────────────────
 
-function ParkingModal({ onClose, presetGuest }: { onClose: () => void; presetGuest?: { id: string; name: string; eventName: string } }) {
+function ParkingModal({ onClose, onRegistered, presetGuest }: {
+  onClose: () => void;
+  onRegistered: (guestId: string) => void;
+  presetGuest?: { id: string; name: string; eventName: string; hasVehicle?: boolean };
+}) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<GuestSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [selected, setSelected] = useState<GuestSearchResult | null>(
-    presetGuest ? { id: presetGuest.id, name: presetGuest.name, cpf: null, event: { id: '', name: presetGuest.eventName } } : null
+    presetGuest ? { id: presetGuest.id, name: presetGuest.name, cpf: null, event: { id: '', name: presetGuest.eventName }, hasVehicle: presetGuest.hasVehicle } : null
   );
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
@@ -86,6 +100,7 @@ function ParkingModal({ onClose, presetGuest }: { onClose: () => void; presetGue
         setError(data.error || 'Erro ao registrar veículo');
         return;
       }
+      onRegistered(selected.id);
       setDone(true);
     } catch {
       setError('Erro de conexão ao registrar veículo');
@@ -131,16 +146,24 @@ function ParkingModal({ onClose, presetGuest }: { onClose: () => void; presetGue
                   {results.map(g => (
                     <button
                       key={g.id}
-                      onClick={() => setSelected(g)}
-                      className="w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg border hover:bg-blue-50 hover:border-blue-300 transition"
+                      onClick={() => !g.hasVehicle && setSelected(g)}
+                      disabled={g.hasVehicle}
+                      className={`w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg border transition ${
+                        g.hasVehicle ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-50 hover:border-blue-300'
+                      }`}
                     >
                       <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 shrink-0">
                         <UserIcon size={14} />
                       </div>
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium truncate">{g.name}</p>
                         <p className="text-xs text-gray-500 truncate">{g.event.name}</p>
                       </div>
+                      {g.hasVehicle && (
+                        <span className="text-[11px] text-gray-500 flex items-center gap-1 shrink-0">
+                          <Car size={11} /> já registrado
+                        </span>
+                      )}
                     </button>
                   ))}
                 </div>
@@ -166,6 +189,12 @@ function ParkingModal({ onClose, presetGuest }: { onClose: () => void; presetGue
                 )}
               </div>
 
+              {selected.hasVehicle ? (
+                <div className="bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2.5 rounded-lg text-sm">
+                  Este convidado já tem um veículo registrado.
+                </div>
+              ) : (
+              <>
               <label className="block text-sm font-medium text-gray-700 mb-2">Foto do carro</label>
               <input
                 ref={fileInputRef}
@@ -208,6 +237,8 @@ function ParkingModal({ onClose, presetGuest }: { onClose: () => void; presetGue
               >
                 <CheckCircle size={18} /> {submitting ? 'Registrando...' : 'Confirmar'}
               </button>
+              </>
+              )}
             </>
           )}
         </div>
@@ -264,8 +295,13 @@ export default function ReceptionistDashboard() {
   const [guestQuery, setGuestQuery] = useState('');
   const [checkinLoadingId, setCheckinLoadingId] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [tab, setTab] = useState<'guests' | 'vehicles'>('guests');
 
-  const [parkingTarget, setParkingTarget] = useState<{ id: string; name: string; eventName: string } | 'search' | null>(null);
+  const [parkingEntries, setParkingEntries] = useState<ParkingEntry[]>([]);
+  const [loadingVehicles, setLoadingVehicles] = useState(false);
+  const vehicleGuestIds = useMemo(() => new Set(parkingEntries.map(e => e.guestId)), [parkingEntries]);
+
+  const [parkingTarget, setParkingTarget] = useState<{ id: string; name: string; eventName: string; hasVehicle?: boolean } | 'search' | null>(null);
 
   useEffect(() => {
     loadUser();
@@ -310,7 +346,8 @@ export default function ReceptionistDashboard() {
     setSelectedEvent(ev);
     setGuestQuery('');
     setError('');
-    await loadGuests(ev.id);
+    setTab('guests');
+    await Promise.all([loadGuests(ev.id), loadVehicles(ev.id)]);
   }
 
   async function loadGuests(eventId: string) {
@@ -323,6 +360,19 @@ export default function ReceptionistDashboard() {
       }
     } catch { /* silent */ } finally {
       setLoadingGuests(false);
+    }
+  }
+
+  async function loadVehicles(eventId: string) {
+    setLoadingVehicles(true);
+    try {
+      const res = await fetch(`/api/v2/events/${eventId}/parking-entries`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setParkingEntries(data.entries || []);
+      }
+    } catch { /* silent */ } finally {
+      setLoadingVehicles(false);
     }
   }
 
@@ -404,6 +454,7 @@ export default function ReceptionistDashboard() {
         {parkingTarget && (
           <ParkingModal
             onClose={() => setParkingTarget(null)}
+            onRegistered={() => { if (selectedEvent) loadVehicles(selectedEvent.id); }}
             presetGuest={parkingTarget !== 'search' ? parkingTarget : undefined}
           />
         )}
@@ -482,15 +533,37 @@ export default function ReceptionistDashboard() {
                 </div>
               </div>
 
-              <div className="relative">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input
-                  value={guestQuery}
-                  onChange={e => setGuestQuery(e.target.value)}
-                  placeholder="Buscar convidado por nome..."
-                  className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
+              {tab === 'guests' && (
+                <div className="relative">
+                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    value={guestQuery}
+                    onChange={e => setGuestQuery(e.target.value)}
+                    placeholder="Buscar convidado por nome..."
+                    className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Tabs */}
+            <div className="flex bg-white rounded-xl shadow-sm p-1 mb-4">
+              <button
+                onClick={() => setTab('guests')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium transition ${
+                  tab === 'guests' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                <ListChecks size={15} /> Convidados
+              </button>
+              <button
+                onClick={() => setTab('vehicles')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium transition ${
+                  tab === 'vehicles' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                <Car size={15} /> Veículos {parkingEntries.length > 0 && `(${parkingEntries.length})`}
+              </button>
             </div>
 
             {error && (
@@ -499,45 +572,78 @@ export default function ReceptionistDashboard() {
               </div>
             )}
 
-            {loadingGuests ? (
-              <div className="flex justify-center py-10">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-              </div>
-            ) : filteredGuests.length === 0 ? (
-              <div className="bg-white rounded-2xl shadow-lg p-8 text-center text-gray-500">
-                Nenhum convidado encontrado.
-              </div>
+            {tab === 'guests' ? (
+              loadingGuests ? (
+                <div className="flex justify-center py-10">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                </div>
+              ) : filteredGuests.length === 0 ? (
+                <div className="bg-white rounded-2xl shadow-lg p-8 text-center text-gray-500">
+                  Nenhum convidado encontrado.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {filteredGuests.map(g => {
+                    const hasVehicle = vehicleGuestIds.has(g.id);
+                    return (
+                      <div key={g.id} className="bg-white rounded-xl shadow-sm p-4 flex items-center gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium text-gray-900 truncate">{g.name}</p>
+                          <div className="flex flex-wrap items-center gap-x-3 text-xs text-gray-500 mt-0.5">
+                            {formatCPF(g.cpf) && <span>{formatCPF(g.cpf)}</span>}
+                            {g.checkedInAt && <span>Check-in às {new Date(g.checkedInAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>}
+                          </div>
+                        </div>
+                        <StatusBadge status={g.status} />
+                        <button
+                          onClick={() => !hasVehicle && setParkingTarget({ id: g.id, name: g.name, eventName: selectedEvent.name })}
+                          disabled={hasVehicle}
+                          title={hasVehicle ? 'Veículo já registrado' : 'Registrar veículo'}
+                          className={`px-3 py-2 rounded-lg transition shrink-0 flex items-center justify-center ${
+                            hasVehicle ? 'bg-green-50 text-green-600 cursor-default' : 'text-gray-500 hover:text-blue-600 bg-gray-50 hover:bg-blue-50'
+                          }`}
+                        >
+                          <Car size={16} />
+                        </button>
+                        {g.status !== 'checked_in' && (
+                          <button
+                            onClick={() => handleCheckin(g.id)}
+                            disabled={checkinLoadingId === g.id}
+                            className="px-3 py-2 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 transition disabled:opacity-50 shrink-0"
+                          >
+                            {checkinLoadingId === g.id ? '...' : 'Check-in'}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )
             ) : (
-              <div className="space-y-2">
-                {filteredGuests.map(g => (
-                  <div key={g.id} className="bg-white rounded-xl shadow-sm p-4 flex items-center gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium text-gray-900 truncate">{g.name}</p>
-                      <div className="flex flex-wrap items-center gap-x-3 text-xs text-gray-500 mt-0.5">
-                        {formatCPF(g.cpf) && <span>{formatCPF(g.cpf)}</span>}
-                        {g.checkedInAt && <span>Check-in às {new Date(g.checkedInAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>}
+              loadingVehicles ? (
+                <div className="flex justify-center py-10">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                </div>
+              ) : parkingEntries.length === 0 ? (
+                <div className="bg-white rounded-2xl shadow-lg p-8 text-center text-gray-500">
+                  Nenhum veículo registrado ainda.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {parkingEntries.map(entry => (
+                    <div key={entry.id} className="bg-white rounded-xl shadow-sm p-3 flex items-center gap-3">
+                      <img src={entry.photoUrl} alt="Foto do carro" className="w-16 h-16 rounded-lg object-cover shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-gray-900 truncate">{entry.guestName}</p>
+                        <p className="text-xs text-gray-500">
+                          {new Date(entry.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                          {entry.registeredByName && ` · por ${entry.registeredByName}`}
+                        </p>
                       </div>
                     </div>
-                    <StatusBadge status={g.status} />
-                    <button
-                      onClick={() => setParkingTarget({ id: g.id, name: g.name, eventName: selectedEvent.name })}
-                      title="Registrar veículo"
-                      className="px-3 py-2 rounded-lg text-gray-500 hover:text-blue-600 bg-gray-50 hover:bg-blue-50 transition disabled:opacity-50 shrink-0 flex items-center justify-center"
-                    >
-                      <Car size={16} />
-                    </button>
-                    {g.status !== 'checked_in' && (
-                      <button
-                        onClick={() => handleCheckin(g.id)}
-                        disabled={checkinLoadingId === g.id}
-                        className="px-3 py-2 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 transition disabled:opacity-50 shrink-0"
-                      >
-                        {checkinLoadingId === g.id ? '...' : 'Check-in'}
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )
             )}
           </>
         )}
