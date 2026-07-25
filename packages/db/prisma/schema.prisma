@@ -181,6 +181,7 @@ model Event {
   employer     Employer     @relation(fields: [employerId], references: [id])
   venues       EventVenue[]
   guests       Guest[]
+  parkingEntries ParkingEntry[]
   services     EventService[]
   plan         EventPlan?
   briefing     Briefing?
@@ -346,11 +347,29 @@ model Guest {
   event     Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
   checkedInBy User?   @relation("CheckedInBy", fields: [checkedInByUserId], references: [id])
   nps       EventNPS?
+  parkingEntries ParkingEntry[]
 
   @@index([eventId])
   @@index([status])
   @@index([cpf])
   @@index([rsvpToken])
+}
+
+model ParkingEntry {
+  id                 String   @id @default(uuid())
+  eventId            String
+  guestId            String
+  guestName          String   // snapshot no momento do registro
+  photoS3Key         String
+  registeredById      String? // id do freelancer/usuário que registrou (recepção)
+  registeredByName   String?
+  createdAt          DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  guest Guest @relation(fields: [guestId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+  @@index([guestId])
 }
 
 // ============================================

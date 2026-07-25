@@ -18,7 +18,8 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply) 
 
     let user;
     
-    if (decoded.role === 'freelancer') {
+    if (decoded.role === 'freelancer' || decoded.role === 'receptionist' || decoded.role === 'checkin_staff') {
+      // receptionist-login signs sub=freelancer.id with role 'receptionist'/'checkin_staff'
       const freelancer = await prisma.freelancer.findUnique({
         where: { id: decoded.sub },
         select: {
@@ -28,18 +29,18 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply) 
           status: true,
         },
       });
-      
+
       if (!freelancer) {
         return reply.status(401).send({ error: 'User not found' });
       }
-      
+
       if (freelancer.status === 'suspended') {
         return reply.status(403).send({ error: 'Account suspended' });
       }
-      
+
       user = {
         ...freelancer,
-        role: 'freelancer',
+        role: decoded.role,
       };
     } else {
       const dbUser = await prisma.user.findUnique({
