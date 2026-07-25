@@ -338,13 +338,15 @@ export async function authRoutes(app: FastifyInstance) {
 
     try {
       const decoded = app.jwt.verify(token) as { sub: string; role: string };
-      
-      if (decoded.role === 'freelancer') {
+
+      if (decoded.role === 'freelancer' || decoded.role === 'receptionist' || decoded.role === 'checkin_staff') {
+        // receptionist-login signs sub=freelancer.id with role 'receptionist'/'checkin_staff'
         const freelancer = await prisma.freelancer.findUnique({
           where: { id: decoded.sub },
           select: { id: true, name: true, email: true, status: true },
         });
-        return { user: { ...freelancer, role: 'freelancer' } };
+        if (!freelancer) return reply.status(401).send({ error: 'Not authenticated' });
+        return { user: { ...freelancer, role: decoded.role } };
       } else {
         const user = await prisma.user.findUnique({
           where: { id: decoded.sub },
