@@ -16,21 +16,21 @@ async function getPhotoUrl(s3Key: string): Promise<string> {
 export async function parkingRoutes(app: FastifyInstance) {
   await app.register(multipart, { limits: { fileSize: 15 * 1024 * 1024, files: 1 } });
 
-  // GET /checkin/guests/search?q= — busca convidados (nome ou CPF) dentro da janela de eventos ativos,
-  // para vincular ao registro de veículo. Mesma janela usada em /checkin/cpf/:cpf.
+  // GET /checkin/guests/search?q= — busca convidados (nome ou CPF) entre eventos de hoje,
+  // para vincular ao registro de veículo. Mesma janela de dia usada em /checkin/today-events.
   app.get('/checkin/guests/search', { preHandler: requireAuth }, async (request, reply) => {
     const { q } = request.query as { q?: string };
     if (!q || q.trim().length < 2) return { success: true, guests: [] };
 
-    const now = new Date();
-    const windowStart = new Date(now.getTime() - 8 * 60 * 60 * 1000);
-    const windowEnd = new Date(now.getTime() + 4 * 60 * 60 * 1000);
+    const brtDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+    const dayStart = new Date(`${brtDateStr}T00:00:00-03:00`);
+    const dayEnd = new Date(`${brtDateStr}T23:59:59.999-03:00`);
     const term = q.trim();
     const digits = term.replace(/\D/g, '');
 
     const guests = await prisma.guest.findMany({
       where: {
-        event: { startAt: { gte: windowStart, lte: windowEnd } },
+        event: { startAt: { gte: dayStart, lte: dayEnd } },
         OR: [
           { name: { contains: term, mode: 'insensitive' } },
           ...(digits.length >= 3 ? [{ cpf: { contains: digits } }] : []),

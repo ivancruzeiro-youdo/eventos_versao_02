@@ -26,8 +26,8 @@ export async function guestRoutes(app: FastifyInstance) {
   // List guests for an event
   app.get('/events/:id/guests', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId } = request.params as { id: string };
-    const query = request.query as { status?: string; page?: string; limit?: string };
-    
+    const query = request.query as { status?: string; page?: string; limit?: string; q?: string };
+
     const page = parseInt(query.page || '1', 10);
     const limit = parseInt(query.limit || '20', 10);
     const skip = (page - 1) * limit;
@@ -35,6 +35,14 @@ export async function guestRoutes(app: FastifyInstance) {
     const where: any = { eventId };
     if (query.status) {
       where.status = query.status;
+    }
+    if (query.q?.trim()) {
+      const term = query.q.trim();
+      const digits = term.replace(/\D/g, '');
+      where.OR = [
+        { name: { contains: term, mode: 'insensitive' } },
+        ...(digits.length >= 3 ? [{ cpf: { contains: digits } }] : []),
+      ];
     }
 
     const [guests, total] = await Promise.all([
@@ -325,6 +333,38 @@ export async function guestRoutes(app: FastifyInstance) {
     })[0];
 
     return { success: true, guest };
+  });
+
+  // GET /checkin/today-events — events happening today (America/Sao_Paulo), for the receptionist
+  // to pick which check-in they're running, with guest count summary.
+  app.get('/checkin/today-events', { preHandler: requireAuth }, async (request, reply) => {
+    const brtDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+    const dayStart = new Date(`${brtDateStr}T00:00:00-03:00`);
+    const dayEnd = new Date(`${brtDateStr}T23:59:59.999-03:00`);
+
+    const events = await prisma.event.findMany({
+      where: { startAt: { gte: dayStart, lte: dayEnd } },
+      include: {
+        venues: { include: { venue: { select: { name: true } } } },
+        _count: { select: { guests: true } },
+      },
+      orderBy: { startAt: 'asc' },
+    });
+
+    const withCounts = await Promise.all(events.map(async (ev) => {
+      const checkedInCount = await prisma.guest.count({ where: { eventId: ev.id, status: 'checked_in' } });
+      return {
+        id: ev.id,
+        name: ev.name,
+        clientName: ev.clientName,
+        startAt: ev.startAt,
+        venues: ev.venues.filter((v: any) => v.venue).map((v: any) => v.venue.name),
+        totalGuests: ev._count.guests,
+        checkedInCount,
+      };
+    }));
+
+    return { success: true, events: withCounts };
   });
 
   // Generate RSVP token for guest

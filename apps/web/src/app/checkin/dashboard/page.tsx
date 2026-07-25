@@ -1,8 +1,18 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, LogOut, CheckCircle, XCircle, Clock, Car, Camera, X, User as UserIcon } from 'lucide-react';
+import { Search, LogOut, CheckCircle, XCircle, Clock, Car, Camera, X, User as UserIcon, MapPin, ChevronLeft, Users } from 'lucide-react';
+
+interface TodayEvent {
+  id: string;
+  name: string;
+  clientName: string;
+  startAt: string;
+  venues: string[];
+  totalGuests: number;
+  checkedInCount: number;
+}
 
 interface Guest {
   id: string;
@@ -12,11 +22,6 @@ interface Guest {
   phone: string | null;
   status: string;
   checkedInAt: string | null;
-  event: {
-    id: string;
-    name: string;
-    startAt: string;
-  };
 }
 
 interface GuestSearchResult {
@@ -26,11 +31,15 @@ interface GuestSearchResult {
   event: { id: string; name: string };
 }
 
-function ParkingModal({ onClose }: { onClose: () => void }) {
+// ── Parking modal ──────────────────────────────────────────────────────────────
+
+function ParkingModal({ onClose, presetGuest }: { onClose: () => void; presetGuest?: { id: string; name: string; eventName: string } }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<GuestSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
-  const [selected, setSelected] = useState<GuestSearchResult | null>(null);
+  const [selected, setSelected] = useState<GuestSearchResult | null>(
+    presetGuest ? { id: presetGuest.id, name: presetGuest.name, cpf: null, event: { id: '', name: presetGuest.eventName } } : null
+  );
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -150,9 +159,11 @@ function ParkingModal({ onClose }: { onClose: () => void }) {
                   <p className="text-sm font-medium truncate">{selected.name}</p>
                   <p className="text-xs text-gray-500 truncate">{selected.event.name}</p>
                 </div>
-                <button onClick={() => { setSelected(null); setResults([]); setQuery(''); }} className="text-xs text-blue-600 hover:underline shrink-0">
-                  Trocar
-                </button>
+                {!presetGuest && (
+                  <button onClick={() => { setSelected(null); setResults([]); setQuery(''); }} className="text-xs text-blue-600 hover:underline shrink-0">
+                    Trocar
+                  </button>
+                )}
               </div>
 
               <label className="block text-sm font-medium text-gray-700 mb-2">Foto do carro</label>
@@ -205,15 +216,56 @@ function ParkingModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+// ── Status badge ────────────────────────────────────────────────────────────────
+
+function StatusBadge({ status }: { status: string }) {
+  switch (status) {
+    case 'checked_in':
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 shrink-0">
+          <CheckCircle size={12} /> Check-in
+        </span>
+      );
+    case 'confirmed':
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 shrink-0">
+          <Clock size={12} /> Confirmado
+        </span>
+      );
+    case 'pending':
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 shrink-0">
+          <Clock size={12} /> Pendente
+        </span>
+      );
+    case 'declined':
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800 shrink-0">
+          <XCircle size={12} /> Recusado
+        </span>
+      );
+    default:
+      return <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800 shrink-0">{status}</span>;
+  }
+}
+
+// ── Main dashboard ──────────────────────────────────────────────────────────────
+
 export default function ReceptionistDashboard() {
   const router = useRouter();
-  const [searchCpf, setSearchCpf] = useState('');
-  const [guest, setGuest] = useState<Guest | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [checkinLoading, setCheckinLoading] = useState(false);
   const [user, setUser] = useState<{ name: string } | null>(null);
-  const [parkingOpen, setParkingOpen] = useState(false);
+
+  const [events, setEvents] = useState<TodayEvent[]>([]);
+  const [loadingEvents, setLoadingEvents] = useState(true);
+  const [selectedEvent, setSelectedEvent] = useState<TodayEvent | null>(null);
+
+  const [guests, setGuests] = useState<Guest[]>([]);
+  const [loadingGuests, setLoadingGuests] = useState(false);
+  const [guestQuery, setGuestQuery] = useState('');
+  const [checkinLoadingId, setCheckinLoadingId] = useState<string | null>(null);
+  const [error, setError] = useState('');
+
+  const [parkingTarget, setParkingTarget] = useState<{ id: string; name: string; eventName: string } | 'search' | null>(null);
 
   useEffect(() => {
     loadUser();
@@ -230,6 +282,7 @@ export default function ReceptionistDashboard() {
           return;
         }
         setUser(data.user);
+        loadTodayEvents();
       } else {
         router.push('/checkin');
       }
@@ -238,54 +291,61 @@ export default function ReceptionistDashboard() {
     }
   }
 
-  async function handleSearch(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-    setGuest(null);
-
+  async function loadTodayEvents() {
+    setLoadingEvents(true);
     try {
-      const res = await fetch(`/api/v2/checkin/cpf/${searchCpf.replace(/\D/g, '')}`, {
-        credentials: 'include',
-      });
-
-      if (!res.ok) {
+      const res = await fetch('/api/v2/checkin/today-events', { credentials: 'include' });
+      if (res.ok) {
         const data = await res.json();
-        setError(data.error || 'Convidado não encontrado');
-        return;
+        const list: TodayEvent[] = data.events || [];
+        setEvents(list);
+        if (list.length === 1) selectEvent(list[0]);
       }
-
-      const data = await res.json();
-      setGuest(data.guest);
-    } catch (err) {
-      setError('Erro ao buscar convidado');
-    } finally {
-      setLoading(false);
+    } catch { /* silent */ } finally {
+      setLoadingEvents(false);
     }
   }
 
-  async function handleCheckin() {
-    if (!guest) return;
-    setCheckinLoading(true);
+  async function selectEvent(ev: TodayEvent) {
+    setSelectedEvent(ev);
+    setGuestQuery('');
+    setError('');
+    await loadGuests(ev.id);
+  }
 
+  async function loadGuests(eventId: string) {
+    setLoadingGuests(true);
     try {
-      const res = await fetch(`/api/v2/guests/${guest.id}/checkin`, {
+      const res = await fetch(`/api/v2/events/${eventId}/guests?limit=1000`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setGuests(data.guests || []);
+      }
+    } catch { /* silent */ } finally {
+      setLoadingGuests(false);
+    }
+  }
+
+  async function handleCheckin(guestId: string) {
+    setCheckinLoadingId(guestId);
+    setError('');
+    try {
+      const res = await fetch(`/api/v2/guests/${guestId}/checkin`, {
         method: 'POST',
         credentials: 'include',
       });
-
       if (!res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         setError(data.error || 'Erro ao fazer check-in');
         return;
       }
-
       const data = await res.json();
-      setGuest(data.guest);
-    } catch (err) {
+      setGuests(prev => prev.map(g => g.id === guestId ? data.guest : g));
+      setEvents(prev => prev.map(ev => ev.id === selectedEvent?.id ? { ...ev, checkedInCount: ev.checkedInCount + 1 } : ev));
+    } catch {
       setError('Erro ao fazer check-in');
     } finally {
-      setCheckinLoading(false);
+      setCheckinLoadingId(null);
     }
   }
 
@@ -295,45 +355,24 @@ export default function ReceptionistDashboard() {
   }
 
   function formatCPF(cpf: string | null) {
-    if (!cpf) return 'Não informado';
+    if (!cpf) return null;
     return cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
   }
 
-  function formatPhone(phone: string | null) {
-    if (!phone) return 'Não informado';
-    return phone.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3');
-  }
+  // Busca prioriza nome; CPF (dígitos) entra como critério secundário
+  const filteredGuests = useMemo(() => {
+    const term = guestQuery.trim().toLowerCase();
+    const digits = guestQuery.replace(/\D/g, '');
+    const sorted = [...guests].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+    if (!term) return sorted;
+    return sorted.filter(g =>
+      g.name.toLowerCase().includes(term) ||
+      (digits.length >= 3 && g.cpf?.includes(digits))
+    );
+  }, [guests, guestQuery]);
 
-  function getStatusBadge(status: string) {
-    switch (status) {
-      case 'checked_in':
-        return (
-          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-            <CheckCircle size={12} /> Check-in realizado
-          </span>
-        );
-      case 'confirmed':
-        return (
-          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-            <Clock size={12} /> Confirmado
-          </span>
-        );
-      case 'pending':
-        return (
-          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-            <Clock size={12} /> Pendente
-          </span>
-        );
-      case 'declined':
-        return (
-          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
-            <XCircle size={12} /> Recusado
-          </span>
-        );
-      default:
-        return <span className="px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">{status}</span>;
-    }
-  }
+  const pendingCount = guests.filter(g => g.status !== 'checked_in').length;
+  const checkedInCount = guests.filter(g => g.status === 'checked_in').length;
 
   if (!user) {
     return (
@@ -362,104 +401,145 @@ export default function ReceptionistDashboard() {
       </div>
 
       <div className="max-w-4xl mx-auto px-4 py-8">
-        {/* Parking button */}
-        <button
-          onClick={() => setParkingOpen(true)}
-          className="w-full flex items-center justify-center gap-2 bg-white border-2 border-blue-200 text-blue-700 py-3 rounded-2xl font-medium hover:bg-blue-50 hover:border-blue-300 transition mb-6 shadow-sm"
-        >
-          <Car size={20} /> Registrar Veículo no Estacionamento
-        </button>
-
-        {parkingOpen && <ParkingModal onClose={() => setParkingOpen(false)} />}
-
-        {/* Search Form */}
-        <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
-          <form onSubmit={handleSearch} className="flex gap-4">
-            <div className="flex-1">
-              <label htmlFor="cpf" className="block text-sm font-medium text-gray-700 mb-1">
-                Buscar convidado por CPF
-              </label>
-              <input
-                id="cpf"
-                type="text"
-                value={searchCpf}
-                onChange={(e) => setSearchCpf(e.target.value)}
-                placeholder="000.000.000-00"
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                required
-              />
-            </div>
-            <div className="flex items-end">
-              <button
-                type="submit"
-                disabled={loading}
-                className="px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-50 flex items-center gap-2"
-              >
-                <Search size={18} /> {loading ? 'Buscando...' : 'Buscar'}
-              </button>
-            </div>
-          </form>
-        </div>
-
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg mb-6">
-            {error}
-          </div>
+        {parkingTarget && (
+          <ParkingModal
+            onClose={() => setParkingTarget(null)}
+            presetGuest={parkingTarget !== 'search' ? parkingTarget : undefined}
+          />
         )}
 
-        {/* Guest Card */}
-        {guest && (
+        {!selectedEvent ? (
+          /* ── Event picker ── */
           <div className="bg-white rounded-2xl shadow-lg p-6">
-            <div className="flex items-start justify-between mb-4">
-              <div>
-                <h2 className="text-2xl font-bold text-gray-900">{guest.name}</h2>
-                <p className="text-gray-600">{guest.event.name}</p>
-                <p className="text-sm text-gray-500 mt-1">
-                  {new Date(guest.event.startAt).toLocaleDateString('pt-BR')} às {new Date(guest.event.startAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                </p>
-              </div>
-              <div>{getStatusBadge(guest.status)}</div>
-            </div>
+            <h2 className="text-lg font-bold text-gray-900 mb-1">Qual evento está fazendo check-in?</h2>
+            <p className="text-sm text-gray-600 mb-5">Eventos de hoje</p>
 
-            <div className="grid grid-cols-2 gap-4 mb-6">
-              <div className="bg-gray-50 rounded-lg p-4">
-                <p className="text-sm text-gray-600 mb-1">CPF</p>
-                <p className="font-medium">{formatCPF(guest.cpf)}</p>
+            {loadingEvents ? (
+              <div className="flex justify-center py-10">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
               </div>
-              <div className="bg-gray-50 rounded-lg p-4">
-                <p className="text-sm text-gray-600 mb-1">Telefone</p>
-                <p className="font-medium">{formatPhone(guest.phone)}</p>
-              </div>
-              <div className="bg-gray-50 rounded-lg p-4">
-                <p className="text-sm text-gray-600 mb-1">Email</p>
-                <p className="font-medium">{guest.email || 'Não informado'}</p>
-              </div>
-              {guest.checkedInAt && (
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <p className="text-sm text-gray-600 mb-1">Check-in realizado às</p>
-                  <p className="font-medium">{new Date(guest.checkedInAt).toLocaleTimeString('pt-BR')}</p>
-                </div>
-              )}
-            </div>
-
-            {guest.status === 'confirmed' || guest.status === 'pending' ? (
-              <button
-                onClick={handleCheckin}
-                disabled={checkinLoading}
-                className="w-full bg-green-600 text-white py-4 rounded-lg font-medium hover:bg-green-700 transition disabled:opacity-50 flex items-center justify-center gap-2 text-lg"
-              >
-                <CheckCircle size={24} /> {checkinLoading ? 'Processando...' : 'Realizar Check-in'}
-              </button>
-            ) : guest.status === 'checked_in' ? (
-              <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg text-center font-medium">
-                Check-in já realizado
-              </div>
+            ) : events.length === 0 ? (
+              <p className="text-center text-gray-500 py-10">Nenhum evento hoje.</p>
             ) : (
-              <div className="bg-gray-50 border border-gray-200 text-gray-600 px-4 py-3 rounded-lg text-center">
-                Status não permite check-in
+              <div className="space-y-3">
+                {events.map(ev => (
+                  <button
+                    key={ev.id}
+                    onClick={() => selectEvent(ev)}
+                    className="w-full text-left flex items-center justify-between gap-4 border rounded-xl px-4 py-3.5 hover:border-blue-400 hover:bg-blue-50 transition"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-semibold text-gray-900 truncate">{ev.name}</p>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs text-gray-500">
+                        <span>{new Date(ev.startAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                        {ev.venues.map((v, i) => (
+                          <span key={i} className="flex items-center gap-1"><MapPin size={11} /> {v}</span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-sm font-bold text-green-700">{ev.checkedInCount}/{ev.totalGuests}</p>
+                      <p className="text-[11px] text-gray-500">check-ins</p>
+                    </div>
+                  </button>
+                ))}
               </div>
             )}
           </div>
+        ) : (
+          /* ── Guest list for selected event ── */
+          <>
+            <div className="bg-white rounded-2xl shadow-lg p-5 mb-6">
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div className="min-w-0">
+                  {events.length > 1 && (
+                    <button
+                      onClick={() => { setSelectedEvent(null); setGuests([]); }}
+                      className="flex items-center gap-1 text-xs text-blue-600 hover:underline mb-1.5"
+                    >
+                      <ChevronLeft size={13} /> Trocar evento
+                    </button>
+                  )}
+                  <h2 className="font-bold text-gray-900 truncate">{selectedEvent.name}</h2>
+                  <p className="text-xs text-gray-500">{selectedEvent.clientName}</p>
+                </div>
+                <button
+                  onClick={() => setParkingTarget('search')}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg text-xs font-medium hover:bg-blue-100 transition shrink-0"
+                >
+                  <Car size={15} /> Veículo
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div className="bg-green-50 rounded-lg px-3 py-2.5 text-center">
+                  <p className="text-xl font-bold text-green-700">{checkedInCount}</p>
+                  <p className="text-[11px] text-green-700/80 flex items-center justify-center gap-1"><CheckCircle size={11} /> já entraram</p>
+                </div>
+                <div className="bg-amber-50 rounded-lg px-3 py-2.5 text-center">
+                  <p className="text-xl font-bold text-amber-700">{pendingCount}</p>
+                  <p className="text-[11px] text-amber-700/80 flex items-center justify-center gap-1"><Users size={11} /> pendentes</p>
+                </div>
+              </div>
+
+              <div className="relative">
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  value={guestQuery}
+                  onChange={e => setGuestQuery(e.target.value)}
+                  placeholder="Buscar convidado por nome..."
+                  className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg mb-4">
+                {error}
+              </div>
+            )}
+
+            {loadingGuests ? (
+              <div className="flex justify-center py-10">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+              </div>
+            ) : filteredGuests.length === 0 ? (
+              <div className="bg-white rounded-2xl shadow-lg p-8 text-center text-gray-500">
+                Nenhum convidado encontrado.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {filteredGuests.map(g => (
+                  <div key={g.id} className="bg-white rounded-xl shadow-sm p-4 flex items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-gray-900 truncate">{g.name}</p>
+                      <div className="flex flex-wrap items-center gap-x-3 text-xs text-gray-500 mt-0.5">
+                        {formatCPF(g.cpf) && <span>{formatCPF(g.cpf)}</span>}
+                        {g.checkedInAt && <span>Check-in às {new Date(g.checkedInAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>}
+                      </div>
+                    </div>
+                    <StatusBadge status={g.status} />
+                    <button
+                      onClick={() => setParkingTarget({ id: g.id, name: g.name, eventName: selectedEvent.name })}
+                      title="Registrar veículo"
+                      className="p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition shrink-0"
+                    >
+                      <Car size={16} />
+                    </button>
+                    {g.status !== 'checked_in' && (
+                      <button
+                        onClick={() => handleCheckin(g.id)}
+                        disabled={checkinLoadingId === g.id}
+                        className="px-3 py-2 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 transition disabled:opacity-50 shrink-0"
+                      >
+                        {checkinLoadingId === g.id ? '...' : 'Check-in'}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
