@@ -68,9 +68,9 @@ export async function authRoutes(app: FastifyInstance) {
   // Receptionist login (CPF only)
   app.post('/receptionist-login', async (request, reply) => {
     const { cpf } = receptionistLoginSchema.parse(request.body);
-    
+
     const freelancer = await prisma.freelancer.findUnique({
-      where: { cpf },
+      where: { cpf: normalizeCpf(cpf) },
       include: {
         services: {
           include: { service: true },
