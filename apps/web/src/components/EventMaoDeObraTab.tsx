@@ -626,6 +626,11 @@ export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
                                   </span>
                                 </div>
                               </div>
+                              {hours && (
+                                <span className="text-xs font-semibold text-green-700 shrink-0" title={`${hours}h × R$ ${svc.valuePerHour.toFixed(2)}`}>
+                                  R$ {(Number(hours) * svc.valuePerHour).toFixed(2)}
+                                </span>
+                              )}
                               <span className="text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded-full shrink-0">Confirmado</span>
                               <button
                                 onClick={() => { if (confirm(`Remover ${app.freelancer.name} desta vaga?`)) updateStatus(app.id, 'rejected'); }}
