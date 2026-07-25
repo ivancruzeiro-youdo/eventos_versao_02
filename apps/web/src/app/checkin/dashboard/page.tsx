@@ -257,14 +257,29 @@ function ParkingModal({ onClose, onRegistered, presetGuest }: {
 
 // ── Add guest modal ──────────────────────────────────────────────────────────────
 
-function AddGuestModal({ eventId, onClose, onAdded }: { eventId: string; onClose: () => void; onAdded: (guest: Guest) => void }) {
+function AddGuestModal({ eventId, onClose, onAddedGuest, onAddedProfessional }: {
+  eventId: string;
+  onClose: () => void;
+  onAddedGuest: (guest: Guest) => void;
+  onAddedProfessional: (professional: EventProfessional) => void;
+}) {
+  const [kind, setKind] = useState<'choose' | 'guest' | 'professional'>('choose');
+
+  // Guest fields
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [cpf, setCpf] = useState('');
+
+  // Professional fields
+  const [pName, setPName] = useState('');
+  const [pCpf, setPCpf] = useState('');
+  const [pWhatsapp, setPWhatsapp] = useState('');
+  const [pRole, setPRole] = useState('');
+
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmitGuest(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
     setSubmitting(true);
@@ -286,10 +301,47 @@ function AddGuestModal({ eventId, onClose, onAdded }: { eventId: string; onClose
         return;
       }
       const data = await res.json();
-      onAdded(data.guest);
+      onAddedGuest(data.guest);
       onClose();
     } catch {
       setError('Erro de conexão ao adicionar convidado');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleSubmitProfessional(e: React.FormEvent) {
+    e.preventDefault();
+    if (!pName.trim() || !pRole.trim()) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      const personRes = await fetch('/api/v2/people', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: pName.trim(),
+          cpf: pCpf.replace(/\D/g, '') || undefined,
+          whatsapp: pWhatsapp.replace(/\D/g, '') || undefined,
+        }),
+      });
+      const personData = await personRes.json();
+      if (!personRes.ok) { setError(personData.error || 'Erro ao cadastrar pessoa'); return; }
+
+      const linkRes = await fetch(`/api/v2/events/${eventId}/professionals`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ personId: personData.person.id, role: pRole.trim() }),
+      });
+      const linkData = await linkRes.json();
+      if (!linkRes.ok) { setError(linkData.error || 'Erro ao vincular profissional'); return; }
+
+      onAddedProfessional(linkData.professional);
+      onClose();
+    } catch {
+      setError('Erro de conexão ao adicionar profissional');
     } finally {
       setSubmitting(false);
     }
@@ -299,55 +351,152 @@ function AddGuestModal({ eventId, onClose, onAdded }: { eventId: string; onClose
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
         <div className="flex items-center justify-between px-5 py-4 border-b">
-          <h2 className="text-lg font-bold flex items-center gap-2"><UserIcon size={20} /> Adicionar Convidado</h2>
+          <h2 className="text-lg font-bold flex items-center gap-2">
+            <UserIcon size={20} />
+            {kind === 'choose' ? 'Adicionar' : kind === 'guest' ? 'Adicionar Convidado' : 'Adicionar Profissional'}
+          </h2>
           <button onClick={onClose} className="p-1.5 rounded hover:bg-gray-100"><X size={18} /></button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-5 space-y-3">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Nome *</label>
-            <input
-              autoFocus
-              value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder="Nome completo"
-              required
-              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
+        {kind === 'choose' ? (
+          <div className="p-5 space-y-3">
+            <p className="text-sm text-gray-600 mb-1">O que deseja adicionar?</p>
+            <button
+              onClick={() => setKind('guest')}
+              className="w-full flex items-center gap-3 border-2 border-gray-200 rounded-xl px-4 py-3.5 hover:border-blue-400 hover:bg-blue-50 transition text-left"
+            >
+              <UserIcon size={20} className="text-blue-600 shrink-0" />
+              <div>
+                <p className="font-medium text-gray-900">Convidado</p>
+                <p className="text-xs text-gray-500">Pessoa na lista de check-in do evento</p>
+              </div>
+            </button>
+            <button
+              onClick={() => setKind('professional')}
+              className="w-full flex items-center gap-3 border-2 border-gray-200 rounded-xl px-4 py-3.5 hover:border-blue-400 hover:bg-blue-50 transition text-left"
+            >
+              <Briefcase size={20} className="text-blue-600 shrink-0" />
+              <div>
+                <p className="font-medium text-gray-900">Profissional</p>
+                <p className="text-xs text-gray-500">Fotógrafo, músico, DJ e outros contratados</p>
+              </div>
+            </button>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Telefone</label>
-            <input
-              value={phone}
-              onChange={e => setPhone(e.target.value)}
-              placeholder="(00) 00000-0000"
-              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">CPF</label>
-            <input
-              value={cpf}
-              onChange={e => setCpf(e.target.value)}
-              placeholder="000.000.000-00"
-              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
-
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-600 px-3 py-2 rounded-lg text-sm">
-              {error}
+        ) : kind === 'guest' ? (
+          <form onSubmit={handleSubmitGuest} className="p-5 space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Nome *</label>
+              <input
+                autoFocus
+                value={name}
+                onChange={e => setName(e.target.value)}
+                placeholder="Nome completo"
+                required
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
             </div>
-          )}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Telefone</label>
+              <input
+                value={phone}
+                onChange={e => setPhone(e.target.value)}
+                placeholder="(00) 00000-0000"
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">CPF</label>
+              <input
+                value={cpf}
+                onChange={e => setCpf(e.target.value)}
+                placeholder="000.000.000-00"
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
 
-          <button
-            type="submit"
-            disabled={!name.trim() || submitting}
-            className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-50"
-          >
-            {submitting ? 'Adicionando...' : 'Adicionar Convidado'}
-          </button>
-        </form>
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-600 px-3 py-2 rounded-lg text-sm">
+                {error}
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <button type="button" onClick={() => { setKind('choose'); setError(''); }}
+                className="flex-1 py-3 border rounded-lg text-sm font-medium hover:bg-gray-50 transition">
+                Voltar
+              </button>
+              <button
+                type="submit"
+                disabled={!name.trim() || submitting}
+                className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-50"
+              >
+                {submitting ? 'Adicionando...' : 'Adicionar'}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <form onSubmit={handleSubmitProfessional} className="p-5 space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Nome *</label>
+              <input
+                autoFocus
+                value={pName}
+                onChange={e => setPName(e.target.value)}
+                placeholder="Nome completo"
+                required
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Função / Especialidade *</label>
+              <input
+                value={pRole}
+                onChange={e => setPRole(e.target.value)}
+                placeholder="Ex: Fotógrafo, Músico, DJ…"
+                required
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">WhatsApp</label>
+              <input
+                value={pWhatsapp}
+                onChange={e => setPWhatsapp(e.target.value)}
+                placeholder="(00) 00000-0000"
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">CPF</label>
+              <input
+                value={pCpf}
+                onChange={e => setPCpf(e.target.value)}
+                placeholder="000.000.000-00"
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-600 px-3 py-2 rounded-lg text-sm">
+                {error}
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <button type="button" onClick={() => { setKind('choose'); setError(''); }}
+                className="flex-1 py-3 border rounded-lg text-sm font-medium hover:bg-gray-50 transition">
+                Voltar
+              </button>
+              <button
+                type="submit"
+                disabled={!pName.trim() || !pRole.trim() || submitting}
+                className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-50"
+              >
+                {submitting ? 'Adicionando...' : 'Adicionar'}
+              </button>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   );
@@ -600,9 +749,12 @@ export default function ReceptionistDashboard() {
           <AddGuestModal
             eventId={selectedEvent.id}
             onClose={() => setShowAddGuest(false)}
-            onAdded={(newGuest) => {
+            onAddedGuest={(newGuest) => {
               setGuests(prev => [...prev, newGuest]);
               setEvents(prev => prev.map(ev => ev.id === selectedEvent.id ? { ...ev, totalGuests: ev.totalGuests + 1 } : ev));
+            }}
+            onAddedProfessional={(newProfessional) => {
+              setProfessionals(prev => [...prev, newProfessional]);
             }}
           />
         )}
