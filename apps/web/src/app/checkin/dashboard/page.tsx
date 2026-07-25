@@ -247,6 +247,104 @@ function ParkingModal({ onClose, onRegistered, presetGuest }: {
   );
 }
 
+// ── Add guest modal ──────────────────────────────────────────────────────────────
+
+function AddGuestModal({ eventId, onClose, onAdded }: { eventId: string; onClose: () => void; onAdded: (guest: Guest) => void }) {
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [cpf, setCpf] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      const res = await fetch(`/api/v2/events/${eventId}/guests`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name.trim(),
+          phone: phone.trim() || undefined,
+          cpf: cpf.replace(/\D/g, '') || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || 'Erro ao adicionar convidado');
+        return;
+      }
+      const data = await res.json();
+      onAdded(data.guest);
+      onClose();
+    } catch {
+      setError('Erro de conexão ao adicionar convidado');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+        <div className="flex items-center justify-between px-5 py-4 border-b">
+          <h2 className="text-lg font-bold flex items-center gap-2"><UserIcon size={20} /> Adicionar Convidado</h2>
+          <button onClick={onClose} className="p-1.5 rounded hover:bg-gray-100"><X size={18} /></button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-5 space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Nome *</label>
+            <input
+              autoFocus
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="Nome completo"
+              required
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Telefone</label>
+            <input
+              value={phone}
+              onChange={e => setPhone(e.target.value)}
+              placeholder="(00) 00000-0000"
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">CPF</label>
+            <input
+              value={cpf}
+              onChange={e => setCpf(e.target.value)}
+              placeholder="000.000.000-00"
+              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-600 px-3 py-2 rounded-lg text-sm">
+              {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={!name.trim() || submitting}
+            className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-50"
+          >
+            {submitting ? 'Adicionando...' : 'Adicionar Convidado'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ── Status badge ────────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
@@ -302,6 +400,7 @@ export default function ReceptionistDashboard() {
   const vehicleGuestIds = useMemo(() => new Set(parkingEntries.map(e => e.guestId)), [parkingEntries]);
 
   const [parkingTarget, setParkingTarget] = useState<{ id: string; name: string; eventName: string; hasVehicle?: boolean } | 'search' | null>(null);
+  const [showAddGuest, setShowAddGuest] = useState(false);
 
   useEffect(() => {
     loadUser();
@@ -459,6 +558,17 @@ export default function ReceptionistDashboard() {
           />
         )}
 
+        {showAddGuest && selectedEvent && (
+          <AddGuestModal
+            eventId={selectedEvent.id}
+            onClose={() => setShowAddGuest(false)}
+            onAdded={(newGuest) => {
+              setGuests(prev => [...prev, newGuest]);
+              setEvents(prev => prev.map(ev => ev.id === selectedEvent.id ? { ...ev, totalGuests: ev.totalGuests + 1 } : ev));
+            }}
+          />
+        )}
+
         {!selectedEvent ? (
           /* ── Event picker ── */
           <div className="bg-white rounded-2xl shadow-lg p-6">
@@ -514,12 +624,20 @@ export default function ReceptionistDashboard() {
                   <h2 className="font-bold text-gray-900 truncate">{selectedEvent.name}</h2>
                   <p className="text-xs text-gray-500">{selectedEvent.clientName}</p>
                 </div>
-                <button
-                  onClick={() => setParkingTarget('search')}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg text-xs font-medium hover:bg-blue-100 transition shrink-0"
-                >
-                  <Car size={15} /> Veículo
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => setShowAddGuest(true)}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-green-50 text-green-700 border border-green-200 rounded-lg text-xs font-medium hover:bg-green-100 transition"
+                  >
+                    <UserIcon size={15} /> Adicionar
+                  </button>
+                  <button
+                    onClick={() => setParkingTarget('search')}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg text-xs font-medium hover:bg-blue-100 transition"
+                  >
+                    <Car size={15} /> Veículo
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3 mb-4">
