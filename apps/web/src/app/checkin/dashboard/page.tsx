@@ -522,7 +522,7 @@ export default function ReceptionistDashboard() {
                     <button
                       onClick={() => setParkingTarget({ id: g.id, name: g.name, eventName: selectedEvent.name })}
                       title="Registrar veículo"
-                      className="p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition shrink-0"
+                      className="px-3 py-2 rounded-lg text-gray-500 hover:text-blue-600 bg-gray-50 hover:bg-blue-50 transition disabled:opacity-50 shrink-0 flex items-center justify-center"
                     >
                       <Car size={16} />
                     </button>
