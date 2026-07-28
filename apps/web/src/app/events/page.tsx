@@ -427,7 +427,7 @@ export default function EventsPage() {
                 {day}
               </div>
             ))}
-            {getDaysInMonth(currentMonth).map(({ date: day, inMonth }) => {
+            {getDaysInMonth(currentMonth).map(({ date: day }) => {
               const dayEvents = getEventsForDay(day);
               const isToday = day.toDateString() === new Date().toDateString();
 
@@ -435,10 +435,10 @@ export default function EventsPage() {
                 <div
                   key={day.toISOString()}
                   className={`bg-card p-2 min-h-[100px] border-t border-l ${
-                    isToday ? 'bg-primary/5' : !inMonth ? 'bg-muted/20' : ''
+                    isToday ? 'bg-primary/5' : ''
                   }`}
                 >
-                  <div className={`text-sm font-medium mb-1 ${isToday ? 'text-primary' : !inMonth ? 'text-muted-foreground/40' : 'text-muted-foreground'}`}>
+                  <div className={`text-sm font-medium mb-1 ${isToday ? 'text-primary' : 'text-muted-foreground'}`}>
                     {day.getDate()}
                   </div>
                   <div className="space-y-1">
