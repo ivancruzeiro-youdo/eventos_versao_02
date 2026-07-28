@@ -59,6 +59,7 @@ interface Event {
   guests: { id: string; name: string; phone: string | null; cpf: string | null; status: string }[];
   _count?: { guests: number };
   contracts?: EventContract[];
+  npsOrganizador?: { submittedAt: string | null } | null;
 }
 
 interface ChecklistItem {
@@ -588,14 +589,14 @@ export default function EventDetailPage() {
               </Link>
             )}
 
-            {/* Informar NPS: visível após encerrado */}
+            {/* Informar NPS / Ver relatório: visível após encerrado */}
             {event.status === 'encerrado' && (
               <Link
                 href={`/events/${eventId}/closure`}
                 className="px-3 py-1 border border-blue-400 rounded-lg text-sm bg-blue-50 text-blue-700 hover:bg-blue-100 flex items-center gap-1 font-medium"
               >
                 <Star size={14} />
-                Informar NPS
+                {event.npsOrganizador?.submittedAt ? 'Ver relatório do evento' : 'Informar NPS'}
               </Link>
             )}
           </div>
