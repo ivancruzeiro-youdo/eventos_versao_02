@@ -161,7 +161,7 @@ export default function EventsPage() {
     return matchesSearch && matchesStatus && matchesDate;
   });
 
-  // Calendar helpers
+  // Calendar helpers — preenche os dias do mês anterior/seguinte para completar as semanas
   const getDaysInMonth = (date: Date) => {
     const year = date.getFullYear();
     const month = date.getMonth();
@@ -170,13 +170,21 @@ export default function EventsPage() {
     const daysInMonth = lastDay.getDate();
     const startingDayOfWeek = (firstDay.getDay() + 6) % 7; // semana começa na segunda (0 = Seg ... 6 = Dom)
 
-    const days: (Date | null)[] = [];
-    for (let i = 0; i < startingDayOfWeek; i++) {
-      days.push(null);
+    const days: { date: Date; inMonth: boolean }[] = [];
+
+    for (let i = startingDayOfWeek; i > 0; i--) {
+      days.push({ date: new Date(year, month, 1 - i), inMonth: false });
     }
     for (let i = 1; i <= daysInMonth; i++) {
-      days.push(new Date(year, month, i));
+      days.push({ date: new Date(year, month, i), inMonth: true });
     }
+    while (days.length % 7 !== 0) {
+      const last = days[days.length - 1].date;
+      const next = new Date(last);
+      next.setDate(last.getDate() + 1);
+      days.push({ date: next, inMonth: false });
+    }
+
     return days;
   };
 
@@ -419,22 +427,18 @@ export default function EventsPage() {
                 {day}
               </div>
             ))}
-            {getDaysInMonth(currentMonth).map((day, index) => {
-              if (!day) {
-                return <div key={`empty-${index}`} className="bg-card p-2 min-h-[100px]" />;
-              }
-              
+            {getDaysInMonth(currentMonth).map(({ date: day, inMonth }) => {
               const dayEvents = getEventsForDay(day);
               const isToday = day.toDateString() === new Date().toDateString();
-              
+
               return (
                 <div
                   key={day.toISOString()}
                   className={`bg-card p-2 min-h-[100px] border-t border-l ${
-                    isToday ? 'bg-primary/5' : ''
+                    isToday ? 'bg-primary/5' : !inMonth ? 'bg-muted/20' : ''
                   }`}
                 >
-                  <div className={`text-sm font-medium mb-1 ${isToday ? 'text-primary' : 'text-muted-foreground'}`}>
+                  <div className={`text-sm font-medium mb-1 ${isToday ? 'text-primary' : !inMonth ? 'text-muted-foreground/40' : 'text-muted-foreground'}`}>
                     {day.getDate()}
                   </div>
                   <div className="space-y-1">
