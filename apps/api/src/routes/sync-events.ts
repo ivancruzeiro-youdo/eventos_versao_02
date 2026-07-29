@@ -25,66 +25,51 @@ async function getUserpToken(): Promise<{ token: string; baseUrl: string }> {
   return { token: data.access_token, baseUrl };
 }
 
-async function getBaseUrl(): Promise<string> {
-  const rows = await (prisma as any).uerpConfig.findMany();
-  const map: Record<string, string> = {};
-  for (const r of rows) map[r.key] = r.value;
-  const baseUrl = map['userpBaseUrl'] || '';
-  if (!baseUrl) throw new Error('URL base Userp não configurada.');
-  return baseUrl;
-}
-
-// Fetch paginated list of contract IDs from experience API (no auth needed, fixed page size = 15)
-async function fetchContratoIds(baseUrl: string): Promise<number[]> {
+// Fetch paginated list of contract IDs from the satelite experience API (Bearer auth; includes real start/end times)
+async function fetchContratoIds(token: string, baseUrl: string): Promise<number[]> {
   const all: number[] = [];
-  let page = 1;
+  let start = 0;
+  const limit = 200;
   while (true) {
-    const res = await fetch(`${baseUrl}/api/experience/contracts.php`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ action: 'paginated', page, orderBy: 'contrato_desc' }),
+    const res = await fetch(`${baseUrl}/api/userp-satelite/experience/contracts-paginated.php?start=${start}&limit=${limit}&order_by=contrato_desc`, {
+      headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
     });
     if (!res.ok) throw new Error(`Erro ao listar contratos: ${res.status}`);
-    const text = await res.text();
-    let data: any;
-    try { data = JSON.parse(text); } catch { throw new Error(`Resposta inválida da API (página ${page}): ${text.slice(0,200)}`); }
-    const items: any[] = data?.data?.data || [];
+    const data: any = await res.json();
+    const items: any[] = data?.items || [];
     for (const c of items) all.push(c.codlocacontrato);
-    const totalPages: number = data?.data?.total_pages || 1;
-    if (page >= totalPages || items.length === 0) break;
-    page++;
+    if (!data?.has_more || items.length === 0) break;
+    start = data?.next_start ?? (start + limit);
   }
   return all;
 }
 
-// Fetch full contract details (has data_checkin and produtos)
-async function fetchContratoDetails(baseUrl: string, codlocacontrato: number): Promise<any | null> {
-  const res = await fetch(`${baseUrl}/api/experience/contracts.php`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ action: 'details', codlocacontrato }),
+// Fetch full contract details (has inicio_evento/fim_evento/data_checkin with real time, and produtos)
+async function fetchContratoDetails(token: string, baseUrl: string, codlocacontrato: number): Promise<any | null> {
+  const res = await fetch(`${baseUrl}/api/userp-satelite/experience/contracts-details.php?codlocacontrato=${codlocacontrato}`, {
+    headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
   });
   if (!res.ok) return null;
-  const text = await res.text();
   let data: any;
-  try { data = JSON.parse(text); } catch { return null; }
-  return data?.data?.contracts ?? null;
+  try { data = await res.json(); } catch { return null; }
+  if (!data?.success) return null;
+  return data?.contracts ?? null;
 }
 
-// Fetch all contracts with details, filtering to today-or-future by data_checkin
-async function fetchContratos(baseUrl: string, _token?: string): Promise<any[]> {
+// Fetch all contracts with details, filtering to today-or-future by data_checkin (date-only comparison)
+async function fetchContratos(token: string, baseUrl: string): Promise<any[]> {
   const today = new Date().toISOString().slice(0, 10);
-  const ids = await fetchContratoIds(baseUrl);
+  const ids = await fetchContratoIds(token, baseUrl);
   const results: any[] = [];
   // Fetch details in parallel batches of 10
   for (let i = 0; i < ids.length; i += 10) {
     const batch = ids.slice(i, i + 10);
-    const details = await Promise.all(batch.map(id => fetchContratoDetails(baseUrl, id)));
+    const details = await Promise.all(batch.map(id => fetchContratoDetails(token, baseUrl, id)));
     for (const d of details) {
       if (!d) continue;
       const main = d.main;
       if (!main) continue;
-      const checkin: string = main.data_checkin || '';
+      const checkin: string = String(main.data_checkin || '').slice(0, 10);
       if (checkin < today) continue; // skip past events
       // Attach secondary contracts too
       results.push({ ...main, _secondary: d.secondary || [] });
@@ -107,7 +92,7 @@ function mapCategory(categoryName: string | null): 'ab' | 'infra' | 'staff' | 'v
 function groupContracts(contracts: any[]): Map<string, any[]> {
   const map = new Map<string, any[]>();
   for (const c of contracts) {
-    const key = `${c.cliente}__${c.data_checkin}`;
+    const key = `${c.cliente}__${String(c.data_checkin || '').slice(0, 10)}`;
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(c);
   }
@@ -242,16 +227,16 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     const employerId: string = user.employerId;
     if (!employerId) return reply.status(400).send({ error: 'Usuário sem employerId.' });
 
-    let baseUrl: string;
+    let token: string, baseUrl: string;
     try {
-      baseUrl = await getBaseUrl();
+      ({ token, baseUrl } = await getUserpToken());
     } catch (e: any) {
       return reply.status(400).send({ error: e.message });
     }
 
     let rawContracts: any[];
     try {
-      rawContracts = await fetchContratos(baseUrl);
+      rawContracts = await fetchContratos(token, baseUrl);
     } catch (e: any) {
       return reply.status(502).send({ error: e.message });
     }
@@ -395,11 +380,19 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Nenhum evento para importar.' });
     }
 
-    let baseUrl: string;
+    let token: string, baseUrl: string;
     try {
-      baseUrl = await getBaseUrl();
+      ({ token, baseUrl } = await getUserpToken());
     } catch (e: any) {
       return reply.status(400).send({ error: e.message });
+    }
+
+    // Parse a UERP local-time string ("YYYY-MM-DD HH:MM:SS") as BRT (fixed UTC-3, no DST since 2019)
+    function parseBrt(s: string | null | undefined): Date | null {
+      if (!s) return null;
+      const iso = s.trim().replace(' ', 'T');
+      const d = new Date(`${iso}-03:00`);
+      return isNaN(d.getTime()) ? null : d;
     }
 
     const results: { key: string; action: string; eventId: string }[] = [];
@@ -412,24 +405,28 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       const relatedRaw: any[] = [];
       for (const cid of contractIds) {
         if (!cid) continue;
-        const detail = await fetchContratoDetails(baseUrl, Number(cid)).catch(() => null);
+        const detail = await fetchContratoDetails(token, baseUrl, Number(cid)).catch(() => null);
         if (detail?.main) relatedRaw.push({ ...detail.main, _secondary: detail.secondary || [] });
       }
 
       let eventId = existingEventId || '';
 
       if (action === 'create') {
-        // Default startAt = noon BRT (15:00 UTC); teardownAt = startAt + 7h
-        const startDateObj = new Date(`${startDate}T15:00:00.000Z`); // 12:00 BRT
-        const teardownDateObj = new Date(startDateObj.getTime() + 7 * 60 * 60_000); // +7h
+        // Prefer real times from Userp (inicio_evento/fim_evento/data_checkin); fall back to the
+        // old fixed placeholder (noon-to-7pm BRT) when Userp's hour fields aren't filled in.
+        const primaryRaw = relatedRaw[0] || null;
+        const setupAtObj = parseBrt(primaryRaw?.data_checkin);
+        const startAtObj = parseBrt(primaryRaw?.inicio_evento) || new Date(`${startDate}T15:00:00.000Z`); // fallback: 12:00 BRT
+        const teardownAtObj = parseBrt(primaryRaw?.fim_evento) || new Date(startAtObj.getTime() + 7 * 60 * 60_000); // fallback: +7h
         const ev = await (prisma as any).event.create({
           data: {
             name: `${clientName} — ${startDate}`,
             clientName,
             employerId,
             status: 'confirmed',
-            startAt: startDateObj,
-            teardownAt: teardownDateObj,
+            ...(setupAtObj ? { setupAt: setupAtObj } : {}),
+            startAt: startAtObj,
+            teardownAt: teardownAtObj,
           },
         });
         eventId = ev.id;
@@ -692,9 +689,9 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     });
     const globalImportedIds = new Set(allImportedContracts.map((c: any) => String(c.externalId)));
 
-    let baseUrl: string;
+    let token: string, baseUrl: string;
     try {
-      baseUrl = await getBaseUrl();
+      ({ token, baseUrl } = await getUserpToken());
     } catch (e: any) {
       return reply.status(400).send({ error: e.message });
     }
@@ -702,7 +699,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     // 3. Fetch all USERP contract IDs (paginated, only IDs — fast)
     let userpIds: number[];
     try {
-      userpIds = await fetchContratoIds(baseUrl);
+      userpIds = await fetchContratoIds(token, baseUrl);
     } catch (e: any) {
       return reply.status(502).send({ error: e.message });
     }
@@ -717,7 +714,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     const secondaryPending: { secId: string; mainDetail: any }[] = [];
     const detailByExternalId = new Map<string, any | null>();
     for (const ec of eventContracts) {
-      const detail = await fetchContratoDetails(baseUrl, Number(ec.externalId));
+      const detail = await fetchContratoDetails(token, baseUrl, Number(ec.externalId));
       detailByExternalId.set(ec.externalId, detail);
       if (!detail?.secondary?.length) continue;
       for (const sec of detail.secondary) {
@@ -751,13 +748,13 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     const pendingContracts: any[] = [];
     for (let i = 0; i < unknownIds.length; i += 10) {
       const batch = unknownIds.slice(i, i + 10);
-      const details = await Promise.all(batch.map(id => fetchContratoDetails(baseUrl, id)));
+      const details = await Promise.all(batch.map(id => fetchContratoDetails(token, baseUrl, id)));
       for (const d of details) {
         if (!d?.main) continue;
         const main = d.main;
         // Must match how clientCode is derived in groupContracts/sync-import (uses main.cliente)
         const contractClientCode = String(main.cliente || '');
-        const contractStartDate = String(main.data_checkin || '');
+        const contractStartDate = String(main.data_checkin || '').slice(0, 10);
         if (contractClientCode === clientCode && contractStartDate === startDate) {
           pendingContracts.push({ ...main, _secondary: d.secondary || [] });
         }
@@ -880,7 +877,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
         .map((c: any) => ({
           id: String(c.codlocacontrato),
           clientName: c.razaosocial || c.cliente_info?.razaosocial || clientCode,
-          startDate: c.data_checkin || startDate,
+          startDate: String(c.data_checkin || '').slice(0, 10) || startDate,
         })),
       ...secondaryPending.map(({ secId, mainDetail }) => ({
         id: secId,
