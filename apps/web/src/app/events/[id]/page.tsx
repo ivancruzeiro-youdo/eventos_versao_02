@@ -52,6 +52,7 @@ interface Event {
   setupAt: string | null;
   startAt: string | null;
   teardownAt: string | null;
+  checkoutAt: string | null;
   notes: string | null;
   clientToken: string | null;
   reservationNumber: string | null;
@@ -122,7 +123,7 @@ export default function EventDetailPage() {
 
   // Inline date editing
   const [editingDates, setEditingDates] = useState(false);
-  const [dateForm, setDateForm] = useState({ startAt: '', teardownAt: '' });
+  const [dateForm, setDateForm] = useState({ setupAt: '', startAt: '', teardownAt: '', checkoutAt: '' });
   const [savingDates, setSavingDates] = useState(false);
 
   // Inline public name editing
@@ -146,7 +147,12 @@ export default function EventDetailPage() {
   }
 
   function openDateEdit() {
-    setDateForm({ startAt: toLocalInput(event!.startAt), teardownAt: toLocalInput(event!.teardownAt) });
+    setDateForm({
+      setupAt: toLocalInput(event!.setupAt),
+      startAt: toLocalInput(event!.startAt),
+      teardownAt: toLocalInput(event!.teardownAt),
+      checkoutAt: toLocalInput(event!.checkoutAt),
+    });
     setEditingDates(true);
   }
 
@@ -188,8 +194,10 @@ export default function EventDetailPage() {
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          setupAt: toUTC(dateForm.setupAt),
           startAt: toUTC(dateForm.startAt),
           teardownAt: toUTC(dateForm.teardownAt),
+          checkoutAt: toUTC(dateForm.checkoutAt),
         }),
       });
       if (!response.ok) {
@@ -674,42 +682,12 @@ export default function EventDetailPage() {
 
         {/* Info card */}
         <div className="mt-4 bg-card border rounded-xl px-5 py-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div className="flex items-start gap-2">
               <Users size={15} className="text-primary mt-0.5 shrink-0" />
               <div>
                 <p className="text-xs text-muted-foreground">Contratante</p>
                 <p className="font-semibold text-sm">{event.clientName}</p>
-              </div>
-            </div>
-
-            {/* Início */}
-            <div className="flex items-start gap-2">
-              <Calendar size={15} className="text-primary mt-0.5 shrink-0" />
-              <div className="flex-1">
-                <p className="text-xs text-muted-foreground">Início</p>
-                {editingDates ? (
-                  <input type="datetime-local" value={dateForm.startAt}
-                    onChange={e => setDateForm(f => ({ ...f, startAt: e.target.value }))}
-                    className="w-full text-sm px-2 py-1 border rounded bg-background focus:ring-2 focus:ring-ring" />
-                ) : (
-                  <p className="font-semibold text-sm">{event.startAt ? formatDateTime(event.startAt) : <span className="italic text-muted-foreground">A definir</span>}</p>
-                )}
-              </div>
-            </div>
-
-            {/* Término */}
-            <div className="flex items-start gap-2">
-              <Calendar size={15} className="text-muted-foreground mt-0.5 shrink-0" />
-              <div className="flex-1">
-                <p className="text-xs text-muted-foreground">Término</p>
-                {editingDates ? (
-                  <input type="datetime-local" value={dateForm.teardownAt}
-                    onChange={e => setDateForm(f => ({ ...f, teardownAt: e.target.value }))}
-                    className="w-full text-sm px-2 py-1 border rounded bg-background focus:ring-2 focus:ring-ring" />
-                ) : (
-                  <p className="font-semibold text-sm">{event.teardownAt ? formatDateTime(event.teardownAt) : <span className="italic text-muted-foreground">A definir</span>}</p>
-                )}
               </div>
             </div>
 
@@ -724,6 +702,68 @@ export default function EventDetailPage() {
                   ))
                 ) : (
                   <p className="italic text-muted-foreground text-sm">A definir</p>
+                )}
+              </div>
+            </div>
+
+            <div className="hidden lg:block" />
+
+            {/* Checkin / Montagem */}
+            <div className="flex items-start gap-2">
+              <Calendar size={15} className="text-muted-foreground mt-0.5 shrink-0" />
+              <div className="flex-1">
+                <p className="text-xs text-muted-foreground">Checkin (montagem)</p>
+                {editingDates ? (
+                  <input type="datetime-local" value={dateForm.setupAt}
+                    onChange={e => setDateForm(f => ({ ...f, setupAt: e.target.value }))}
+                    className="w-full text-sm px-2 py-1 border rounded bg-background focus:ring-2 focus:ring-ring" />
+                ) : (
+                  <p className="font-semibold text-sm">{event.setupAt ? formatDateTime(event.setupAt) : <span className="italic text-muted-foreground">A definir</span>}</p>
+                )}
+              </div>
+            </div>
+
+            {/* Início */}
+            <div className="flex items-start gap-2">
+              <Calendar size={15} className="text-primary mt-0.5 shrink-0" />
+              <div className="flex-1">
+                <p className="text-xs text-muted-foreground">Início do evento</p>
+                {editingDates ? (
+                  <input type="datetime-local" value={dateForm.startAt}
+                    onChange={e => setDateForm(f => ({ ...f, startAt: e.target.value }))}
+                    className="w-full text-sm px-2 py-1 border rounded bg-background focus:ring-2 focus:ring-ring" />
+                ) : (
+                  <p className="font-semibold text-sm">{event.startAt ? formatDateTime(event.startAt) : <span className="italic text-muted-foreground">A definir</span>}</p>
+                )}
+              </div>
+            </div>
+
+            {/* Término */}
+            <div className="flex items-start gap-2">
+              <Calendar size={15} className="text-primary mt-0.5 shrink-0" />
+              <div className="flex-1">
+                <p className="text-xs text-muted-foreground">Fim do evento</p>
+                {editingDates ? (
+                  <input type="datetime-local" value={dateForm.teardownAt}
+                    onChange={e => setDateForm(f => ({ ...f, teardownAt: e.target.value }))}
+                    className="w-full text-sm px-2 py-1 border rounded bg-background focus:ring-2 focus:ring-ring" />
+                ) : (
+                  <p className="font-semibold text-sm">{event.teardownAt ? formatDateTime(event.teardownAt) : <span className="italic text-muted-foreground">A definir</span>}</p>
+                )}
+              </div>
+            </div>
+
+            {/* Checkout / Desmontagem */}
+            <div className="flex items-start gap-2">
+              <Calendar size={15} className="text-muted-foreground mt-0.5 shrink-0" />
+              <div className="flex-1">
+                <p className="text-xs text-muted-foreground">Checkout (desmontagem)</p>
+                {editingDates ? (
+                  <input type="datetime-local" value={dateForm.checkoutAt}
+                    onChange={e => setDateForm(f => ({ ...f, checkoutAt: e.target.value }))}
+                    className="w-full text-sm px-2 py-1 border rounded bg-background focus:ring-2 focus:ring-ring" />
+                ) : (
+                  <p className="font-semibold text-sm">{event.checkoutAt ? formatDateTime(event.checkoutAt) : <span className="italic text-muted-foreground">A definir</span>}</p>
                 )}
               </div>
             </div>

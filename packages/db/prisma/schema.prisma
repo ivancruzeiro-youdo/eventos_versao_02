@@ -172,6 +172,7 @@ model Event {
   setupAt           DateTime?
   startAt           DateTime?
   teardownAt        DateTime?
+  checkoutAt        DateTime?
   notes             String?
   clientToken       String?     @unique
   reservationNumber String?

@@ -418,6 +418,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
         const setupAtObj = parseBrt(primaryRaw?.data_checkin);
         const startAtObj = parseBrt(primaryRaw?.inicio_evento) || new Date(`${startDate}T15:00:00.000Z`); // fallback: 12:00 BRT
         const teardownAtObj = parseBrt(primaryRaw?.fim_evento) || new Date(startAtObj.getTime() + 7 * 60 * 60_000); // fallback: +7h
+        const checkoutAtObj = parseBrt(primaryRaw?.data_checkout);
         const ev = await (prisma as any).event.create({
           data: {
             name: `${clientName} — ${startDate}`,
@@ -427,6 +428,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
             ...(setupAtObj ? { setupAt: setupAtObj } : {}),
             startAt: startAtObj,
             teardownAt: teardownAtObj,
+            ...(checkoutAtObj ? { checkoutAt: checkoutAtObj } : {}),
           },
         });
         eventId = ev.id;

@@ -35,6 +35,7 @@ interface Event {
   startAt: string | null;
   setupAt: string | null;
   teardownAt: string | null;
+  checkoutAt: string | null;
   venues: { venue: { name: string } }[];
   _count?: { guests: number };
 }
@@ -364,6 +365,13 @@ export default function EventsPage() {
                         <span className="flex items-center gap-1">
                           <CalendarIcon className="size-3.5 shrink-0" />
                           <span className="text-xs">
+                            <span className="font-medium text-foreground/80">Checkin:</span>{' '}
+                            {event.setupAt ? formatDateTime(event.setupAt) : <em>A definir</em>}
+                          </span>
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <CalendarIcon className="size-3.5 shrink-0" />
+                          <span className="text-xs">
                             <span className="font-medium text-foreground/80">Início:</span>{' '}
                             {event.startAt ? formatDateTime(event.startAt) : <em>A definir</em>}
                           </span>
@@ -373,6 +381,13 @@ export default function EventsPage() {
                           <span className="text-xs">
                             <span className="font-medium text-foreground/80">Fim:</span>{' '}
                             {event.teardownAt ? formatDateTime(event.teardownAt) : <em>A definir</em>}
+                          </span>
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <CalendarIcon className="size-3.5 shrink-0" />
+                          <span className="text-xs">
+                            <span className="font-medium text-foreground/80">Checkout:</span>{' '}
+                            {event.checkoutAt ? formatDateTime(event.checkoutAt) : <em>A definir</em>}
                           </span>
                         </span>
                         {event.venues.filter(v => v.venue).map((v, i) => (
