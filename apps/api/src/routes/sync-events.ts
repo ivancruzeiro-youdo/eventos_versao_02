@@ -106,6 +106,49 @@ function mapCategory(categoryName: string | null): 'ab' | 'infra' | 'staff' | 'v
   return null;
 }
 
+// Business rule: contracted Garçom/Bartender headcount is automatically split across
+// specialized roles instead of a single flat service. Responsável roles are always
+// guaranteed (never dropped for small contracts, per business decision); Garçom/Montador
+// takes 40% of the total (rounded up, minimum 2) from whatever's left after the
+// Responsável de Salão seat, and the remainder stays as base Garçom.
+async function resolveStaffAllocations(
+  svc: { id: string; name: string },
+  qty: number
+): Promise<{ serviceId: string; maxSlots: number }[]> {
+  const total = Math.ceil(qty);
+  if (total <= 0) return [];
+
+  if (svc.name === 'Garçom') {
+    const montadorSvc = await (prisma as any).freelancerService.findFirst({ where: { name: 'Garçom/Montador' } });
+    const responsavelSvc = await (prisma as any).freelancerService.findFirst({ where: { name: 'Responsavel de salão' } });
+    if (!montadorSvc || !responsavelSvc) return [{ serviceId: svc.id, maxSlots: total }]; // roles not configured — fall back to flat
+
+    const responsavelCount = 1; // always guaranteed
+    const remaining = total - responsavelCount;
+    const montadorCount = Math.max(Math.min(remaining, Math.max(Math.ceil(total * 0.4), 2)), 0);
+    const baseCount = Math.max(remaining - montadorCount, 0);
+
+    const out: { serviceId: string; maxSlots: number }[] = [{ serviceId: responsavelSvc.id, maxSlots: responsavelCount }];
+    if (montadorCount > 0) out.push({ serviceId: montadorSvc.id, maxSlots: montadorCount });
+    if (baseCount > 0) out.push({ serviceId: svc.id, maxSlots: baseCount });
+    return out;
+  }
+
+  if (svc.name === 'Bartender') {
+    const responsavelBarSvc = await (prisma as any).freelancerService.findFirst({ where: { name: 'Responsanvel do Bar' } });
+    if (!responsavelBarSvc) return [{ serviceId: svc.id, maxSlots: total }];
+
+    const responsavelCount = 1; // fixed, always exactly 1 per event
+    const baseCount = Math.max(total - responsavelCount, 0);
+
+    const out: { serviceId: string; maxSlots: number }[] = [{ serviceId: responsavelBarSvc.id, maxSlots: responsavelCount }];
+    if (baseCount > 0) out.push({ serviceId: svc.id, maxSlots: baseCount });
+    return out;
+  }
+
+  return [{ serviceId: svc.id, maxSlots: total }];
+}
+
 // Group contracts by (cliente, data_checkin) — same event (one main per key already, but keep for merge)
 function groupContracts(contracts: any[]): Map<string, any[]> {
   const map = new Map<string, any[]>();
@@ -609,31 +652,34 @@ export async function syncEventsRoutes(app: FastifyInstance) {
           const eventStartAt: Date = eventRecord?.startAt ?? new Date(`${startDate}T12:00:00`);
           const eventEndBase: Date = eventRecord?.teardownAt ?? eventStartAt;
           for (const svc of item.staffServices) {
-            const existingSvc = await (prisma as any).eventService.findFirst({ where: { eventId, serviceId: svc.id } });
-            if (existingSvc) {
-              // Update maxSlots only — preserve all operator-entered data
-              await (prisma as any).eventService.update({
-                where: { id: existingSvc.id },
-                data: { maxSlots: Math.ceil(item.qty) },
-              });
-            } else {
-              const svcData = await (prisma as any).freelancerService.findUnique({ where: { id: svc.id } });
-              const startOffset: number = svcData?.startOffsetMinutes ?? -60;
-              const endOffset: number = svcData?.endOffsetMinutes ?? 60;
-              const svcStart = new Date(eventStartAt.getTime() + startOffset * 60_000);
-              const svcEnd = new Date(eventEndBase.getTime() + endOffset * 60_000);
-              await (prisma as any).eventService.create({
-                data: {
-                  eventId,
-                  serviceId: svc.id,
-                  productName: item.name,
-                  maxSlots: Math.ceil(item.qty),
-                  valuePerHour: svcData?.hourlyRate ?? 0,
-                  startAt: svcStart,
-                  endAt: svcEnd,
-                  status: 'active',
-                },
-              });
+            const allocations = await resolveStaffAllocations(svc, item.qty);
+            for (const alloc of allocations) {
+              const existingSvc = await (prisma as any).eventService.findFirst({ where: { eventId, serviceId: alloc.serviceId } });
+              if (existingSvc) {
+                // Update maxSlots only — preserve all operator-entered data
+                await (prisma as any).eventService.update({
+                  where: { id: existingSvc.id },
+                  data: { maxSlots: alloc.maxSlots },
+                });
+              } else {
+                const svcData = await (prisma as any).freelancerService.findUnique({ where: { id: alloc.serviceId } });
+                const startOffset: number = svcData?.startOffsetMinutes ?? -60;
+                const endOffset: number = svcData?.endOffsetMinutes ?? 60;
+                const svcStart = new Date(eventStartAt.getTime() + startOffset * 60_000);
+                const svcEnd = new Date(eventEndBase.getTime() + endOffset * 60_000);
+                await (prisma as any).eventService.create({
+                  data: {
+                    eventId,
+                    serviceId: alloc.serviceId,
+                    productName: item.name,
+                    maxSlots: alloc.maxSlots,
+                    valuePerHour: svcData?.hourlyRate ?? 0,
+                    startAt: svcStart,
+                    endAt: svcEnd,
+                    status: 'active',
+                  },
+                });
+              }
             }
           }
         }
