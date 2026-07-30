@@ -39,6 +39,7 @@ import { activitiesRoutes } from './routes/activities.js';
 import { layoutRoutes } from './routes/layout.js';
 import { parkingRoutes } from './routes/parking.js';
 import { deviceRoutes } from './routes/devices.js';
+import { eventMediaRoutes } from './routes/event-media.js';
 
 const logger = pino({
   transport: {
@@ -170,6 +171,7 @@ const start = async () => {
   await app.register(layoutRoutes, { prefix: '/api/v2' });
   await app.register(parkingRoutes, { prefix: '/api/v2' });
   await app.register(deviceRoutes, { prefix: '/api/v2' });
+  await app.register(eventMediaRoutes, { prefix: '/api/v2' });
 
     const port = parseInt(process.env.PORT || '3001', 10);
     const host = process.env.HOST || '0.0.0.0';

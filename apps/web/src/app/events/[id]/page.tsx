@@ -10,6 +10,7 @@ import EventCommentsTab from '@/components/EventCommentsTab';
 import EventFilesTab from '@/components/EventFilesTab';
 import EventScheduleTab from '@/components/EventScheduleTab';
 import EventItemsTab from '@/components/EventItemsTab';
+import EventMediaTab from '@/components/EventMediaTab';
 import EventMaoDeObraTab from '@/components/EventMaoDeObraTab';
 import EventTaxasTab from '@/components/EventTaxasTab';
 import EventActivitiesTab from '@/components/EventActivitiesTab';
@@ -24,7 +25,7 @@ import {
   MessageCircle, FileText, Clock, CheckSquare, Users,
   ClipboardList, Briefcase, UtensilsCrossed, HardHat, Trash2, ChevronDown,
   Calendar, MapPin, Pencil, Check, X, Copy, UserCog, ChefHat, LogOut, Star, Plus,
-  GripVertical, Printer, Mail, Phone, CreditCard, FileSignature, Receipt, ListTodo, LayoutGrid, AlertTriangle, Camera
+  GripVertical, Printer, Mail, Phone, CreditCard, FileSignature, Receipt, ListTodo, LayoutGrid, AlertTriangle, Camera, MonitorPlay
 } from 'lucide-react';
 
 interface EventContract {
@@ -93,6 +94,7 @@ const tabs = [
   { id: 'team', label: 'Pessoas', icon: UserCog },
   { id: 'professionals', label: 'Profissionais', icon: Camera },
   { id: 'layout', label: 'Layout', icon: LayoutGrid },
+  { id: 'media', label: 'Mídia', icon: MonitorPlay },
 ];
 
 export default function EventDetailPage() {
@@ -1222,6 +1224,9 @@ export default function EventDetailPage() {
       )}
       {activeTab === 'layout' && (
         <EventLayoutTab eventId={eventId} />
+      )}
+      {activeTab === 'media' && (
+        <EventMediaTab eventId={eventId} />
       )}
     </Layout>
   );

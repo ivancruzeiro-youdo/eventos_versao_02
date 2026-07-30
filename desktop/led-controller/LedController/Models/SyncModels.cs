@@ -46,3 +46,10 @@ public class ApiErrorResponse
 {
     public string? Error { get; set; }
 }
+
+public class DownloadUrlResponse
+{
+    public bool Success { get; set; }
+    public string DownloadUrl { get; set; } = "";
+    public string Checksum { get; set; } = "";
+}

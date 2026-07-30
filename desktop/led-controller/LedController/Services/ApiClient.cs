@@ -39,6 +39,15 @@ public class ApiClient
         return (await res.Content.ReadFromJsonAsync<SyncResponse>(JsonOptions, ct))!;
     }
 
+    public async Task<DownloadUrlResponse> GetMediaDownloadUrlAsync(string deviceAuth, string assetId, CancellationToken ct = default)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"api/v2/devices/media/{assetId}/download");
+        req.Headers.Add("x-device-auth", deviceAuth);
+        var res = await _http.SendAsync(req, ct);
+        await EnsureSuccess(res, ct);
+        return (await res.Content.ReadFromJsonAsync<DownloadUrlResponse>(JsonOptions, ct))!;
+    }
+
     public async Task HeartbeatAsync(string deviceAuth, CancellationToken ct = default)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, "api/v2/devices/heartbeat");

@@ -28,22 +28,25 @@ dotnet run --project LedController
   salva o token de longa duração criptografado (DPAPI) em
   `%LOCALAPPDATA%\YouDoLedController\config.json`.
 - **Sincronização em background** (`Services/MediaSyncService.cs`): chama
-  `GET /api/v2/devices/sync` a cada 2 minutos, mantém um manifesto local
-  (`manifest.json`) do que já foi baixado, e envia `POST /api/v2/devices/heartbeat`.
+  `GET /api/v2/devices/sync` a cada 2 minutos, baixa (via presigned S3 URL,
+  `GET /api/v2/devices/media/:assetId/download`) qualquer mídia nova ou alterada
+  (comparando checksum), mantém um manifesto local (`manifest.json`) do que já foi
+  baixado, remove do cache o que não é mais referenciado por nenhum evento futuro, e
+  envia `POST /api/v2/devices/heartbeat`.
 - **Duas janelas** (`Views/ControlWindow` no monitor principal, `Views/DisplayWindow`
   no monitor secundário/painel de LED): o operador escolhe o evento e a mídia na tela
   de controle, e ela aparece em fullscreen no painel — mesmo modelo de um "telão"
   convencional / apresentador de slides.
+- **Upload/gestão de mídia por evento (Fase 2, lado servidor)**: aba "Mídia" na página
+  do evento (`apps/web/src/components/EventMediaTab.tsx`) — upload direto pro S3
+  (presign/confirm), renomear, reordenar, excluir. É o que popula a `EventMediaAsset`
+  que o `/devices/sync` devolve.
 
-## O que ainda falta (Fases 2 e 3 — não implementadas aqui)
+## O que ainda falta (Fase 3 — não implementada aqui)
 
-- **Fase 2**: a API ainda não tem endpoint de upload de mídia por evento nem
-  `GET /devices/media/:assetId/download` — por isso `MediaSyncService.ReconcileAsync`
-  hoje só atualiza o manifesto local, sem baixar nada de verdade (tem um `TODO`
-  marcado no código exatamente onde plugar isso).
-- **Fase 3**: integração com Spotify (Web Playback SDK via `WebView2`, token de
-  reprodução vindo do backend). O pacote `Microsoft.Web.WebView2` já está no
-  `.csproj`, mas nenhuma tela/serviço de Spotify existe ainda.
+- Integração com Spotify (Web Playback SDK via `WebView2`, token de reprodução vindo
+  do backend). O pacote `Microsoft.Web.WebView2` já está no `.csproj`, mas nenhuma
+  tela/serviço de Spotify existe ainda — nem do lado do app, nem da API.
 
 ## Estrutura
 

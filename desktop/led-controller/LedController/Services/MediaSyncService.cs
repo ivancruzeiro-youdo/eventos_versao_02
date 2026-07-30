@@ -8,12 +8,6 @@ namespace LedController.Services;
 /// Periodically pulls GET /devices/sync and keeps the local media cache up to date.
 /// Playback (see ControlWindow/DisplayWindow) only ever reads from the local cache,
 /// never the network — this is what makes the show run offline once synced.
-///
-/// NOTE (Phase 1 -> Phase 2 handoff): the API's /devices/sync currently returns each
-/// asset's metadata (id, checksum, sizeBytes, ...) but Phase 1 has no upload pipeline
-/// yet, so there's nothing to download. The per-asset download endpoint
-/// (GET /devices/media/:assetId/download -> presigned URL) is Phase 2 work; once it
-/// exists, wire its URL into DownloadMissingAsync below instead of the TODO.
 /// </summary>
 public class MediaSyncService : IDisposable
 {
@@ -61,11 +55,18 @@ public class MediaSyncService : IDisposable
                 if (_manifest.TryGetValue(asset.Id, out var cachedChecksum) && cachedChecksum == asset.Checksum)
                     continue; // already have the current version
 
-                // TODO (Phase 2): fetch the real presigned download URL from
-                // GET /devices/media/{asset.Id}/download and download it here:
-                // var destPath = Path.Combine(DeviceConfigStore.MediaCacheDir, asset.Id);
-                // await _api.DownloadToFileAsync(downloadUrl, destPath);
-                _manifest[asset.Id] = asset.Checksum;
+                try
+                {
+                    var download = await _api.GetMediaDownloadUrlAsync(_deviceAuth, asset.Id);
+                    var destPath = Path.Combine(DeviceConfigStore.MediaCacheDir, asset.Id);
+                    await _api.DownloadToFileAsync(download.DownloadUrl, destPath);
+                    _manifest[asset.Id] = asset.Checksum;
+                }
+                catch
+                {
+                    // Leave this asset out of the manifest — it'll be retried on the next
+                    // sync tick instead of silently marking a failed download as cached.
+                }
             }
         }
 

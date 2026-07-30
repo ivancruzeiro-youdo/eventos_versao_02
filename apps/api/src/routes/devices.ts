@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../server.js';
 import { requireAuth } from '../middleware/auth.js';
+import { createDownloadPresignedUrl } from '../lib/s3.js';
 
 const PAIRING_CODE_TTL_MS = 15 * 60 * 1000; // 15 min
 const DEVICE_TOKEN_TTL = '365d'; // hardware installs are long-lived
@@ -147,14 +148,16 @@ export async function deviceRoutes(app: FastifyInstance) {
     if (!session) return;
 
     const now = new Date();
-    const windowEnd = new Date(now.getTime() + 7 * 24 * 60 * 60_000); // next 7 days
 
+    // No upper-bound cutoff: media should be downloadable well ahead of the show (that's
+    // the whole point of offline-first), not just in a narrow last-minute window.
     const eventVenues = await (prisma as any).eventVenue.findMany({
       where: {
         venueId: session.venueId,
         event: {
+          status: { in: ['confirmed', 'in_progress'] },
           OR: [
-            { startAt: { gte: now, lte: windowEnd } },
+            { startAt: { gte: now } },
             { status: 'in_progress' },
           ],
         },
@@ -175,5 +178,32 @@ export async function deviceRoutes(app: FastifyInstance) {
     const events = eventVenues.map((ev: any) => ev.event);
 
     return { success: true, venueId: session.venueId, events };
+  });
+
+  // Presigned download for one media asset — only for events actually linked to this
+  // device's venue, so a paired device can't fetch arbitrary media from other venues.
+  app.get('/devices/media/:assetId/download', async (request, reply) => {
+    const session = await getDeviceSession(app, request, reply);
+    if (!session) return;
+    const { assetId } = request.params as { assetId: string };
+
+    const asset = await (prisma as any).eventMediaAsset.findUnique({
+      where: { id: assetId },
+      include: { event: { include: { venues: { select: { venueId: true } } } } },
+    });
+    if (!asset) return reply.status(404).send({ error: 'Mídia não encontrada' });
+
+    const belongsToThisVenue = asset.event.venues.some((v: any) => v.venueId === session.venueId);
+    if (!belongsToThisVenue) return reply.status(403).send({ error: 'Mídia não pertence a este espaço' });
+
+    let downloadUrl: string;
+    try {
+      downloadUrl = await createDownloadPresignedUrl(asset.s3Key, asset.name);
+    } catch (s3Error) {
+      console.error('S3 download presign error:', s3Error);
+      return reply.status(502).send({ error: 'Falha ao gerar link de download.' });
+    }
+
+    return { success: true, downloadUrl, checksum: asset.checksum };
   });
 }
