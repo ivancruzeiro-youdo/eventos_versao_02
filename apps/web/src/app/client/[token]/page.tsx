@@ -1453,7 +1453,7 @@ export default function ClientPortalPage() {
           )}
         </div>
         {/* Tabs */}
-        <div className="max-w-2xl mx-auto px-4 flex gap-1 overflow-x-auto pb-px">
+        <div className="max-w-2xl mx-auto px-4 flex flex-wrap gap-1 pb-px">
           {TABS.map(tab => {
             const Icon = tab.icon;
             return (

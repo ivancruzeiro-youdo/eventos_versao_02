@@ -746,7 +746,11 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     }
 
     // Health check: does each locally-stored contract still match the current UERP state?
-    // - missing: fetchContratoDetails returned null (contract not found / UERP error)
+    // - missing (main contract only): fetchContratoDetails returned null for a direct lookup by
+    //   its own id — meaningful ONLY for the primary contract. Secondary contracts 404 on that
+    //   same direct lookup even when perfectly valid (Userp only resolves them via their parent's
+    //   own `secondary[]` list, never standalone) — so "missing" is left false for them and the
+    //   only trustworthy signal is unlinkedInUerp below.
     // - unlinkedInUerp: contract was imported as a secondary, but no longer appears in the
     //   main contract's current `secondary[]` list (link was broken on the UERP side)
     const mainDetail = detailByExternalId.get(eventContracts[0].externalId);
@@ -754,24 +758,35 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       (mainDetail?.secondary ?? []).map((s: any) => String(s.codlocacontrato || ''))
     );
     const contractHealth = eventContracts.map((ec: any, i: number) => {
-      const detail = detailByExternalId.get(ec.externalId);
-      const missing = detail === null;
-      const unlinkedInUerp = i > 0 && !missing && !mainSecondaryIds.has(String(ec.externalId));
-      return { id: ec.id, externalId: ec.externalId, missing, unlinkedInUerp };
+      if (i === 0) {
+        const detail = detailByExternalId.get(ec.externalId);
+        return { id: ec.id, externalId: ec.externalId, missing: detail === null, unlinkedInUerp: false };
+      }
+      const unlinkedInUerp = mainDetail !== null && !mainSecondaryIds.has(String(ec.externalId));
+      return { id: ec.id, externalId: ec.externalId, missing: false, unlinkedInUerp };
     });
 
-    // Removal proposals: contracts confirmed gone from UERP (not a transient fetch error) —
-    // list what would be removed, but never delete anything here. Actual deletion only
-    // happens via POST /events/:id/contracts/:contractId/confirm-removal, after the operator
-    // explicitly confirms.
+    // Removal proposals: contracts confirmed gone from UERP — list what would be removed, but
+    // never delete anything here. Actual deletion only happens via
+    // POST /events/:id/contracts/:contractId/confirm-removal, after the operator explicitly confirms.
     const pendingRemovals: {
       contractId: string; externalId: string; clientCode: string; startDate: string;
       items: { id: string; name: string; category: string; quantity: number }[];
     }[] = [];
-    for (const h of contractHealth) {
-      if (!h.missing) continue;
-      const status = await contratoStatus(token, baseUrl, Number(h.externalId));
-      if (status !== 'not_found') continue; // inconclusive/transient error — do not propose removal
+    for (let i = 0; i < contractHealth.length; i++) {
+      const h = contractHealth[i];
+      let confirmedGone = false;
+      if (i === 0 && h.missing) {
+        // Primary contract: a direct lookup is meaningful, but double-check via contratoStatus
+        // to distinguish a real 404 from a transient error before proposing removal.
+        const status = await contratoStatus(token, baseUrl, Number(h.externalId));
+        confirmedGone = status === 'not_found';
+      } else if (i > 0 && h.unlinkedInUerp) {
+        // Secondary contract: already confirmed via the primary's own secondary[] list above —
+        // no further (unreliable) standalone lookup needed.
+        confirmedGone = true;
+      }
+      if (!confirmedGone) continue;
       const ec = eventContracts.find((c: any) => c.id === h.id);
       const items = await (prisma as any).eventItem.findMany({
         where: { eventId, sourceContractId: h.externalId },
