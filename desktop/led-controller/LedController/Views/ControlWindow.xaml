@@ -1,0 +1,25 @@
+<Window x:Class="LedController.Views.ControlWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="YouDO — Controle do Painel de LED"
+        Width="900" Height="600"
+        WindowStartupLocation="Manual">
+    <DockPanel Margin="16">
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,12">
+            <TextBlock x:Name="DeviceNameText" FontSize="14" FontWeight="Bold" VerticalAlignment="Center"/>
+            <TextBlock Text=" · " VerticalAlignment="Center" Foreground="#999"/>
+            <TextBlock x:Name="SyncStatusText" Text="Sincronizando..." VerticalAlignment="Center" Foreground="#666"/>
+            <Button x:Name="SyncNowButton" Content="Sincronizar agora" Margin="16,0,0,0" Padding="8,2" Click="SyncNowButton_Click"/>
+        </StackPanel>
+
+        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+            <TextBlock Text="Evento atual" FontWeight="Bold" FontSize="16"/>
+            <ComboBox x:Name="EventSelector" Margin="0,4,0,0" SelectionChanged="EventSelector_SelectionChanged"/>
+        </StackPanel>
+
+        <Button DockPanel.Dock="Bottom" x:Name="StopButton" Content="Parar / Tela ociosa" Height="44"
+                Margin="0,12,0,0" Click="StopButton_Click" Background="#B00020" Foreground="White"/>
+
+        <ListBox x:Name="MediaList" DisplayMemberPath="Name" SelectionChanged="MediaList_SelectionChanged"/>
+    </DockPanel>
+</Window>

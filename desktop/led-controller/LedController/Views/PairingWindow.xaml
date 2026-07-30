@@ -1,0 +1,36 @@
+<Window x:Class="LedController.Views.PairingWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="YouDO — Pareamento do Painel de LED"
+        Width="440" Height="360"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="Parear este PC" FontSize="20" FontWeight="Bold" Margin="0,0,0,4"/>
+        <TextBlock Grid.Row="1" Text="Gere um código na tela do espaço (Espaços → Dispositivos de Mídia) e digite abaixo."
+                   TextWrapping="Wrap" Foreground="#666" Margin="0,0,0,16"/>
+
+        <StackPanel Grid.Row="2" Margin="0,0,0,12">
+            <TextBlock Text="URL da API" Margin="0,0,0,4"/>
+            <TextBox x:Name="ApiUrlBox" Text="https://eventos.youdobrasil.com.br"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="3" Margin="0,0,0,16">
+            <TextBlock Text="Código de pareamento" Margin="0,0,0,4"/>
+            <TextBox x:Name="PairingCodeBox" FontSize="24" MaxLength="6" TextAlignment="Center"/>
+        </StackPanel>
+
+        <Button x:Name="PairButton" Grid.Row="4" Content="Parear" Height="40" Click="PairButton_Click"/>
+
+        <TextBlock x:Name="StatusText" Grid.Row="5" Margin="0,12,0,0" TextWrapping="Wrap" Foreground="Crimson"/>
+    </Grid>
+</Window>

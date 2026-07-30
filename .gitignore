@@ -8,6 +8,11 @@ dist/
 build/
 out/
 
+# .NET (desktop/led-controller)
+desktop/**/bin/
+desktop/**/obj/
+*.user
+
 # Environment variables
 .env
 .env.local
