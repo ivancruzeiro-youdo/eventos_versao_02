@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Upload, Trash2, Pencil, Check, X, Video, Image as ImageIcon, Music, ArrowUp, ArrowDown, MonitorPlay } from 'lucide-react';
+import { Upload, Trash2, Pencil, Check, X, Video, Image as ImageIcon, Music, ArrowUp, ArrowDown, MonitorPlay, Ban } from 'lucide-react';
 
 interface MediaAsset {
   id: string;
@@ -11,10 +11,24 @@ interface MediaAsset {
   sizeBytes: number;
   durationSec: number | null;
   order: number;
+  deletedAt: string | null;
 }
 
 interface Props {
   eventId: string;
+}
+
+const MAX_SIZE_BYTES: Record<'video' | 'image' | 'audio', number> = {
+  video: 500 * 1024 * 1024,
+  image: 50 * 1024 * 1024,
+  audio: 500 * 1024 * 1024,
+};
+
+function mediaTypeFromMime(mimeType: string): 'video' | 'image' | 'audio' | null {
+  if (mimeType.startsWith('video/')) return 'video';
+  if (mimeType.startsWith('image/')) return 'image';
+  if (mimeType.startsWith('audio/')) return 'audio';
+  return null;
 }
 
 function formatSize(bytes: number) {
@@ -58,6 +72,21 @@ export default function EventMediaTab({ eventId }: Props) {
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    const detected = mediaTypeFromMime(file.type);
+    if (!detected) {
+      alert('Formato não suportado — envie vídeo, imagem ou áudio.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+    const maxSize = MAX_SIZE_BYTES[detected];
+    if (file.size > maxSize) {
+      const label = detected === 'image' ? 'Imagens' : detected === 'video' ? 'Vídeos' : 'Áudios';
+      alert(`${label} podem ter no máximo ${Math.round(maxSize / (1024 * 1024))}MB. Este arquivo tem ${formatSize(file.size)}.`);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
     setUploading(true);
     setUploadProgress('Preparando envio...');
     try {
@@ -164,6 +193,7 @@ export default function EventMediaTab({ eventId }: Props) {
         </div>
         <p className="text-xs text-muted-foreground mb-3">
           Vídeos, imagens e áudios que o dispositivo instalado no espaço baixa e exibe no painel de LED durante o evento.
+          Limites: vídeo/áudio até 500MB, imagem até 50MB. Arquivos são excluídos automaticamente 20 dias após o evento ser encerrado.
         </p>
         <label className={`flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed rounded-lg cursor-pointer text-sm transition ${
           uploading ? 'opacity-50 pointer-events-none' : 'hover:border-primary hover:bg-muted/40'
@@ -188,6 +218,17 @@ export default function EventMediaTab({ eventId }: Props) {
       ) : (
         <div className="space-y-2">
           {assets.map((asset, i) => (
+            asset.deletedAt ? (
+              <div key={asset.id} className="bg-muted/30 border border-dashed rounded-xl px-4 py-3 flex items-center gap-3 opacity-70">
+                <Ban size={16} className="text-muted-foreground shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate line-through">{asset.name}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Excluído automaticamente em {new Date(asset.deletedAt).toLocaleDateString('pt-BR')} (retenção de 20 dias após o encerramento)
+                  </p>
+                </div>
+              </div>
+            ) : (
             <div key={asset.id} className="bg-card border rounded-xl px-4 py-3 flex items-center gap-3">
               {mediaIcon(asset.mediaType)}
               <div className="flex-1 min-w-0">
@@ -215,6 +256,7 @@ export default function EventMediaTab({ eventId }: Props) {
                 <button onClick={() => remove(asset.id, asset.name)} className="p-1.5 text-muted-foreground hover:text-destructive rounded"><Trash2 size={14} /></button>
               </div>
             </div>
+            )
           ))}
         </div>
       )}

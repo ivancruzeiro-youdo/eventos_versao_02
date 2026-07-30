@@ -284,18 +284,19 @@ model VenueDevice {
 // Video/image/audio uploaded specifically for one event, played back on the venue's
 // LED panel via the paired VenueDevice's local cache (offline after sync).
 model EventMediaAsset {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   eventId     String
   name        String
-  mediaType   String   // video | image | audio
-  s3Key       String
+  mediaType   String    // video | image | audio
+  s3Key       String?   // null once deletedAt is set — the S3 object is gone
   mimeType    String
   sizeBytes   Int
   durationSec Float?
   checksum    String
-  order       Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  order       Int       @default(0)
+  deletedAt   DateTime? // set by the retention worker (20 days after event closure) — row kept as a record
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
 

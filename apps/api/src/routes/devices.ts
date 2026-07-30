@@ -167,6 +167,7 @@ export async function deviceRoutes(app: FastifyInstance) {
           select: {
             id: true, name: true, clientName: true, startAt: true, teardownAt: true, status: true,
             mediaAssets: {
+              where: { deletedAt: null },
               orderBy: { order: 'asc' },
               select: { id: true, name: true, mediaType: true, mimeType: true, sizeBytes: true, durationSec: true, checksum: true, order: true },
             },
@@ -191,7 +192,7 @@ export async function deviceRoutes(app: FastifyInstance) {
       where: { id: assetId },
       include: { event: { include: { venues: { select: { venueId: true } } } } },
     });
-    if (!asset) return reply.status(404).send({ error: 'Mídia não encontrada' });
+    if (!asset || !asset.s3Key) return reply.status(404).send({ error: 'Mídia não encontrada' });
 
     const belongsToThisVenue = asset.event.venues.some((v: any) => v.venueId === session.venueId);
     if (!belongsToThisVenue) return reply.status(403).send({ error: 'Mídia não pertence a este espaço' });

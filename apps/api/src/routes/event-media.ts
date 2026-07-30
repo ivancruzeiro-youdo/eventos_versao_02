@@ -26,6 +26,16 @@ function mediaTypeFromMime(mimeType: string): 'video' | 'image' | 'audio' | null
   return null;
 }
 
+const MAX_SIZE_BYTES: Record<'video' | 'image' | 'audio', number> = {
+  video: 500 * 1024 * 1024, // 500MB
+  image: 50 * 1024 * 1024,  // 50MB
+  audio: 500 * 1024 * 1024, // same ceiling as video — full-event background tracks can run long
+};
+
+function formatMb(bytes: number): string {
+  return `${Math.round(bytes / (1024 * 1024))}MB`;
+}
+
 export async function eventMediaRoutes(app: FastifyInstance) {
   // List media assets for an event (used by the "Mídia" tab)
   app.get('/events/:id/media', { preHandler: requireAuth }, async (request, reply) => {
@@ -47,6 +57,12 @@ export async function eventMediaRoutes(app: FastifyInstance) {
     const detected = mediaTypeFromMime(mimeType);
     if (!detected) return reply.status(400).send({ error: 'Formato não suportado — envie vídeo, imagem ou áudio.' });
 
+    const maxSize = MAX_SIZE_BYTES[detected];
+    if (sizeBytes > maxSize) {
+      const label = detected === 'image' ? 'Imagens' : detected === 'video' ? 'Vídeos' : 'Áudios';
+      return reply.status(400).send({ error: `${label} podem ter no máximo ${formatMb(maxSize)}.` });
+    }
+
     const s3Key = `events/${eventId}/media/${Date.now()}-${filename}`;
 
     let uploadUrl: string;
@@ -67,6 +83,12 @@ export async function eventMediaRoutes(app: FastifyInstance) {
   app.post('/events/:id/media/confirm', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId } = request.params as { id: string };
     const data = confirmSchema.parse(request.body);
+
+    const maxSize = MAX_SIZE_BYTES[data.mediaType];
+    if (data.sizeBytes > maxSize) {
+      const label = data.mediaType === 'image' ? 'Imagens' : data.mediaType === 'video' ? 'Vídeos' : 'Áudios';
+      return reply.status(400).send({ error: `${label} podem ter no máximo ${formatMb(maxSize)}.` });
+    }
 
     const maxOrder = await (prisma as any).eventMediaAsset.aggregate({
       where: { eventId },
@@ -97,6 +119,7 @@ export async function eventMediaRoutes(app: FastifyInstance) {
 
     const existing = await (prisma as any).eventMediaAsset.findFirst({ where: { id: assetId, eventId } });
     if (!existing) return reply.status(404).send({ error: 'Mídia não encontrada' });
+    if (existing.deletedAt) return reply.status(400).send({ error: 'Esta mídia já foi excluída (retenção de 20 dias) e não pode mais ser editada.' });
 
     const asset = await (prisma as any).eventMediaAsset.update({
       where: { id: assetId },
@@ -109,7 +132,8 @@ export async function eventMediaRoutes(app: FastifyInstance) {
     return { success: true, asset };
   });
 
-  // Delete — removes the S3 object too
+  // Delete — removes the S3 object too (immediate, operator-initiated; unlike the 20-day
+  // retention worker, this doesn't keep a placeholder row — the operator wants it gone now)
   app.delete('/events/:id/media/:assetId', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId, assetId } = request.params as { id: string; assetId: string };
 
@@ -117,10 +141,12 @@ export async function eventMediaRoutes(app: FastifyInstance) {
     if (!existing) return reply.status(404).send({ error: 'Mídia não encontrada' });
 
     await (prisma as any).eventMediaAsset.delete({ where: { id: assetId } });
-    try {
-      await deleteS3Object(existing.s3Key);
-    } catch (s3Error) {
-      console.error('S3 delete error (asset row already removed):', s3Error);
+    if (existing.s3Key) {
+      try {
+        await deleteS3Object(existing.s3Key);
+      } catch (s3Error) {
+        console.error('S3 delete error (asset row already removed):', s3Error);
+      }
     }
 
     return { success: true };

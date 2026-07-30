@@ -181,6 +181,9 @@ const start = async () => {
 
     const { startActivityAlerts } = await import('./workers/activity-alerts.js');
     startActivityAlerts((msg) => app.log.info(msg));
+
+    const { startMediaRetentionWorker } = await import('./workers/media-retention.js');
+    startMediaRetentionWorker((msg) => app.log.info(msg));
   } catch (err) {
     app.log.error(err);
     process.exit(1);
