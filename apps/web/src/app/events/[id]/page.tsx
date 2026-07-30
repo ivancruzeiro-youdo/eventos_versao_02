@@ -120,6 +120,11 @@ export default function EventDetailPage() {
   // Tab badges (pending indicators)
   const [tabBadges, setTabBadges] = useState<Record<string, boolean>>({});
   const [contractHealth, setContractHealth] = useState<Record<string, { missing: boolean; unlinkedInUerp: boolean }>>({});
+  const [pendingRemovals, setPendingRemovals] = useState<{
+    contractId: string; externalId: string; clientCode: string; startDate: string;
+    items: { id: string; name: string; category: string; quantity: number }[];
+  }[]>([]);
+  const [confirmingRemovalId, setConfirmingRemovalId] = useState<string | null>(null);
 
   // Inline date editing
   const [editingDates, setEditingDates] = useState(false);
@@ -236,7 +241,27 @@ export default function EventDetailPage() {
       const map: Record<string, { missing: boolean; unlinkedInUerp: boolean }> = {};
       for (const h of data.contractHealth ?? []) map[h.id] = { missing: h.missing, unlinkedInUerp: h.unlinkedInUerp };
       setContractHealth(map);
+      setPendingRemovals(data.pendingRemovals ?? []);
     } catch { /* silent */ }
+  }
+
+  async function confirmRemoval(contractId: string) {
+    setConfirmingRemovalId(contractId);
+    try {
+      const r = await fetch(`/api/v2/events/${eventId}/contracts/${contractId}/confirm-removal`, {
+        method: 'POST', credentials: 'include',
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        alert(err.error || 'Erro ao remover o contrato.');
+        return;
+      }
+      await Promise.all([loadEvent(), loadContractHealth()]);
+    } catch {
+      alert('Erro ao remover o contrato.');
+    } finally {
+      setConfirmingRemovalId(null);
+    }
   }
 
   async function loadChecklist() {
@@ -852,6 +877,43 @@ export default function EventDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Contract removal proposals */}
+      {pendingRemovals.length > 0 && (
+        <div className="mb-4 space-y-2">
+          {pendingRemovals.map(pr => (
+            <div key={pr.contractId} className="border border-amber-300 bg-amber-50 rounded-xl px-4 py-3">
+              <div className="flex items-start gap-2">
+                <AlertTriangle size={16} className="text-amber-600 mt-0.5 shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-amber-900">
+                    Contrato {pr.externalId} não foi mais encontrado no UERP.
+                  </p>
+                  {pr.items.length > 0 ? (
+                    <>
+                      <p className="text-xs text-amber-800 mt-1">Confirmar a remoção vai apagar estes itens do evento:</p>
+                      <ul className="text-xs text-amber-800 mt-1 list-disc list-inside">
+                        {pr.items.map(i => (
+                          <li key={i.id}>{i.name} ({i.category}) — qtd. {i.quantity}</li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : (
+                    <p className="text-xs text-amber-800 mt-1">Nenhum item vinculado a esse contrato.</p>
+                  )}
+                  <button
+                    onClick={() => confirmRemoval(pr.contractId)}
+                    disabled={confirmingRemovalId === pr.contractId}
+                    className="mt-2 flex items-center gap-1 px-3 py-1.5 text-xs rounded bg-amber-600 text-white hover:bg-amber-700 transition disabled:opacity-50"
+                  >
+                    {confirmingRemovalId === pr.contractId ? 'Removendo...' : 'Confirmar remoção'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* USERP sync status */}
       <div className="mb-4">

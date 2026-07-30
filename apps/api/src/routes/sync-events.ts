@@ -56,6 +56,24 @@ async function fetchContratoDetails(token: string, baseUrl: string, codlocacontr
   return data?.contracts ?? null;
 }
 
+// Distinguish a confirmed "contract no longer exists" (safe to act on) from a transient/other
+// error (inconclusive — must never be treated as evidence the contract was removed).
+async function contratoStatus(token: string, baseUrl: string, codlocacontrato: number): Promise<'found' | 'not_found' | 'error'> {
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}/api/userp-satelite/experience/contracts-details.php?codlocacontrato=${codlocacontrato}`, {
+      headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+    });
+  } catch {
+    return 'error';
+  }
+  let data: any;
+  try { data = await res.json(); } catch { return 'error'; }
+  if (res.ok && data?.success) return 'found';
+  if (data?.error === 'not_found' || res.status === 404) return 'not_found';
+  return 'error';
+}
+
 // Fetch all contracts with details, filtering to today-or-future by data_checkin (date-only comparison)
 async function fetchContratos(token: string, baseUrl: string): Promise<any[]> {
   const today = new Date().toISOString().slice(0, 10);
@@ -680,7 +698,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     });
 
     if (eventContracts.length === 0) {
-      return { success: true, status: 'no_contracts' };
+      return { success: true, status: 'no_contracts', pendingRemovals: [] };
     }
 
     const { clientCode, startDate } = eventContracts[0];
@@ -742,8 +760,32 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       return { id: ec.id, externalId: ec.externalId, missing, unlinkedInUerp };
     });
 
+    // Removal proposals: contracts confirmed gone from UERP (not a transient fetch error) —
+    // list what would be removed, but never delete anything here. Actual deletion only
+    // happens via POST /events/:id/contracts/:contractId/confirm-removal, after the operator
+    // explicitly confirms.
+    const pendingRemovals: {
+      contractId: string; externalId: string; clientCode: string; startDate: string;
+      items: { id: string; name: string; category: string; quantity: number }[];
+    }[] = [];
+    for (const h of contractHealth) {
+      if (!h.missing) continue;
+      const status = await contratoStatus(token, baseUrl, Number(h.externalId));
+      if (status !== 'not_found') continue; // inconclusive/transient error — do not propose removal
+      const ec = eventContracts.find((c: any) => c.id === h.id);
+      const items = await (prisma as any).eventItem.findMany({
+        where: { eventId, sourceContractId: h.externalId },
+        select: { id: true, name: true, category: true, quantity: true },
+      });
+      pendingRemovals.push({
+        contractId: h.id, externalId: h.externalId,
+        clientCode: ec?.clientCode ?? '', startDate: ec?.startDate ?? '',
+        items,
+      });
+    }
+
     if (unknownIds.length === 0 && secondaryPending.length === 0) {
-      return { success: true, status: 'up_to_date', contractHealth };
+      return { success: true, status: 'up_to_date', contractHealth, pendingRemovals };
     }
 
     // 5. Fetch details for unknown IDs in batches of 10, filter by this event's clientCode+startDate
@@ -773,7 +815,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     }
 
     if (pendingContracts.length === 0) {
-      return { success: true, status: 'up_to_date', contractHealth };
+      return { success: true, status: 'up_to_date', contractHealth, pendingRemovals };
     }
 
     // 6. Build preview (same structure as sync-preview) so frontend can pass to sync-import
@@ -894,7 +936,66 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       pendingContracts: displayContracts,
       preview,
       contractHealth,
+      pendingRemovals,
     };
+  });
+
+  // POST /events/:id/contracts/:contractId/confirm-removal — operator-confirmed removal of a
+  // contract that no longer exists in Userp, plus the items it contributed to A&B/Infra/Staff.
+  app.post('/events/:id/contracts/:contractId/confirm-removal', { preHandler: requireAuth }, async (request, reply) => {
+    const { id: eventId, contractId } = request.params as { id: string; contractId: string };
+    const user = (request as any).user;
+
+    const contract = await (prisma as any).eventContract.findFirst({ where: { id: contractId, eventId } });
+    if (!contract) return reply.status(404).send({ error: 'Contrato não encontrado neste evento.' });
+
+    let token: string, baseUrl: string;
+    try {
+      ({ token, baseUrl } = await getUserpToken());
+    } catch (e: any) {
+      return reply.status(400).send({ error: e.message });
+    }
+
+    // Re-check right before deleting — avoid removing something that came back since the proposal was shown.
+    const status = await contratoStatus(token, baseUrl, Number(contract.externalId));
+    if (status !== 'not_found') {
+      return reply.status(409).send({ error: 'O contrato voltou a existir no Userp (ou a checagem falhou) — remoção cancelada.' });
+    }
+
+    const items = await (prisma as any).eventItem.findMany({
+      where: { eventId, sourceContractId: contract.externalId },
+      select: { id: true, name: true, category: true, quantity: true },
+    });
+    const itemIds = items.map((i: any) => i.id);
+
+    if (itemIds.length > 0) {
+      // KitchenEventMenu.eventItemId has no cascade rule — null it out before deleting the items.
+      await (prisma as any).kitchenEventMenu.updateMany({
+        where: { eventItemId: { in: itemIds } },
+        data: { eventItemId: null },
+      });
+      await (prisma as any).eventItem.deleteMany({ where: { id: { in: itemIds } } });
+    }
+
+    const categoryLabel: Record<string, string> = { ab: 'A&B', infra: 'Infraestrutura', staff: 'Mão de Obra', venue: 'Local' };
+    const lines = [
+      `Contrato ${contract.externalId} não foi mais encontrado no Userp e foi removido por ${user.name || user.email}.`,
+    ];
+    if (items.length > 0) {
+      lines.push('');
+      lines.push('Itens removidos:');
+      items.forEach((i: any) => lines.push(`- ${i.name} (${categoryLabel[i.category] || i.category}) — qtd. ${i.quantity}`));
+    } else {
+      lines.push('Nenhum item vinculado a esse contrato para remover.');
+    }
+
+    await (prisma as any).eventComment.create({
+      data: { eventId, userId: user.id || null, isSystem: true, content: lines.join('\n') },
+    });
+
+    await (prisma as any).eventContract.delete({ where: { id: contractId } });
+
+    return { success: true, removedItems: items.length };
   });
 
   // GET /events/:id/sync-history
