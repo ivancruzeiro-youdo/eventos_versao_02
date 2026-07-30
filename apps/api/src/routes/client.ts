@@ -352,6 +352,10 @@ export async function clientRoutes(app: FastifyInstance) {
     });
 
     if (existing) {
+      const event = await prisma.event.findUnique({ where: { id: session.eventId }, select: { status: true } });
+      if (event?.status === 'encerrado') {
+        return reply.status(403).send({ error: 'Evento encerrado — não é possível desfazer uma confirmação.' });
+      }
       await (prisma as any).clientApproval.delete({
         where: { eventId_itemType_itemId: { eventId: session.eventId, itemType, itemId } },
       });
@@ -362,5 +366,49 @@ export async function clientRoutes(app: FastifyInstance) {
       });
       return { success: true, approved: true };
     }
+  });
+
+  // ── Fornecedores (EventProfessional) — client-facing ────────────────────────
+
+  // List professionals/fornecedores linked to the event
+  app.get('/client/:token/professionals', async (request, reply) => {
+    const session = await getClientSession(app, request, reply);
+    if (!session) return;
+
+    const professionals = await (prisma as any).eventProfessional.findMany({
+      where: { eventId: session.eventId },
+      include: { person: { select: { id: true, name: true, whatsapp: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return { success: true, professionals };
+  });
+
+  // Register a new fornecedor for the event
+  app.post('/client/:token/professionals', async (request, reply) => {
+    const session = await getClientSession(app, request, reply);
+    if (!session) return;
+    const { name, whatsapp, role } = request.body as { name?: string; whatsapp?: string; role?: string };
+
+    if (!name?.trim()) return reply.status(400).send({ error: 'Nome obrigatório' });
+    if (!role?.trim()) return reply.status(400).send({ error: 'Função obrigatória' });
+
+    const event = await prisma.event.findUnique({ where: { id: session.eventId }, select: { employerId: true } });
+    if (!event) return reply.status(404).send({ error: 'Evento não encontrado' });
+
+    const person = await (prisma as any).person.create({
+      data: {
+        name: name.trim(),
+        whatsapp: whatsapp?.replace(/\D/g, '') || null,
+        employerId: event.employerId,
+      },
+    });
+
+    const professional = await (prisma as any).eventProfessional.create({
+      data: { eventId: session.eventId, personId: person.id, role: role.trim() },
+      include: { person: { select: { id: true, name: true, whatsapp: true } } },
+    });
+
+    return reply.status(201).send({ success: true, professional });
   });
 }

@@ -64,7 +64,7 @@ export default function FreelancerLoginPage() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
               required
             />
           </div>
@@ -77,7 +77,7 @@ export default function FreelancerLoginPage() {
               type="text"
               value={cpf}
               onChange={(e) => setCpf(e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
               required
               placeholder="000.000.000-00"
             />
@@ -86,14 +86,14 @@ export default function FreelancerLoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition disabled:opacity-50"
+            className="w-full py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition disabled:opacity-50"
           >
             {loading ? 'Entrando...' : 'Entrar'}
           </button>
         </form>
 
         <p className="text-center mt-4 text-sm text-gray-600">
-          <a href="/" className="text-primary-600 hover:text-primary-700">
+          <a href="/" className="text-primary hover:text-primary/80">
             Voltar para início
           </a>
         </p>

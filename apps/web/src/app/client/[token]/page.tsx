@@ -39,6 +39,14 @@ interface Guest {
   phone: string | null;
   cpf: string | null;
   status: string;
+  checkedInAt: string | null;
+}
+
+interface Professional {
+  id: string;
+  role: string;
+  checkedInAt: string | null;
+  person: { id: string; name: string; whatsapp: string | null };
 }
 
 interface Schedule {
@@ -484,30 +492,227 @@ function GuestsTab({ token, jwt }: { token: string; jwt: string }) {
   );
 }
 
+// ── Fornecedores (EventProfessional) tab ──────────────────────────────────────
+
+function FornecedoresTab({ token, jwt }: { token: string; jwt: string }) {
+  const [professionals, setProfessionals] = useState<Professional[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ name: '', whatsapp: '', role: '' });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const res = await fetch(`/api/v2/client/${token}/professionals`, { headers: { 'x-client-auth': jwt } });
+    const data = await res.json();
+    setProfessionals(data.professionals || []);
+    setLoading(false);
+  }, [token, jwt]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function save() {
+    setError('');
+    if (!form.name.trim()) { setError('Informe o nome'); return; }
+    if (!form.role.trim()) { setError('Informe a função'); return; }
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/v2/client/${token}/professionals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-client-auth': jwt },
+        body: JSON.stringify(form),
+      });
+      if (res.ok) {
+        setForm({ name: '', whatsapp: '', role: '' });
+        setShowForm(false);
+        load();
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setError(d.error || 'Erro ao adicionar fornecedor.');
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-gray-500">Fotógrafos, músicos, DJs e outros prestadores do seu evento.</p>
+        <button
+          onClick={() => setShowForm(v => !v)}
+          className="flex items-center gap-1.5 px-3 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium shrink-0"
+        >
+          <Plus size={14} /> Adicionar
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="font-medium text-sm text-blue-900">Novo fornecedor</p>
+            <button onClick={() => setShowForm(false)}><X size={16} className="text-gray-400" /></button>
+          </div>
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          <div className="grid grid-cols-2 gap-3">
+            <input autoFocus placeholder="Nome *" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+              className="col-span-2 px-3 py-2 border rounded-lg text-sm bg-white" />
+            <input placeholder="Função * (ex: Fotógrafo, DJ)" value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
+              className="col-span-2 px-3 py-2 border rounded-lg text-sm bg-white" />
+            <input placeholder="WhatsApp" value={form.whatsapp} onChange={e => setForm(f => ({ ...f, whatsapp: e.target.value }))}
+              className="col-span-2 px-3 py-2 border rounded-lg text-sm bg-white" />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={save} disabled={saving}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium disabled:opacity-50">
+              {saving ? 'Salvando...' : 'Adicionar'}
+            </button>
+            <button onClick={() => setShowForm(false)} className="px-4 py-2 border rounded-lg text-sm">Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <p className="text-center text-gray-400 py-6">Carregando...</p>
+      ) : professionals.length === 0 ? (
+        <div className="py-10 text-center">
+          <User size={36} className="mx-auto text-gray-300 mb-2" />
+          <p className="text-gray-400 text-sm">Nenhum fornecedor cadastrado.</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {professionals.map(p => (
+            <div key={p.id} className="bg-white border rounded-xl px-4 py-3 flex items-center gap-3">
+              <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center shrink-0">
+                <User size={14} className="text-gray-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm text-gray-900 truncate">{p.person.name}</p>
+                <p className="text-xs text-gray-400 truncate">{p.role}{p.person.whatsapp ? ` · ${p.person.whatsapp}` : ''}</p>
+              </div>
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${p.checkedInAt ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
+                {p.checkedInAt ? 'Check-in feito' : 'Aguardando'}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Check-in report tab (guests + fornecedores) ───────────────────────────────
+
+function CheckinReportTab({ token, jwt }: { token: string; jwt: string }) {
+  const [guests, setGuests] = useState<Guest[]>([]);
+  const [professionals, setProfessionals] = useState<Professional[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    Promise.all([
+      fetch(`/api/v2/client/${token}/guests?limit=1000`, { headers: { 'x-client-auth': jwt } }).then(r => r.json()),
+      fetch(`/api/v2/client/${token}/professionals`, { headers: { 'x-client-auth': jwt } }).then(r => r.json()),
+    ]).then(([gRes, pRes]) => {
+      setGuests(gRes.guests || []);
+      setProfessionals(pRes.professionals || []);
+    }).finally(() => setLoading(false));
+  }, [token, jwt]);
+
+  if (loading) return <div className="py-8 text-center text-gray-400">Carregando relatório...</div>;
+
+  const checkedInGuests = guests.filter(g => g.status === 'checked_in');
+  const checkedInPros = professionals.filter(p => !!p.checkedInAt);
+
+  if (checkedInGuests.length === 0 && checkedInPros.length === 0) {
+    return (
+      <div className="py-12 text-center">
+        <CheckCircle size={40} className="mx-auto text-gray-300 mb-3" />
+        <p className="text-gray-500">Nenhum check-in registrado ainda.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-blue-100 text-blue-800 rounded-xl p-3 text-center">
+          <p className="text-2xl font-bold">{checkedInGuests.length}</p>
+          <p className="text-xs mt-0.5">Convidados com check-in</p>
+        </div>
+        <div className="bg-purple-100 text-purple-800 rounded-xl p-3 text-center">
+          <p className="text-2xl font-bold">{checkedInPros.length}</p>
+          <p className="text-xs mt-0.5">Fornecedores com check-in</p>
+        </div>
+      </div>
+
+      {checkedInGuests.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Convidados</p>
+          <div className="space-y-2">
+            {checkedInGuests.map(g => (
+              <div key={g.id} className="bg-white border rounded-xl px-4 py-3 flex items-center gap-3">
+                <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center shrink-0">
+                  <User size={14} className="text-gray-400" />
+                </div>
+                <p className="flex-1 min-w-0 font-medium text-sm text-gray-900 truncate">{g.name}</p>
+                {g.checkedInAt && <p className="text-xs text-gray-400">{formatDate(g.checkedInAt)}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {checkedInPros.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Fornecedores</p>
+          <div className="space-y-2">
+            {checkedInPros.map(p => (
+              <div key={p.id} className="bg-white border rounded-xl px-4 py-3 flex items-center gap-3">
+                <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center shrink-0">
+                  <User size={14} className="text-gray-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-sm text-gray-900 truncate">{p.person.name}</p>
+                  <p className="text-xs text-gray-400 truncate">{p.role}</p>
+                </div>
+                {p.checkedInAt && <p className="text-xs text-gray-400">{formatDate(p.checkedInAt)}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Shared approval button ────────────────────────────────────────────────────
 
 function ApproveButton({
-  approved, approvedAt, onToggle, toggling,
+  approved, approvedAt, onToggle, toggling, locked,
 }: {
   approved: boolean;
   approvedAt?: string;
   onToggle: () => void;
   toggling: boolean;
+  locked?: boolean;
 }) {
   return (
     <button
-      onClick={onToggle}
-      disabled={toggling}
-      title={approved ? 'Clique para remover confirmação' : 'Confirmar que está correto'}
+      onClick={locked ? undefined : onToggle}
+      disabled={toggling || locked}
+      title={locked ? 'Evento encerrado — não é possível alterar confirmações' : approved ? 'Clique para remover confirmação' : 'Confirmar que está correto'}
       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition shrink-0 ${
         approved
           ? 'bg-green-50 border-green-300 text-green-700 hover:bg-green-100'
           : 'bg-white border-gray-200 text-gray-500 hover:border-primary hover:text-primary'
-      } disabled:opacity-50`}
+      } disabled:opacity-50 ${locked ? 'cursor-not-allowed' : ''}`}
     >
-      {approved
-        ? <CheckCircle size={13} className="text-green-600" />
-        : <Circle size={13} />}
+      {locked
+        ? <Lock size={13} className={approved ? 'text-green-600' : 'text-gray-400'} />
+        : approved
+          ? <CheckCircle size={13} className="text-green-600" />
+          : <Circle size={13} />}
       {approved ? 'Confirmado' : 'Confirmar'}
     </button>
   );
@@ -529,12 +734,13 @@ function categoryColor(cat: string) {
 
 // ── Question row with per-question approval ───────────────────────────────────
 
-function QuestionRow({ q, ans, approvalKey, approvals, onToggle }: {
+function QuestionRow({ q, ans, approvalKey, approvals, onToggle, locked }: {
   q: any;
   ans: any;
   approvalKey: string;
   approvals: ApprovalSet;
   onToggle: (itemType: string, itemId: string) => Promise<void>;
+  locked?: boolean;
 }) {
   const [toggling, setToggling] = useState(false);
   const [type, id] = approvalKey.split(':');
@@ -563,7 +769,7 @@ function QuestionRow({ q, ans, approvalKey, approvals, onToggle }: {
           : <p className="text-xs text-amber-600 mt-0.5 italic">{q.required ? 'A definir (obrigatório)' : 'A definir'}</p>}
       </div>
       {answered && (
-        <ApproveButton approved={approved} onToggle={handleToggle} toggling={toggling} />
+        <ApproveButton approved={approved} onToggle={handleToggle} toggling={toggling} locked={locked} />
       )}
     </div>
   );
@@ -571,11 +777,12 @@ function QuestionRow({ q, ans, approvalKey, approvals, onToggle }: {
 
 // ── Plan tab ──────────────────────────────────────────────────────────────────
 
-function PlanTab({ token, jwt, approvals, onToggle }: {
+function PlanTab({ token, jwt, approvals, onToggle, locked }: {
   token: string;
   jwt: string;
   approvals: ApprovalSet;
   onToggle: (itemType: string, itemId: string) => Promise<void>;
+  locked?: boolean;
 }) {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -630,6 +837,7 @@ function PlanTab({ token, jwt, approvals, onToggle }: {
                     approvalKey={`venue_q:${v.venueId}_${q.id}`}
                     approvals={approvals}
                     onToggle={onToggle}
+                    locked={locked}
                   />
                 );
               })}
@@ -672,6 +880,7 @@ function PlanTab({ token, jwt, approvals, onToggle }: {
                     approvalKey={`plan_q:${item.id}_${q.id}`}
                     approvals={approvals}
                     onToggle={onToggle}
+                    locked={locked}
                   />
                 );
               })}
@@ -685,11 +894,12 @@ function PlanTab({ token, jwt, approvals, onToggle }: {
 
 // ── A&B (food & beverage) tab ─────────────────────────────────────────────────
 
-function FoodTab({ token, jwt, approvals, onToggle }: {
+function FoodTab({ token, jwt, approvals, onToggle, locked }: {
   token: string;
   jwt: string;
   approvals: ApprovalSet;
   onToggle: (itemType: string, itemId: string) => Promise<void>;
+  locked?: boolean;
 }) {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -747,6 +957,7 @@ function FoodTab({ token, jwt, approvals, onToggle }: {
                       approvalKey={`plan_q:${item.id}_${q.id}`}
                       approvals={approvals}
                       onToggle={onToggle}
+                      locked={locked}
                     />
                   );
                 })}
@@ -765,11 +976,12 @@ function FoodTab({ token, jwt, approvals, onToggle }: {
 
 // ── Schedule tab ──────────────────────────────────────────────────────────────
 
-function ScheduleTab({ token, jwt, approvals, onToggle }: {
+function ScheduleTab({ token, jwt, approvals, onToggle, locked }: {
   token: string;
   jwt: string;
   approvals: ApprovalSet;
   onToggle: (itemType: string, itemId: string) => Promise<void>;
+  locked?: boolean;
 }) {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
@@ -824,6 +1036,7 @@ function ScheduleTab({ token, jwt, approvals, onToggle }: {
               approved={approved}
               onToggle={() => handleToggle(s.id)}
               toggling={!!toggling[s.id]}
+              locked={locked}
             />
           </div>
         );
@@ -1149,6 +1362,8 @@ const TABS = [
   { id: 'schedule', label: 'Cronograma', icon: Clock },
   { id: 'ab', label: 'A&B', icon: Utensils },
   { id: 'guests', label: 'Convidados', icon: Users },
+  { id: 'fornecedores', label: 'Fornecedores', icon: User },
+  { id: 'checkin', label: 'Check-in', icon: CheckCircle },
   { id: 'files', label: 'Arquivos', icon: FileText },
   { id: 'layout', label: 'Layout', icon: LayoutGrid },
 ];
@@ -1209,17 +1424,31 @@ export default function ClientPortalPage() {
     return <AuthScreen token={token} onAuth={onAuth} />;
   }
 
+  const locked = event.status === 'encerrado';
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b sticky top-0 z-10">
         <div className="max-w-2xl mx-auto px-4 py-4">
-          <p className="text-xs text-gray-400 mb-0.5">Portal do Cliente</p>
+          <div className="flex items-center gap-2 mb-0.5">
+            <p className="text-xs text-gray-400">Portal do Cliente</p>
+            {locked && (
+              <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-gray-800 text-white font-medium">
+                <Lock size={10} /> Encerrado
+              </span>
+            )}
+          </div>
           <h1 className="text-lg font-bold text-gray-900 leading-tight">{event.name}</h1>
           <p className="text-sm text-gray-500">{event.clientName}</p>
           {event.startAt && (
             <p className="text-xs text-primary mt-1 flex items-center gap-1">
               <Calendar size={11} /> {formatDate(event.startAt)}
+            </p>
+          )}
+          {locked && (
+            <p className="text-xs text-gray-500 mt-2 bg-gray-100 rounded-lg px-3 py-2">
+              Este evento já foi encerrado. As confirmações não podem mais ser alteradas — veja a aba <strong>Check-in</strong> para o relatório de presença.
             </p>
           )}
         </div>
@@ -1249,9 +1478,11 @@ export default function ClientPortalPage() {
         <StatusBanner token={token} jwt={jwt} approvals={approvals} />
         {activeTab === 'files' && <FilesTab token={token} jwt={jwt} />}
         {activeTab === 'guests' && <GuestsTab token={token} jwt={jwt} />}
-        {activeTab === 'ab' && <FoodTab token={token} jwt={jwt} approvals={approvals} onToggle={toggleApproval} />}
-        {activeTab === 'plan' && <PlanTab token={token} jwt={jwt} approvals={approvals} onToggle={toggleApproval} />}
-        {activeTab === 'schedule' && <ScheduleTab token={token} jwt={jwt} approvals={approvals} onToggle={toggleApproval} />}
+        {activeTab === 'fornecedores' && <FornecedoresTab token={token} jwt={jwt} />}
+        {activeTab === 'checkin' && <CheckinReportTab token={token} jwt={jwt} />}
+        {activeTab === 'ab' && <FoodTab token={token} jwt={jwt} approvals={approvals} onToggle={toggleApproval} locked={locked} />}
+        {activeTab === 'plan' && <PlanTab token={token} jwt={jwt} approvals={approvals} onToggle={toggleApproval} locked={locked} />}
+        {activeTab === 'schedule' && <ScheduleTab token={token} jwt={jwt} approvals={approvals} onToggle={toggleApproval} locked={locked} />}
         {activeTab === 'layout' && <LayoutTab eventId={event.id} />}
       </div>
     </div>
