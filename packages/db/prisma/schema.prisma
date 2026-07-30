@@ -210,6 +210,7 @@ model Event {
   kitchenPlan           KitchenEventPlan?
   batchAllocations      KitchenBatchAllocation[]
   productionAllocations KitchenProductionAllocation[]
+  mediaAssets           EventMediaAsset[]
 
   @@index([employerId])
   @@index([status])
@@ -252,8 +253,53 @@ model Venue {
   questions        VenueQuestion[]
   layoutTemplates  VenueLayoutTemplate[]
   eventLayouts     EventLayout[]
+  devices          VenueDevice[]
 
   @@index([employerId])
+}
+
+// ============================================
+// Mídia (painel de LED) + Spotify por espaço
+// ============================================
+
+// A physical Windows install (LED-panel controller) paired to one venue.
+// Authenticates via a long-lived JWT (deviceToken claim), no User row involved —
+// mirrors the client-portal pattern (see getClientSession in routes/client.ts).
+model VenueDevice {
+  id                  String    @id @default(uuid())
+  venueId             String
+  name                String
+  pairingCode         String?   @unique
+  pairingCodeExpiresAt DateTime?
+  deviceToken         String?   @unique
+  status              String    @default("pending") // pending | active | revoked
+  lastSeenAt          DateTime?
+  createdAt           DateTime  @default(now())
+
+  venue Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
+
+  @@index([venueId])
+}
+
+// Video/image/audio uploaded specifically for one event, played back on the venue's
+// LED panel via the paired VenueDevice's local cache (offline after sync).
+model EventMediaAsset {
+  id          String   @id @default(uuid())
+  eventId     String
+  name        String
+  mediaType   String   // video | image | audio
+  s3Key       String
+  mimeType    String
+  sizeBytes   Int
+  durationSec Float?
+  checksum    String
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
 }
 
 model VenueLayoutTemplate {

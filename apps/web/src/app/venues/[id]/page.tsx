@@ -36,6 +36,16 @@ interface Venue {
   _count?: { events: number };
 }
 
+interface VenueDevice {
+  id: string;
+  name: string;
+  status: string;
+  pairingCode: string | null;
+  pairingCodeExpiresAt: string | null;
+  lastSeenAt: string | null;
+  createdAt: string;
+}
+
 interface LayoutElementConfig {
   type: string;
   label: string;
@@ -118,9 +128,74 @@ export default function VenueDetailPage() {
   const [editingQId, setEditingQId] = useState<string | null>(null);
   const [editQ, setEditQ] = useState({ text: '', type: 'text', required: false, options: '' });
 
+  const [devices, setDevices] = useState<VenueDevice[]>([]);
+  const [loadingDevices, setLoadingDevices] = useState(true);
+  const [newDeviceName, setNewDeviceName] = useState('');
+  const [addingDevice, setAddingDevice] = useState(false);
+  const [revokingDeviceId, setRevokingDeviceId] = useState<string | null>(null);
+
   useEffect(() => {
     loadVenue();
+    loadDevices();
   }, [venueId]);
+
+  async function loadDevices() {
+    try {
+      setLoadingDevices(true);
+      const res = await fetch(`${API_URL}/api/v2/venues/${venueId}/devices`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setDevices(data.devices || []);
+      }
+    } finally {
+      setLoadingDevices(false);
+    }
+  }
+
+  async function addDevice() {
+    if (!newDeviceName.trim()) return;
+    setAddingDevice(true);
+    try {
+      const res = await fetch(`${API_URL}/api/v2/venues/${venueId}/devices`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newDeviceName.trim() }),
+      });
+      if (res.ok) {
+        setNewDeviceName('');
+        loadDevices();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Erro ao criar dispositivo.');
+      }
+    } finally {
+      setAddingDevice(false);
+    }
+  }
+
+  async function revokeDevice(deviceId: string) {
+    if (!confirm('Revogar este dispositivo? Ele vai parar de funcionar até ser pareado de novo.')) return;
+    setRevokingDeviceId(deviceId);
+    try {
+      const res = await fetch(`${API_URL}/api/v2/venues/${venueId}/devices/${deviceId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (res.ok) loadDevices();
+    } finally {
+      setRevokingDeviceId(null);
+    }
+  }
+
+  function deviceStatusLabel(d: VenueDevice): string {
+    if (d.status === 'revoked') return 'Revogado';
+    if (d.status === 'pending') {
+      const expired = d.pairingCodeExpiresAt && new Date(d.pairingCodeExpiresAt) < new Date();
+      return expired ? 'Código expirado' : 'Aguardando pareamento';
+    }
+    return 'Ativo';
+  }
 
   async function loadVenue() {
     try {
@@ -1127,6 +1202,74 @@ export default function VenueDetailPage() {
             )}
           </div>
         )}
+      </div>
+
+      {/* Dispositivos de Mídia (painel de LED) */}
+      <div className="mt-6 bg-card rounded-lg border shadow-sm">
+        <div className="px-6 py-4 border-b">
+          <h2 className="text-lg font-medium text-card-foreground">Dispositivos de Mídia</h2>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            PCs instalados neste espaço que controlam o painel de LED. Cada um precisa ser pareado uma vez com um código.
+          </p>
+        </div>
+        <div className="p-6 space-y-4">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="Nome do dispositivo (ex: Painel Salão A)"
+              value={newDeviceName}
+              onChange={e => setNewDeviceName(e.target.value)}
+              className="flex-1 px-3 py-2 border rounded-md text-sm bg-background"
+            />
+            <button
+              onClick={addDevice}
+              disabled={addingDevice || !newDeviceName.trim()}
+              className="flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium disabled:opacity-50"
+            >
+              <Plus className="size-4" /> {addingDevice ? 'Criando...' : 'Adicionar'}
+            </button>
+          </div>
+
+          {loadingDevices ? (
+            <p className="text-sm text-muted-foreground text-center py-4">Carregando...</p>
+          ) : devices.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">Nenhum dispositivo cadastrado.</p>
+          ) : (
+            <div className="space-y-2">
+              {devices.map(d => (
+                <div key={d.id} className="flex items-center gap-3 border rounded-md px-4 py-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-card-foreground">{d.name}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {d.status === 'active' && d.lastSeenAt
+                        ? `Visto pela última vez em ${new Date(d.lastSeenAt).toLocaleString('pt-BR')}`
+                        : d.status === 'pending' && d.pairingCode
+                          ? `Código de pareamento: ${d.pairingCode}`
+                          : deviceStatusLabel(d)}
+                    </p>
+                  </div>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${
+                    d.status === 'active' ? 'bg-green-100 text-green-700'
+                      : d.status === 'revoked' ? 'bg-gray-100 text-gray-500'
+                      : 'bg-amber-100 text-amber-700'
+                  }`}>
+                    {deviceStatusLabel(d)}
+                  </span>
+                  {d.status !== 'revoked' && (
+                    <button
+                      onClick={() => revokeDevice(d.id)}
+                      disabled={revokingDeviceId === d.id}
+                      className="p-1.5 text-muted-foreground hover:text-destructive transition rounded shrink-0"
+                      title="Revogar dispositivo"
+                    >
+                      <Trash2 className="size-4" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </Layout>
   );
