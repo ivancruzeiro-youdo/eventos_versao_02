@@ -1,10 +1,10 @@
 import { prisma } from '../server.js';
 import { deleteS3Object } from '../lib/s3.js';
 
-// 20 dias após o encerramento do evento, os arquivos de mídia do painel de LED são
+// 4 dias após o encerramento do evento, os arquivos de mídia do painel de LED são
 // removidos do S3 — mas o registro (nome, tipo, tamanho) fica na tabela, marcado com
 // deletedAt, como prova de que existiu e foi excluído pela retenção.
-const RETENTION_DAYS = 20;
+const RETENTION_DAYS = 4;
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // a cada 6h — a janela é de dias, não precisa ser mais frequente
 
 async function purgeExpiredMedia(log: (msg: string) => void) {
@@ -42,7 +42,7 @@ async function purgeExpiredMedia(log: (msg: string) => void) {
           data: { deletedAt: new Date(), s3Key: null },
         });
         purged++;
-        log(`Excluído (retenção 20 dias): ${event.name} — ${asset.name}`);
+        log(`Excluído (retenção ${RETENTION_DAYS} dias): ${event.name} — ${asset.name}`);
       } catch (err: any) {
         errors++;
         log(`Erro ao processar mídia ${asset.id} (${event.name}): ${err.message}`);

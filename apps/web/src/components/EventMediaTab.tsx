@@ -193,7 +193,7 @@ export default function EventMediaTab({ eventId }: Props) {
         </div>
         <p className="text-xs text-muted-foreground mb-3">
           Vídeos, imagens e áudios que o dispositivo instalado no espaço baixa e exibe no painel de LED durante o evento.
-          Limites: vídeo/áudio até 500MB, imagem até 50MB. Arquivos são excluídos automaticamente 20 dias após o evento ser encerrado.
+          Limites: vídeo/áudio até 500MB, imagem até 50MB. Arquivos são excluídos automaticamente 4 dias após o evento ser encerrado.
         </p>
         <label className={`flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed rounded-lg cursor-pointer text-sm transition ${
           uploading ? 'opacity-50 pointer-events-none' : 'hover:border-primary hover:bg-muted/40'
@@ -224,7 +224,7 @@ export default function EventMediaTab({ eventId }: Props) {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate line-through">{asset.name}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Excluído automaticamente em {new Date(asset.deletedAt).toLocaleDateString('pt-BR')} (retenção de 20 dias após o encerramento)
+                    Excluído automaticamente em {new Date(asset.deletedAt).toLocaleDateString('pt-BR')} (retenção de 4 dias após o encerramento)
                   </p>
                 </div>
               </div>

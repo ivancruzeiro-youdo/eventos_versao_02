@@ -119,7 +119,7 @@ export async function eventMediaRoutes(app: FastifyInstance) {
 
     const existing = await (prisma as any).eventMediaAsset.findFirst({ where: { id: assetId, eventId } });
     if (!existing) return reply.status(404).send({ error: 'Mídia não encontrada' });
-    if (existing.deletedAt) return reply.status(400).send({ error: 'Esta mídia já foi excluída (retenção de 20 dias) e não pode mais ser editada.' });
+    if (existing.deletedAt) return reply.status(400).send({ error: 'Esta mídia já foi excluída (retenção de 4 dias) e não pode mais ser editada.' });
 
     const asset = await (prisma as any).eventMediaAsset.update({
       where: { id: assetId },
