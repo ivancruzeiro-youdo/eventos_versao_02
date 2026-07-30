@@ -633,6 +633,7 @@ model Service {
 
 model EventService {
   id           String    @id @default(uuid())
+  code         Int       @unique @default(autoincrement()) // sequential "vaga" number shown to freelancers (e.g. #350)
   eventId      String
   serviceId    String
   productName  String?

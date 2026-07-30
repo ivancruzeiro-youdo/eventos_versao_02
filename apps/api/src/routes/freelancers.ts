@@ -298,11 +298,11 @@ export async function freelancerRoutes(app: FastifyInstance) {
         services: { some: slotFilter },
       },
       include: {
-        venues: { include: { venue: { select: { name: true, city: true } } } },
+        venues: { include: { venue: { select: { name: true, city: true, address: true } } } },
         employer: { select: { name: true } },
         services: {
           where: slotFilter,
-          include: { service: { select: { id: true, name: true } } },
+          include: { service: { select: { id: true, name: true, description: true } } },
           orderBy: { startAt: 'asc' },
         },
       },
@@ -516,6 +516,9 @@ export async function freelancerRoutes(app: FastifyInstance) {
       include: {
         penalties: {
           orderBy: { createdAt: 'desc' },
+        },
+        services: {
+          include: { service: { select: { id: true, name: true } } },
         },
         _count: {
           select: {

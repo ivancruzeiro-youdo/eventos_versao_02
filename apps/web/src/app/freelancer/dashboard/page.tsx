@@ -1,17 +1,20 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { authApi, freelancerApi, ApiError } from '@/lib/api';
+import FreelancerHeader from '@/components/FreelancerHeader';
+import { Search, Calendar as CalendarIcon, List, ChevronLeft, ChevronRight, MapPin, X, Users } from 'lucide-react';
 
 interface Slot {
   id: string;
+  code: number;
   startAt: string | null;
   endAt: string | null;
   valuePerHour: number;
   maxSlots: number;
   notes: string | null;
-  service: { id: string; name: string };
+  service: { id: string; name: string; description: string | null };
   filledSlots: number;
   myStatus: string | null;
   myApplicationId: string | null;
@@ -20,39 +23,48 @@ interface Slot {
 interface EventJob {
   id: string;
   name: string;
+  reservationNumber: string | null;
   startAt: string | null;
-  venues: { venue: { name: string; city?: string } }[];
+  venues: { venue: { name: string; city?: string; address?: string | null } }[];
   employer: { name: string } | null;
   services: Slot[];
 }
 
-const PT_MONTHS = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
-
-function dateBadge(dt: string | null) {
-  if (!dt) return { day: '—', month: '' };
-  const d = new Date(dt);
-  return { day: String(d.getDate()).padStart(2, '0'), month: PT_MONTHS[d.getMonth()] };
+interface Vaga {
+  event: EventJob;
+  slot: Slot;
 }
 
-function fmtTime(dt: string | null) {
+const PT_MONTHS_FULL = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const WEEKDAYS = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+
+function fmtDate(dt: string | null) {
   if (!dt) return '—';
-  return new Date(dt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  return new Date(dt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-function calcTotal(valuePerHour: number, startAt: string | null, endAt: string | null): string {
-  if (!startAt || !endAt) return `R$ ${valuePerHour.toFixed(2)}/h`;
-  const hours = (new Date(endAt).getTime() - new Date(startAt).getTime()) / 3600000;
-  return `R$ ${(valuePerHour * hours).toFixed(2)}`;
+function fmtDateTime(dt: string | null) {
+  if (!dt) return '—';
+  const d = new Date(dt);
+  return `${d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}, ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
 }
 
-function fmtSlotRange(startAt: string | null, endAt: string | null): string {
-  if (!startAt && !endAt) return 'Horário a definir';
-  const start = startAt ? new Date(startAt) : null;
-  const end = endAt ? new Date(endAt) : null;
-  const dateStr = start ? start.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : '';
-  const startTime = start ? fmtTime(startAt) : '—';
-  const endTime = end ? fmtTime(endAt) : '—';
-  return `${dateStr ? dateStr + ' ' : ''}${startTime}–${endTime}`;
+function fmtLongDate(dt: string | null) {
+  if (!dt) return '—';
+  const d = new Date(dt);
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+}
+
+function monthKey(dt: string | null): string | null {
+  if (!dt) return null;
+  const d = new Date(dt);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function dayKey(dt: string | null): string | null {
+  if (!dt) return null;
+  const d = new Date(dt);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 export default function FreelancerDashboardPage() {
@@ -60,6 +72,11 @@ export default function FreelancerDashboardPage() {
   const [user, setUser] = useState<any>(null);
   const [jobs, setJobs] = useState<EventJob[]>([]);
   const [search, setSearch] = useState('');
+  const [monthFilter, setMonthFilter] = useState('all');
+  const [view, setView] = useState<'list' | 'calendar'>('list');
+  const [calendarMonth, setCalendarMonth] = useState(new Date());
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [selectedVaga, setSelectedVaga] = useState<Vaga | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => { loadData(); }, []);
@@ -80,15 +97,11 @@ export default function FreelancerDashboardPage() {
     }
   }
 
-  async function handleLogout() {
-    try { await authApi.logout(); } catch {}
-    router.replace('/freelancer/login');
-  }
-
   async function handleApply(slotId: string) {
     try {
       await freelancerApi.apply(slotId);
-      loadData();
+      await loadData();
+      setSelectedVaga(null);
     } catch (err: any) {
       alert(err.message);
     }
@@ -98,20 +111,87 @@ export default function FreelancerDashboardPage() {
     if (!confirm(`Cancelar candidatura para ${role}?`)) return;
     try {
       await freelancerApi.cancelApplication(applicationId);
-      loadData();
+      await loadData();
+      setSelectedVaga(null);
     } catch (err: any) {
       alert(err.message);
     }
   }
 
-  const filtered = jobs.filter(ev =>
-    !search ||
-    ev.name.toLowerCase().includes(search.toLowerCase()) ||
-    ev.venues[0]?.venue.name?.toLowerCase().includes(search.toLowerCase())
+  const vagas: Vaga[] = useMemo(
+    () => jobs.flatMap(event => event.services.map(slot => ({ event, slot }))),
+    [jobs]
   );
 
-  const totalApplied = jobs.reduce((n, ev) => n + ev.services.filter(s => s.myStatus).length, 0);
-  const totalApproved = jobs.reduce((n, ev) => n + ev.services.filter(s => s.myStatus === 'approved').length, 0);
+  const availableMonths = useMemo(() => {
+    const set = new Set<string>();
+    vagas.forEach(v => { const k = monthKey(v.slot.startAt); if (k) set.add(k); });
+    return Array.from(set).sort();
+  }, [vagas]);
+
+  const filtered = vagas.filter(v => {
+    const q = search.trim().toLowerCase();
+    const matchesSearch = !q ||
+      v.event.name.toLowerCase().includes(q) ||
+      v.event.venues[0]?.venue.name?.toLowerCase().includes(q);
+    const matchesMonth = monthFilter === 'all' || monthKey(v.slot.startAt) === monthFilter;
+    const matchesDay = !selectedDay || dayKey(v.slot.startAt) === selectedDay;
+    return matchesSearch && matchesMonth && matchesDay;
+  });
+
+  // day -> 'candidatado' (green, has an application) | 'disponivel' (orange, open slot) — green wins if both
+  const dayStatus = useMemo(() => {
+    const map = new Map<string, 'candidatado' | 'disponivel'>();
+    vagas.forEach(v => {
+      const k = dayKey(v.slot.startAt);
+      if (!k) return;
+      if (v.slot.myStatus) map.set(k, 'candidatado');
+      else if (!map.has(k)) map.set(k, 'disponivel');
+    });
+    return map;
+  }, [vagas]);
+
+  function renderApplyControl(v: Vaga, size: 'sm' | 'lg' = 'sm') {
+    const { slot } = v;
+    const isApproved = slot.myStatus === 'approved';
+    const isPending = slot.myStatus === 'pending';
+    const padding = size === 'lg' ? 'px-4 py-2 text-sm' : 'px-3 py-1.5 text-xs';
+
+    if (isApproved) {
+      return (
+        <div className="flex flex-col items-end gap-1">
+          <span className={`inline-flex items-center gap-1 ${padding} bg-green-50 text-green-700 rounded-full font-semibold border border-green-200`}>
+            ✓ Inscrito
+          </span>
+          <button
+            onClick={() => slot.myApplicationId && handleCancel(slot.myApplicationId, slot.service.name)}
+            className="text-xs text-gray-400 hover:text-red-600 underline transition-colors"
+          >
+            Cancelar
+          </button>
+        </div>
+      );
+    }
+    if (isPending) {
+      return (
+        <button
+          onClick={() => slot.myApplicationId && handleCancel(slot.myApplicationId, slot.service.name)}
+          className={`inline-flex items-center gap-1 ${padding} bg-yellow-50 text-yellow-700 rounded-full font-semibold border border-yellow-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors`}
+        >
+          ○ Pendente
+        </button>
+      );
+    }
+    return (
+      <button
+        onClick={() => handleApply(slot.id)}
+        disabled={slot.filledSlots >= slot.maxSlots}
+        className={`${padding} bg-orange-400 hover:bg-orange-500 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-full font-semibold transition-colors shadow-sm`}
+      >
+        {slot.filledSlots >= slot.maxSlots ? 'Lotado' : 'Candidatar-se'}
+      </button>
+    );
+  }
 
   if (loading) {
     return (
@@ -123,153 +203,268 @@ export default function FreelancerDashboardPage() {
 
   return (
     <div className="min-h-screen bg-[#f0f2f5]">
-      {/* Header — dark, YouDO brand */}
-      <header className="bg-[#1a1f2e]">
-        <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-white font-bold text-lg tracking-tight">
-              You<span className="text-orange-400">DO</span>
-            </span>
-            <div className="w-px h-5 bg-white/20" />
-            <div>
-              <p className="text-white/50 text-[10px] uppercase tracking-widest leading-none">Freelancer</p>
-              <p className="text-white text-sm font-medium leading-tight">{user?.name ?? '—'}</p>
-            </div>
-          </div>
-          <button
-            onClick={handleLogout}
-            className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
-            title="Sair"
-          >
-            <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h6a2 2 0 012 2v1" />
-            </svg>
-          </button>
-        </div>
-      </header>
+      <FreelancerHeader />
 
       <div className="max-w-lg mx-auto px-4 py-4 space-y-4 pb-10">
-        {/* Stats strip */}
-        <div className="grid grid-cols-3 gap-2">
-          {[
-            { label: 'Eventos', value: jobs.length, color: 'text-[#1a1f2e]' },
-            { label: 'Candidaturas', value: totalApplied, color: 'text-orange-500' },
-            { label: 'Confirmados', value: totalApproved, color: 'text-green-600' },
-          ].map(s => (
-            <div key={s.label} className="bg-white rounded-xl p-3 text-center shadow-sm">
-              <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
-              <p className="text-[10px] text-gray-400 uppercase tracking-wide">{s.label}</p>
+        {/* Title */}
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-[#1a1f2e] leading-tight">Vagas Disponíveis</h1>
+            <p className="text-sm text-gray-500 mt-1">Bem-vindo, {user?.name ?? '—'}!</p>
+          </div>
+          <div className="flex gap-1 bg-white rounded-xl p-1 shadow-sm shrink-0">
+            <button
+              onClick={() => setView('list')}
+              className={`p-2 rounded-lg transition-colors ${view === 'list' ? 'bg-orange-100 text-orange-600' : 'text-gray-400 hover:text-gray-600'}`}
+              title="Lista"
+            >
+              <List className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setView('calendar')}
+              className={`p-2 rounded-lg transition-colors ${view === 'calendar' ? 'bg-orange-100 text-orange-600' : 'text-gray-400 hover:text-gray-600'}`}
+              title="Calendário"
+            >
+              <CalendarIcon className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Filters */}
+        <div className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
+          <div>
+            <label className="text-xs font-medium text-gray-500 flex items-center gap-1.5 mb-1.5">
+              <Search className="w-3.5 h-3.5" /> Buscar
+            </label>
+            <input
+              type="text"
+              placeholder="Nome ou localização..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="w-full px-3 py-2.5 bg-gray-50 rounded-xl border border-gray-200 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400/40"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-500 flex items-center gap-1.5 mb-1.5">
+              <CalendarIcon className="w-3.5 h-3.5" /> Mês
+            </label>
+            <select
+              value={monthFilter}
+              onChange={e => setMonthFilter(e.target.value)}
+              className="w-full px-3 py-2.5 bg-gray-50 rounded-xl border border-gray-200 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-400/40"
+            >
+              <option value="all">Todos os meses</option>
+              {availableMonths.map(m => {
+                const [y, mo] = m.split('-').map(Number);
+                return <option key={m} value={m}>{PT_MONTHS_FULL[mo - 1]} {y}</option>;
+              })}
+            </select>
+          </div>
+          <button
+            onClick={() => setSelectedDay(null)}
+            className="w-full py-2.5 bg-orange-400 hover:bg-orange-500 text-white rounded-xl text-sm font-semibold transition-colors"
+          >
+            Filtrar
+          </button>
+        </div>
+
+        {view === 'calendar' ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-4 text-xs text-gray-500">
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-orange-400 inline-block" /> Vagas disponíveis</span>
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block" /> Candidatado</span>
             </div>
-          ))}
-        </div>
 
-        {/* Search */}
-        <div className="relative">
-          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
-          </svg>
-          <input
-            type="text"
-            placeholder="Buscar evento, local..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="w-full pl-9 pr-4 py-2.5 bg-white rounded-xl border border-gray-200 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400/40 shadow-sm"
-          />
-        </div>
-
-        {/* Event cards */}
-        {filtered.length === 0 ? (
-          <div className="bg-white rounded-2xl p-8 text-center shadow-sm">
-            <p className="text-gray-400 text-sm">Nenhuma vaga disponível para seu perfil.</p>
+            <div className="bg-[#1a1f2e] rounded-2xl overflow-hidden shadow-sm">
+              <div className="flex items-center justify-between px-4 py-3">
+                <button onClick={() => setCalendarMonth(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))} className="text-white/70 hover:text-white p-1">
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+                <span className="text-white font-semibold">{PT_MONTHS_FULL[calendarMonth.getMonth()]} {calendarMonth.getFullYear()}</span>
+                <button onClick={() => setCalendarMonth(d => new Date(d.getFullYear(), d.getMonth() + 1, 1))} className="text-white/70 hover:text-white p-1">
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="bg-white p-3">
+                <div className="grid grid-cols-7 text-center text-xs font-medium text-gray-400 mb-2">
+                  {WEEKDAYS.map(d => <div key={d}>{d}</div>)}
+                </div>
+                <CalendarGrid
+                  month={calendarMonth}
+                  dayStatus={dayStatus}
+                  selectedDay={selectedDay}
+                  onSelectDay={k => { setSelectedDay(k); setView('list'); }}
+                />
+              </div>
+            </div>
           </div>
         ) : (
-          <div className="space-y-3">
-            {filtered.map((ev) => {
-              const { day, month } = dateBadge(ev.startAt);
-              const venue = ev.venues[0]?.venue;
-              return (
-                <div key={ev.id} className="bg-white rounded-2xl shadow-sm overflow-hidden">
-                  {/* Event header */}
-                  <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100">
-                    <div className="w-12 h-12 bg-orange-400 rounded-xl flex flex-col items-center justify-center flex-shrink-0 shadow-sm">
-                      <span className="text-white font-bold text-lg leading-none">{day}</span>
-                      <span className="text-white/80 text-[9px] uppercase tracking-wide">{month}</span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-[#1a1f2e] text-sm truncate">{ev.name}</p>
-                      <p className="text-xs text-gray-400 mt-0.5 flex items-center gap-2 flex-wrap">
-                        <span>🕐 {fmtTime(ev.startAt)}</span>
-                        {venue && <span>📍 {venue.name}</span>}
-                        {ev.employer && <span>🏢 {ev.employer.name}</span>}
+          <>
+            {selectedDay && (
+              <div className="flex items-center justify-between bg-orange-50 border border-orange-200 rounded-xl px-4 py-2 text-sm text-orange-700">
+                <span>Filtrando por {new Date(selectedDay + 'T12:00:00').toLocaleDateString('pt-BR')}</span>
+                <button onClick={() => setSelectedDay(null)} className="text-orange-500 hover:text-orange-700"><X className="w-4 h-4" /></button>
+              </div>
+            )}
+
+            {filtered.length === 0 ? (
+              <div className="bg-white rounded-2xl p-8 text-center shadow-sm">
+                <p className="text-gray-400 text-sm">Nenhuma vaga disponível para seu perfil.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {filtered.map(v => (
+                  <div
+                    key={v.slot.id}
+                    onClick={() => setSelectedVaga(v)}
+                    className="bg-white rounded-2xl shadow-sm overflow-hidden cursor-pointer hover:shadow-md transition-shadow"
+                  >
+                    <div className="bg-orange-400 px-4 py-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-white font-bold text-lg leading-tight">{v.slot.service.name}</p>
+                        <span className="shrink-0 bg-white/25 text-white text-xs font-semibold px-2 py-0.5 rounded-full"># {v.slot.code}</span>
+                      </div>
+                      <p className="text-white/90 text-xs mt-1.5 flex items-center gap-1.5">
+                        <CalendarIcon className="w-3 h-3" /> Início: {fmtDateTime(v.slot.startAt)}
+                      </p>
+                      <p className="text-white/90 text-xs mt-0.5 flex items-center gap-1.5">
+                        <CalendarIcon className="w-3 h-3" /> Fim: {fmtDateTime(v.slot.endAt)}
                       </p>
                     </div>
-                  </div>
-
-                  {/* Slot rows */}
-                  <div className="divide-y divide-gray-50">
-                    {ev.services.map((slot) => {
-                      const pct = slot.maxSlots > 0 ? Math.min((slot.filledSlots / slot.maxSlots) * 100, 100) : 0;
-                      const isApplied = !!slot.myStatus;
-                      const isApproved = slot.myStatus === 'approved';
-                      const isPending = slot.myStatus === 'pending';
-                      return (
-                        <div key={slot.id} className="px-4 py-3">
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1">
-                                <p className="text-sm font-medium text-[#1a1f2e]">{slot.service.name}</p>
-                                <span className="text-xs text-gray-400 font-semibold">{calcTotal(slot.valuePerHour, slot.startAt, slot.endAt)}</span>
-                              </div>
-                              <p className="text-xs text-gray-500 mb-1 flex items-center gap-1">🕐 {fmtSlotRange(slot.startAt, slot.endAt)}</p>
-                              <p className="text-xs text-gray-400 mb-1.5">{slot.filledSlots}/{slot.maxSlots} preenchidas</p>
-                              <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                                <div
-                                  className="h-full bg-orange-400 rounded-full transition-all"
-                                  style={{ width: `${pct}%` }}
-                                />
-                              </div>
-                            </div>
-                            <div className="flex-shrink-0">
-                              {isApproved ? (
-                                <div className="flex flex-col items-end gap-1">
-                                  <span className="inline-flex items-center gap-1 px-3 py-1.5 bg-green-50 text-green-700 rounded-full text-xs font-semibold border border-green-200">
-                                    ✓ Inscrito
-                                  </span>
-                                  <button
-                                    onClick={() => slot.myApplicationId && handleCancel(slot.myApplicationId, slot.service.name)}
-                                    className="text-xs text-gray-400 hover:text-red-600 underline transition-colors"
-                                  >
-                                    Cancelar
-                                  </button>
-                                </div>
-                              ) : isPending ? (
-                                <button
-                                  onClick={() => slot.myApplicationId && handleCancel(slot.myApplicationId, slot.service.name)}
-                                  className="inline-flex items-center gap-1 px-3 py-1.5 bg-yellow-50 text-yellow-700 rounded-full text-xs font-semibold border border-yellow-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
-                                >
-                                  ○ Pendente
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => handleApply(slot.id)}
-                                  disabled={slot.filledSlots >= slot.maxSlots}
-                                  className="px-4 py-1.5 bg-orange-400 hover:bg-orange-500 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-full text-xs font-semibold transition-colors shadow-sm"
-                                >
-                                  {slot.filledSlots >= slot.maxSlots ? 'Lotado' : 'Candidatar-se'}
-                                </button>
-                              )}
-                            </div>
-                          </div>
+                    <div className="px-4 py-3">
+                      <p className="text-green-600 font-bold text-sm flex items-center gap-1">
+                        $ R$ {v.slot.valuePerHour.toFixed(2)}
+                      </p>
+                      {v.event.venues[0]?.venue && (
+                        <p className="text-sm text-gray-600 mt-1.5 flex items-center gap-1.5">
+                          <MapPin className="w-3.5 h-3.5 text-gray-400" /> {v.event.venues[0].venue.name}
+                        </p>
+                      )}
+                      {(v.slot.notes || v.slot.service.description) && (
+                        <p className="text-sm text-gray-500 mt-2 line-clamp-2">
+                          {v.slot.notes || v.slot.service.description}
+                        </p>
+                      )}
+                      <div className="border-t border-gray-100 mt-3 pt-3 flex items-center justify-between">
+                        <p className="text-xs text-gray-400 flex items-center gap-1.5">
+                          <Users className="w-3.5 h-3.5" /> {v.slot.filledSlots} confirmados de {v.slot.maxSlots}
+                        </p>
+                        <div onClick={e => e.stopPropagation()}>
+                          {renderApplyControl(v)}
                         </div>
-                      );
-                    })}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
+
+      {selectedVaga && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 px-0 sm:px-4" onClick={() => setSelectedVaga(null)}>
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="bg-orange-400 px-5 py-4 rounded-t-2xl flex items-start justify-between sticky top-0">
+              <div>
+                <p className="text-white font-bold text-xl leading-tight">{selectedVaga.slot.service.name}</p>
+                <p className="text-white/90 text-sm mt-0.5">
+                  {selectedVaga.event.name}
+                  {selectedVaga.event.reservationNumber && ` · #${selectedVaga.event.reservationNumber}`}
+                </p>
+              </div>
+              <button onClick={() => setSelectedVaga(null)} className="text-white/80 hover:text-white shrink-0">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="flex items-start gap-2.5">
+                <CalendarIcon className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-xs text-gray-400">Data do Evento</p>
+                  <p className="text-sm font-semibold text-[#1a1f2e]">{fmtLongDate(selectedVaga.slot.startAt)}</p>
+                </div>
+              </div>
+              {selectedVaga.event.venues[0]?.venue && (
+                <div className="flex items-start gap-2.5">
+                  <MapPin className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-xs text-gray-400">Localização</p>
+                    <p className="text-sm font-semibold text-[#1a1f2e]">{selectedVaga.event.venues[0].venue.name}</p>
+                    {selectedVaga.event.venues[0].venue.address && (
+                      <p className="text-xs text-gray-500">{selectedVaga.event.venues[0].venue.address}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+              {(selectedVaga.slot.notes || selectedVaga.slot.service.description) && (
+                <div>
+                  <p className="text-xs text-gray-400 mb-1">Descrição</p>
+                  <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                    {selectedVaga.slot.notes || selectedVaga.slot.service.description}
+                  </p>
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2 px-5 pb-5">
+              <button
+                onClick={() => setSelectedVaga(null)}
+                className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
+              >
+                Fechar
+              </button>
+              <div className="flex-1 flex justify-end">
+                {renderApplyControl(selectedVaga, 'lg')}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CalendarGrid({
+  month, dayStatus, selectedDay, onSelectDay,
+}: {
+  month: Date;
+  dayStatus: Map<string, 'candidatado' | 'disponivel'>;
+  selectedDay: string | null;
+  onSelectDay: (key: string) => void;
+}) {
+  const year = month.getFullYear();
+  const m = month.getMonth();
+  const firstDay = new Date(year, m, 1).getDay();
+  const daysInMonth = new Date(year, m + 1, 0).getDate();
+
+  const cells: (number | null)[] = [
+    ...Array(firstDay).fill(null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  return (
+    <div className="grid grid-cols-7 gap-y-1">
+      {cells.map((day, i) => {
+        if (day === null) return <div key={i} />;
+        const key = `${year}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const status = dayStatus.get(key);
+        const isSelected = selectedDay === key;
+        return (
+          <button
+            key={i}
+            onClick={() => onSelectDay(isSelected ? '' : key)}
+            className={`aspect-square flex flex-col items-center justify-center text-sm rounded-lg transition-colors ${
+              isSelected ? 'bg-[#1a1f2e] text-white' : 'text-gray-700 hover:bg-gray-100'
+            }`}
+          >
+            <span>{day}</span>
+            {status && (
+              <span className={`w-1.5 h-1.5 rounded-full mt-0.5 ${status === 'candidatado' ? 'bg-green-500' : 'bg-orange-400'}`} />
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }

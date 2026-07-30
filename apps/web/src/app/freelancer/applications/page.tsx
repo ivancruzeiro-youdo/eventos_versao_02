@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { freelancerApi } from '@/lib/api';
 import { formatDate, getStatusColor } from '@/lib/utils';
-import { Briefcase, Calendar, MapPin, ArrowLeft, User, Clock, Wallet, TrendingUp, X, FileText, Download, ClipboardList, ChevronDown, ChevronRight } from 'lucide-react';
+import FreelancerHeader from '@/components/FreelancerHeader';
+import { Briefcase, Calendar, MapPin, User, Clock, Wallet, TrendingUp, X, FileText, Download, ClipboardList, ChevronDown, ChevronRight } from 'lucide-react';
 
 interface ServiceFile {
   id: string;
@@ -185,21 +186,7 @@ export default function FreelancerApplicationsPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="h-14 border-b bg-card flex items-center px-4 sticky top-0 z-10">
-        <div className="flex items-center justify-between w-full max-w-5xl mx-auto">
-          <Link href="/freelancer/dashboard" className="text-lg font-semibold text-primary">
-            YouDO Freelancer
-          </Link>
-          <Link
-            href="/freelancer/dashboard"
-            className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1"
-          >
-            <ArrowLeft className="size-4" />
-            Voltar
-          </Link>
-        </div>
-      </header>
+      <FreelancerHeader />
 
       <main className="p-4 max-w-5xl mx-auto">
         {/* Page Header */}
