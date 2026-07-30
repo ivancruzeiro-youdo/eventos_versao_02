@@ -3,7 +3,13 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 const REGION = process.env.AWS_REGION || 'sa-east-1';
 
-export const s3Client = new S3Client({ region: REGION });
+// requestChecksumCalculation: 'WHEN_REQUIRED' — newer SDK versions default to always
+// computing a request checksum, which for a *presigned* PutObject URL bakes in a
+// checksum for an empty body (the real file isn't available yet at presign time) into
+// the signed query string. The browser's later PUT of the actual file then fails a
+// checksum mismatch once CORS lets the request through. Presigned uploads never need
+// this by default, so it's disabled at the client level.
+export const s3Client = new S3Client({ region: REGION, requestChecksumCalculation: 'WHEN_REQUIRED' });
 
 export function getS3Bucket(): string {
   const bucket = process.env.AWS_S3_BUCKET;
