@@ -20,6 +20,9 @@ const confirmSchema = z.object({
 });
 
 function mediaTypeFromMime(mimeType: string): 'video' | 'image' | 'audio' | null {
+  // SVG excluded even though it's `image/*` — it can embed <script>, and this asset is
+  // meant to be a photo/video for the LED panel, not an interactive document.
+  if (mimeType === 'image/svg+xml') return null;
   if (mimeType.startsWith('video/')) return 'video';
   if (mimeType.startsWith('image/')) return 'image';
   if (mimeType.startsWith('audio/')) return 'audio';
@@ -36,10 +39,20 @@ function formatMb(bytes: number): string {
   return `${Math.round(bytes / (1024 * 1024))}MB`;
 }
 
+// Tenant isolation: non-admin Users may only touch media belonging to their own
+// employer's events (same pattern as guests.ts / events.ts / devices.ts).
+async function checkEventAccess(user: any, eventId: string): Promise<boolean> {
+  if (user.role === 'admin' || user.employerId === undefined) return true;
+  const event = await prisma.event.findUnique({ where: { id: eventId }, select: { employerId: true } });
+  return !!event && event.employerId === user.employerId;
+}
+
 export async function eventMediaRoutes(app: FastifyInstance) {
   // List media assets for an event (used by the "Mídia" tab)
   app.get('/events/:id/media', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId } = request.params as { id: string };
+    const user = (request as any).user;
+    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     const assets = await (prisma as any).eventMediaAsset.findMany({
       where: { eventId },
@@ -52,6 +65,8 @@ export async function eventMediaRoutes(app: FastifyInstance) {
   // Presign — upload goes straight to S3, avoids routing large video files through our server
   app.post('/events/:id/media/presign', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId } = request.params as { id: string };
+    const user = (request as any).user;
+    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
     const { filename, mimeType, sizeBytes } = presignSchema.parse(request.body);
 
     const detected = mediaTypeFromMime(mimeType);
@@ -82,6 +97,8 @@ export async function eventMediaRoutes(app: FastifyInstance) {
   // confirm already guarantees without the cost of hashing the file server-side.
   app.post('/events/:id/media/confirm', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId } = request.params as { id: string };
+    const user = (request as any).user;
+    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
     const data = confirmSchema.parse(request.body);
 
     const maxSize = MAX_SIZE_BYTES[data.mediaType];
@@ -115,6 +132,8 @@ export async function eventMediaRoutes(app: FastifyInstance) {
   // Rename / reorder
   app.patch('/events/:id/media/:assetId', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId, assetId } = request.params as { id: string; assetId: string };
+    const user = (request as any).user;
+    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
     const { name, order } = request.body as { name?: string; order?: number };
 
     const existing = await (prisma as any).eventMediaAsset.findFirst({ where: { id: assetId, eventId } });
@@ -136,6 +155,8 @@ export async function eventMediaRoutes(app: FastifyInstance) {
   // retention worker, this doesn't keep a placeholder row — the operator wants it gone now)
   app.delete('/events/:id/media/:assetId', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId, assetId } = request.params as { id: string; assetId: string };
+    const user = (request as any).user;
+    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     const existing = await (prisma as any).eventMediaAsset.findFirst({ where: { id: assetId, eventId } });
     if (!existing) return reply.status(404).send({ error: 'Mídia não encontrada' });

@@ -113,7 +113,9 @@ export async function deviceRoutes(app: FastifyInstance) {
 
   // First run of the Windows app: exchange the pairing code shown in the admin
   // screen for a long-lived deviceAuth JWT, stored locally forever.
-  app.post('/devices/pair', async (request, reply) => {
+  // Tighter limit than the global default — a 6-digit pairing code (900k combinations)
+  // is brute-forceable at the global 100/min rate; this endpoint needs its own throttle.
+  app.post('/devices/pair', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (request, reply) => {
     const { pairingCode } = request.body as { pairingCode?: string };
     if (!pairingCode?.trim()) return reply.status(400).send({ error: 'Código de pareamento obrigatório' });
 

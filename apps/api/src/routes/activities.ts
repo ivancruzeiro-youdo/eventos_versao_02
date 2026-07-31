@@ -37,11 +37,18 @@ const INCLUDE = {
 export async function activitiesRoutes(app: FastifyInstance) {
   await app.register(multipart, { limits: { fileSize: 20 * 1024 * 1024, files: 10 } });
 
-  // GET /activity-files/:fileId — presigned redirect (no auth needed)
-  app.get('/activity-files/:fileId', async (request, reply) => {
+  // GET /activity-files/:fileId — presigned redirect
+  app.get('/activity-files/:fileId', { preHandler: requireAuth }, async (request, reply) => {
     const { fileId } = request.params as { fileId: string };
-    const file = await (prisma as any).eventActivityFile.findUnique({ where: { id: fileId } });
+    const user = (request as any).user;
+    const file = await (prisma as any).eventActivityFile.findUnique({
+      where: { id: fileId },
+      include: { activity: { select: { event: { select: { employerId: true } } } } },
+    });
     if (!file) return reply.status(404).send({ error: 'Arquivo não encontrado' });
+    if (user.role !== 'admin' && user.employerId !== undefined && file.activity.event.employerId !== user.employerId) {
+      return reply.status(403).send({ error: 'Access denied' });
+    }
     const url = await getSignedUrl(s3Client, new GetObjectCommand({
       Bucket: getS3Bucket(),
       Key: file.s3Key,

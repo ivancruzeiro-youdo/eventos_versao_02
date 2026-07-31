@@ -25,6 +25,7 @@ const MAX_SIZE_BYTES: Record<'video' | 'image' | 'audio', number> = {
 };
 
 function mediaTypeFromMime(mimeType: string): 'video' | 'image' | 'audio' | null {
+  if (mimeType === 'image/svg+xml') return null;
   if (mimeType.startsWith('video/')) return 'video';
   if (mimeType.startsWith('image/')) return 'image';
   if (mimeType.startsWith('audio/')) return 'audio';

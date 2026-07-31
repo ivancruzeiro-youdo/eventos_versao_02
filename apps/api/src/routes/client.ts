@@ -26,7 +26,9 @@ async function getClientSession(app: FastifyInstance, request: any, reply: any) 
 
 export async function clientRoutes(app: FastifyInstance) {
   // Auth: verify reservation number and return session JWT
-  app.post('/client/:token/auth', async (request, reply) => {
+  // Tighter limit than the global default — the reservation number is a guessable
+  // secret, this endpoint needs its own throttle rather than relying on the global one.
+  app.post('/client/:token/auth', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (request, reply) => {
     const { token } = request.params as { token: string };
     const { reservationNumber } = request.body as { reservationNumber?: string };
 

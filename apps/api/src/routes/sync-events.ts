@@ -121,7 +121,10 @@ async function resolveStaffAllocations(
   if (svc.name === 'Garçom') {
     const montadorSvc = await (prisma as any).freelancerService.findFirst({ where: { name: 'Garçom/Montador' } });
     const responsavelSvc = await (prisma as any).freelancerService.findFirst({ where: { name: 'Responsavel de salão' } });
-    if (!montadorSvc || !responsavelSvc) return [{ serviceId: svc.id, maxSlots: total }]; // roles not configured — fall back to flat
+    if (!montadorSvc || !responsavelSvc) {
+      console.warn(`[resolveStaffAllocations] Cargo "Garçom/Montador" ou "Responsavel de salão" não encontrado no FreelancerService — split desativado, criando ${total} vaga(s) de Garçom sem divisão.`);
+      return [{ serviceId: svc.id, maxSlots: total }]; // roles not configured — fall back to flat
+    }
 
     const responsavelCount = 1; // always guaranteed
     const remaining = total - responsavelCount;
@@ -136,7 +139,10 @@ async function resolveStaffAllocations(
 
   if (svc.name === 'Bartender') {
     const responsavelBarSvc = await (prisma as any).freelancerService.findFirst({ where: { name: 'Responsanvel do Bar' } });
-    if (!responsavelBarSvc) return [{ serviceId: svc.id, maxSlots: total }];
+    if (!responsavelBarSvc) {
+      console.warn(`[resolveStaffAllocations] Cargo "Responsanvel do Bar" não encontrado no FreelancerService — split desativado, criando ${total} vaga(s) de Bartender sem divisão.`);
+      return [{ serviceId: svc.id, maxSlots: total }];
+    }
 
     const responsavelCount = 1; // fixed, always exactly 1 per event
     const baseCount = Math.max(total - responsavelCount, 0);
@@ -663,6 +669,9 @@ export async function syncEventsRoutes(app: FastifyInstance) {
                 });
               } else {
                 const svcData = await (prisma as any).freelancerService.findUnique({ where: { id: alloc.serviceId } });
+                if (!svcData) {
+                  console.error(`[sync-events] FreelancerService ${alloc.serviceId} não encontrado ao criar EventService pro item "${item.name}" (evento ${eventId}) — vaga será criada com valorPorHora=0 e horário padrão -60/+60min. Verifique se o serviço foi renomeado/excluído.`);
+                }
                 const startOffset: number = svcData?.startOffsetMinutes ?? -60;
                 const endOffset: number = svcData?.endOffsetMinutes ?? 60;
                 const svcStart = new Date(eventStartAt.getTime() + startOffset * 60_000);

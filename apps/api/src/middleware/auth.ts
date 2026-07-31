@@ -1,11 +1,17 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../server.js';
+import { isTokenBlacklisted } from '../lib/redis.js';
 
 export async function requireAuth(request: FastifyRequest, reply: FastifyReply) {
   const token = request.cookies.token;
-  
+
   if (!token) {
     return reply.status(401).send({ error: 'Authentication required' });
+  }
+
+  if (await isTokenBlacklisted(token)) {
+    reply.clearCookie('token', { path: '/' });
+    return reply.status(401).send({ error: 'Session revoked' });
   }
 
   try {

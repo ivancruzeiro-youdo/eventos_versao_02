@@ -22,10 +22,24 @@ const rsvpResponseSchema = z.object({
   additionalGuests: z.number().int().min(0).max(3).optional(),
 });
 
+// Tenant isolation: non-admin Users may only touch guests belonging to their own
+// employer's events. Mirrors the pattern already used in events.ts/devices.ts.
+// Freelancer-derived sessions (role 'freelancer'/'receptionist'/'checkin_staff') have no
+// employerId concept at all (Freelancer isn't scoped to an employer) — they're meant to
+// check in guests across the org by design, so they're exempt from this check rather
+// than always failing it.
+async function checkEventAccess(user: any, eventId: string): Promise<boolean> {
+  if (user.role === 'admin' || user.employerId === undefined) return true;
+  const event = await prisma.event.findUnique({ where: { id: eventId }, select: { employerId: true } });
+  return !!event && event.employerId === user.employerId;
+}
+
 export async function guestRoutes(app: FastifyInstance) {
   // List guests for an event
   app.get('/events/:id/guests', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId } = request.params as { id: string };
+    const user = (request as any).user;
+    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
     const query = request.query as { status?: string; page?: string; limit?: string; q?: string };
 
     const page = parseInt(query.page || '1', 10);
@@ -70,6 +84,8 @@ export async function guestRoutes(app: FastifyInstance) {
   // Create guest
   app.post('/events/:id/guests', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId } = request.params as { id: string };
+    const user = (request as any).user;
+    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
     const data = createGuestSchema.parse(request.body);
 
     // Generate RSVP token
@@ -97,6 +113,8 @@ export async function guestRoutes(app: FastifyInstance) {
   // Send invitations to all pending guests
   app.post('/events/:id/guests/invite-all', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId } = request.params as { id: string };
+    const user = (request as any).user;
+    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     const pendingGuests = await prisma.guest.findMany({
       where: { eventId, status: 'pending' },
@@ -113,6 +131,7 @@ export async function guestRoutes(app: FastifyInstance) {
   // Get guest details
   app.get('/guests/:id', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const user = (request as any).user;
 
     const guest = await prisma.guest.findUnique({
       where: { id },
@@ -122,6 +141,7 @@ export async function guestRoutes(app: FastifyInstance) {
     if (!guest) {
       return reply.status(404).send({ error: 'Guest not found' });
     }
+    if (!(await checkEventAccess(user, guest.eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     return { success: true, guest };
   });
@@ -129,7 +149,12 @@ export async function guestRoutes(app: FastifyInstance) {
   // Update guest
   app.patch('/guests/:id', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const user = (request as any).user;
     const data = updateGuestSchema.parse(request.body);
+
+    const existingGuest = await prisma.guest.findUnique({ where: { id }, select: { eventId: true } });
+    if (!existingGuest) return reply.status(404).send({ error: 'Guest not found' });
+    if (!(await checkEventAccess(user, existingGuest.eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     const guest = await prisma.guest.update({
       where: { id },
@@ -148,6 +173,8 @@ export async function guestRoutes(app: FastifyInstance) {
   // Delete guest
   app.delete('/events/:id/guests/:guestId', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId, guestId } = request.params as { id: string; guestId: string };
+    const user = (request as any).user;
+    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     // Verify guest belongs to event
     const guest = await prisma.guest.findFirst({
@@ -177,6 +204,7 @@ export async function guestRoutes(app: FastifyInstance) {
     if (!guest) {
       return reply.status(404).send({ error: 'Guest not found' });
     }
+    if (!(await checkEventAccess(user, guest.eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     if (guest.status !== 'confirmed' && guest.status !== 'pending') {
       return reply.status(400).send({
@@ -209,6 +237,7 @@ export async function guestRoutes(app: FastifyInstance) {
     if (!guest) {
       return reply.status(404).send({ error: 'Guest not found' });
     }
+    if (!(await checkEventAccess(user, guest.eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     if (guest.status !== 'confirmed' && guest.status !== 'pending') {
       return reply.status(400).send({

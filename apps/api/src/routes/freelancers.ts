@@ -408,7 +408,7 @@ export async function freelancerRoutes(app: FastifyInstance) {
         });
 
     // Concede acesso físico assim que aprovado (fire-and-forget)
-    handleAcessoGrant(application.id).catch(() => {});
+    handleAcessoGrant(application.id).catch(err => console.error(`[freelancers] Falha ao conceder acesso pra candidatura ${application.id}:`, err.message));
 
     return reply.status(201).send({ success: true, application });
   });
@@ -498,7 +498,7 @@ export async function freelancerRoutes(app: FastifyInstance) {
       data: { status: 'cancelled' },
     });
 
-    handleAcessoRevoke(id).catch(() => {});
+    handleAcessoRevoke(id).catch(err => console.error(`[freelancers] Falha ao revogar acesso pra candidatura ${id}:`, err.message));
 
     return { success: true, application: updated };
   });
@@ -513,7 +513,10 @@ export async function freelancerRoutes(app: FastifyInstance) {
 
     const freelancer = await prisma.freelancer.findUnique({
       where: { id: user.id },
-      include: {
+      select: {
+        id: true, name: true, email: true, cpf: true, phone: true, birthDate: true,
+        status: true, strikeCount: true, fotoBase64: true, createdAt: true, updatedAt: true,
+        // passwordHash intentionally excluded — this is client-facing
         penalties: {
           orderBy: { createdAt: 'desc' },
         },
@@ -594,9 +597,9 @@ export async function freelancerRoutes(app: FastifyInstance) {
 
     // Integração com sistema de acessos (fire-and-forget)
     if (status === 'approved') {
-      handleAcessoGrant(id).catch(() => {});
+      handleAcessoGrant(id).catch(err => console.error(`[freelancers] Falha ao conceder acesso pra candidatura ${id}:`, err.message));
     } else if (status === 'rejected') {
-      handleAcessoRevoke(id).catch(() => {});
+      handleAcessoRevoke(id).catch(err => console.error(`[freelancers] Falha ao revogar acesso pra candidatura ${id}:`, err.message));
     }
 
     return { success: true, application: updated };
@@ -651,7 +654,10 @@ export async function freelancerRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const freelancer = await (prisma as any).freelancer.findUnique({
       where: { id },
-      include: {
+      select: {
+        id: true, name: true, email: true, cpf: true, phone: true, birthDate: true,
+        status: true, strikeCount: true, fotoBase64: true, createdAt: true, updatedAt: true,
+        // passwordHash intentionally excluded
         services: { include: { service: true } },
         penalties: { orderBy: { createdAt: 'desc' }, take: 10 },
         _count: { select: { applications: { where: { status: 'approved' } } } },

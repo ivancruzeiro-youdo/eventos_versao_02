@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../server.js';
 import { normalizeCpf } from '../utils/cpf.js';
+import { requireAuth, requireRole } from '../middleware/auth.js';
+import { blacklistToken } from '../lib/redis.js';
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -19,7 +21,9 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   // Freelancer login
-  app.post('/login', async (request, reply) => {
+  // Tighter rate limit here than the global default — this is a guessable-secret
+  // flow (email + CPF, no password), so brute-forcing needs its own throttle.
+  app.post('/login', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (request, reply) => {
     const body = loginSchema.parse(request.body);
     
     const freelancer = await prisma.freelancer.findUnique({
@@ -66,7 +70,8 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   // Receptionist login (CPF only)
-  app.post('/receptionist-login', async (request, reply) => {
+  // Same rationale as /login — CPF-only auth, needs its own throttle.
+  app.post('/receptionist-login', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (request, reply) => {
     const { cpf } = receptionistLoginSchema.parse(request.body);
 
     const freelancer = await prisma.freelancer.findUnique({
@@ -123,8 +128,9 @@ export async function authRoutes(app: FastifyInstance) {
     };
   });
 
-  // Debug endpoint: diagnose SSO state (cookies + verify-token response)
-  app.get('/sso-debug', async (request, reply) => {
+  // Debug endpoint: diagnose SSO state (cookies + verify-token response) — admin-only,
+  // it echoes a token preview and internal UERP config, was previously unauthenticated.
+  app.get('/sso-debug', { preHandler: [requireAuth, requireRole(['admin'])] }, async (request, reply) => {
     const youdoToken   = request.cookies['youdo_token'];
     const youdoUserRaw = request.cookies['youdo_user'];
 
@@ -319,9 +325,19 @@ export async function authRoutes(app: FastifyInstance) {
     }
   });
 
-  // Logout
+  // Logout — blacklists the token (Redis, TTL'd to its remaining life) so a stolen/leaked
+  // cookie can't keep being used after the user explicitly logs out, not just until expiry.
   app.delete('/logout', async (request, reply) => {
-    // TODO: Add token to blacklist in Redis
+    const token = request.cookies.token;
+    if (token) {
+      try {
+        const decoded = app.jwt.decode(token) as { exp?: number } | null;
+        if (decoded?.exp) {
+          const ttl = decoded.exp - Math.floor(Date.now() / 1000);
+          await blacklistToken(token, ttl);
+        }
+      } catch { /* malformed/expired token — nothing to blacklist */ }
+    }
     reply.clearCookie('token', {
       path: '/',
     });

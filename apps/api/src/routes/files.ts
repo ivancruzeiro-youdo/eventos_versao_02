@@ -19,6 +19,20 @@ const confirmUploadSchema = z.object({
   comment: z.string().optional(),
 });
 
+// This tab accepts arbitrary business documents (contracts, invoices, floor plans,
+// photos, videos...), so a strict allowlist would be too narrow — instead block the
+// specific types that can execute script if ever opened/rendered directly rather than
+// downloaded (downloads already force Content-Disposition: attachment, see s3.ts, but
+// this is defense-in-depth in case some future code path renders one inline).
+const BLOCKED_MIME_TYPES = ['text/html', 'image/svg+xml', 'application/xhtml+xml'];
+
+function rejectDangerousMimeType(mimeType: string): string | null {
+  if (BLOCKED_MIME_TYPES.includes(mimeType.toLowerCase())) {
+    return `Tipo de arquivo não permitido: ${mimeType}.`;
+  }
+  return null;
+}
+
 export async function fileRoutes(app: FastifyInstance) {
   // Register multipart plugin for file uploads
   await app.register(multipart, {
@@ -60,6 +74,9 @@ export async function fileRoutes(app: FastifyInstance) {
       if (!data) {
         return reply.status(400).send({ error: 'No file uploaded' });
       }
+
+      const mimeError = rejectDangerousMimeType(data.mimetype);
+      if (mimeError) return reply.status(400).send({ error: mimeError });
 
       const maxSize = 128 * 1024 * 1024;
 
@@ -122,6 +139,9 @@ export async function fileRoutes(app: FastifyInstance) {
     const user = (request as any).user;
     const { filename, mimeType, sizeBytes } = presignSchema.parse(request.body);
 
+    const mimeError = rejectDangerousMimeType(mimeType);
+    if (mimeError) return reply.status(400).send({ error: mimeError });
+
     const s3Key = `events/${eventId}/${Date.now()}-${filename}`;
 
     let presignedUrl: string;
@@ -148,6 +168,9 @@ export async function fileRoutes(app: FastifyInstance) {
     const { id: eventId } = request.params as { id: string };
     const user = (request as any).user;
     const data = confirmUploadSchema.parse(request.body);
+
+    const mimeError = rejectDangerousMimeType(data.mimeType);
+    if (mimeError) return reply.status(400).send({ error: mimeError });
 
     const file = await prisma.file.create({
       data: {
@@ -264,6 +287,9 @@ export async function fileRoutes(app: FastifyInstance) {
     try {
       const data = await request.file();
       if (!data) return reply.status(400).send({ error: 'No file uploaded' });
+
+      const mimeError = rejectDangerousMimeType(data.mimetype);
+      if (mimeError) return reply.status(400).send({ error: mimeError });
 
       const buffer = await data.toBuffer();
       if (buffer.length > 128 * 1024 * 1024) {
