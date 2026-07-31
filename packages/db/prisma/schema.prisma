@@ -223,19 +223,32 @@ model EventVenue {
   venueId  String
   notes    String?
 
-  // Which Spotify playlist plays on this venue's LED panel while this event is
-  // active — scoped per event+venue pair (not per Venue) since the join table is
-  // technically N:N, and per Event since one venue's Spotify connection could
-  // reasonably serve different music per event. Only the id/name are cached here;
-  // the actual playlist contents are always fetched live from Spotify.
-  spotifyPlaylistId   String?
-  spotifyPlaylistName String?
-
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
   venue Venue @relation(fields: [venueId], references: [id])
 
+  spotifyPlaylists EventVenueSpotifyPlaylist[]
+
   @@index([eventId])
   @@index([venueId])
+}
+
+// N playlists per event+venue (not just one) — each with an operator-facing comment
+// (e.g. "tocar no jantar", "reserva pro final da festa"), shown on the Windows app's
+// ControlWindow (tela 1) so whoever's running the show knows which one to pick and why.
+// Order controls display order in that list, not playback order (nothing auto-advances
+// between playlists — the operator picks one at a time).
+model EventVenueSpotifyPlaylist {
+  id                  String   @id @default(uuid())
+  eventVenueId        String
+  spotifyPlaylistId   String
+  spotifyPlaylistName String
+  comment             String?
+  order               Int      @default(0)
+  createdAt           DateTime @default(now())
+
+  eventVenue EventVenue @relation(fields: [eventVenueId], references: [id], onDelete: Cascade)
+
+  @@index([eventVenueId])
 }
 
 model Venue {

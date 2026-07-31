@@ -142,3 +142,28 @@ export async function getPlaylists(accessToken: string): Promise<SpotifyPlaylist
     imageUrl: p.images?.[0]?.url ?? null,
   }));
 }
+
+// Any public playlist by id — unlike getPlaylists (only the connected account's own
+// playlists), this is how an event picks a playlist that isn't owned by that account
+// (someone pastes a Spotify playlist link/URI instead of choosing from the dropdown).
+export async function getPlaylist(accessToken: string, playlistId: string): Promise<SpotifyPlaylist> {
+  const res = await fetch(`${API_BASE}/playlists/${playlistId}?fields=id,name,images`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (res.status === 404) throw new Error('Playlist não encontrada — confira o link.');
+  if (!res.ok) throw new Error(`Spotify /playlists/${playlistId} falhou: HTTP ${res.status}`);
+  const p = await res.json();
+  return { id: p.id, name: p.name, imageUrl: p.images?.[0]?.url ?? null };
+}
+
+// Accepts a full share URL (https://open.spotify.com/playlist/ID?si=...), a Spotify URI
+// (spotify:playlist:ID), or just the bare ID pasted directly.
+export function parsePlaylistId(input: string): string | null {
+  const trimmed = input.trim();
+  const urlMatch = trimmed.match(/open\.spotify\.com\/playlist\/([a-zA-Z0-9]+)/);
+  if (urlMatch) return urlMatch[1];
+  const uriMatch = trimmed.match(/spotify:playlist:([a-zA-Z0-9]+)/);
+  if (uriMatch) return uriMatch[1];
+  if (/^[a-zA-Z0-9]{10,30}$/.test(trimmed)) return trimmed;
+  return null;
+}

@@ -8,6 +8,8 @@ import {
   refreshAccessToken,
   getProfile,
   getPlaylists,
+  getPlaylist,
+  parsePlaylistId,
   getSpotifyAppCredentials,
 } from '../lib/spotify.js';
 
@@ -199,30 +201,117 @@ export async function spotifyRoutes(app: FastifyInstance) {
     }
   });
 
-  // ── Playlist choice per event+venue (EventVenue row — see schema.prisma comment) ──
+  // ── N playlists (+ comment) per event+venue — see schema.prisma comment on
+  // EventVenueSpotifyPlaylist. Shown on the Windows app's ControlWindow (tela 1) so the
+  // operator sees the whole curated list with notes, not just one fixed choice. ──
 
-  app.patch('/events/:eventId/venues/:venueId/spotify-playlist', { preHandler: requireAuth }, async (request, reply) => {
-    const user = (request as any).user;
-    const { eventId, venueId } = request.params as { eventId: string; venueId: string };
-    const { spotifyPlaylistId, spotifyPlaylistName } = request.body as {
-      spotifyPlaylistId: string | null;
-      spotifyPlaylistName: string | null;
-    };
-
+  async function assertEventVenueAccess(request: any, reply: any, eventId: string, venueId: string) {
+    const user = request.user;
     const eventVenue = await (prisma as any).eventVenue.findFirst({
       where: { eventId, venueId },
       include: { event: true },
     });
-    if (!eventVenue) return reply.status(404).send({ error: 'Evento não vinculado a esse espaço' });
+    if (!eventVenue) {
+      reply.status(404).send({ error: 'Evento não vinculado a esse espaço' });
+      return null;
+    }
     if (user.role !== 'admin' && eventVenue.event.employerId !== user.employerId) {
-      return reply.status(403).send({ error: 'Acesso negado' });
+      reply.status(403).send({ error: 'Acesso negado' });
+      return null;
+    }
+    return eventVenue;
+  }
+
+  app.get('/events/:eventId/venues/:venueId/spotify-playlists', { preHandler: requireAuth }, async (request, reply) => {
+    const { eventId, venueId } = request.params as { eventId: string; venueId: string };
+    const eventVenue = await assertEventVenueAccess(request, reply, eventId, venueId);
+    if (!eventVenue) return;
+
+    const playlists = await (prisma as any).eventVenueSpotifyPlaylist.findMany({
+      where: { eventVenueId: eventVenue.id },
+      orderBy: { order: 'asc' },
+    });
+    return { success: true, playlists };
+  });
+
+  // Accepts either a pasted Spotify URL/URI ({ url, comment }) — resolved server-side via
+  // the venue's own access token, works for any public playlist regardless of who owns
+  // it — or a direct { spotifyPlaylistId, spotifyPlaylistName, comment } pick from the
+  // venue's own playlists dropdown (GET .../spotify/playlists), which needs no resolving.
+  app.post('/events/:eventId/venues/:venueId/spotify-playlists', { preHandler: requireAuth }, async (request, reply) => {
+    const { eventId, venueId } = request.params as { eventId: string; venueId: string };
+    const eventVenue = await assertEventVenueAccess(request, reply, eventId, venueId);
+    if (!eventVenue) return;
+
+    const { url, spotifyPlaylistId, spotifyPlaylistName, comment } = request.body as {
+      url?: string;
+      spotifyPlaylistId?: string;
+      spotifyPlaylistName?: string;
+      comment?: string;
+    };
+
+    let playlistId = spotifyPlaylistId;
+    let playlistName = spotifyPlaylistName;
+
+    if (url) {
+      const parsedId = parsePlaylistId(url);
+      if (!parsedId) return reply.status(400).send({ error: 'Link de playlist inválido — cole a URL ou URI do Spotify.' });
+
+      const accessToken = await getValidAccessToken(venueId);
+      if (!accessToken) return reply.status(404).send({ error: 'Espaço não tem Spotify conectado' });
+
+      try {
+        const playlist = await getPlaylist(accessToken, parsedId);
+        playlistId = playlist.id;
+        playlistName = playlist.name;
+      } catch (err: any) {
+        return reply.status(502).send({ error: err.message || 'Falha ao buscar a playlist no Spotify' });
+      }
     }
 
-    await (prisma as any).eventVenue.update({
-      where: { id: eventVenue.id },
-      data: { spotifyPlaylistId: spotifyPlaylistId || null, spotifyPlaylistName: spotifyPlaylistName || null },
+    if (!playlistId || !playlistName) {
+      return reply.status(400).send({ error: 'Informe uma URL de playlist ou escolha uma da lista.' });
+    }
+
+    const count = await (prisma as any).eventVenueSpotifyPlaylist.count({ where: { eventVenueId: eventVenue.id } });
+    const playlist = await (prisma as any).eventVenueSpotifyPlaylist.create({
+      data: {
+        eventVenueId: eventVenue.id,
+        spotifyPlaylistId: playlistId,
+        spotifyPlaylistName: playlistName,
+        comment: comment?.trim() || null,
+        order: count,
+      },
     });
 
+    return reply.status(201).send({ success: true, playlist });
+  });
+
+  app.patch('/events/:eventId/venues/:venueId/spotify-playlists/:playlistId', { preHandler: requireAuth }, async (request, reply) => {
+    const { eventId, venueId, playlistId } = request.params as { eventId: string; venueId: string; playlistId: string };
+    const eventVenue = await assertEventVenueAccess(request, reply, eventId, venueId);
+    if (!eventVenue) return;
+
+    const { comment } = request.body as { comment?: string };
+    const existing = await (prisma as any).eventVenueSpotifyPlaylist.findFirst({ where: { id: playlistId, eventVenueId: eventVenue.id } });
+    if (!existing) return reply.status(404).send({ error: 'Playlist não encontrada' });
+
+    await (prisma as any).eventVenueSpotifyPlaylist.update({
+      where: { id: playlistId },
+      data: { comment: comment?.trim() || null },
+    });
+    return { success: true };
+  });
+
+  app.delete('/events/:eventId/venues/:venueId/spotify-playlists/:playlistId', { preHandler: requireAuth }, async (request, reply) => {
+    const { eventId, venueId, playlistId } = request.params as { eventId: string; venueId: string; playlistId: string };
+    const eventVenue = await assertEventVenueAccess(request, reply, eventId, venueId);
+    if (!eventVenue) return;
+
+    const existing = await (prisma as any).eventVenueSpotifyPlaylist.findFirst({ where: { id: playlistId, eventVenueId: eventVenue.id } });
+    if (!existing) return reply.status(404).send({ error: 'Playlist não encontrada' });
+
+    await (prisma as any).eventVenueSpotifyPlaylist.delete({ where: { id: playlistId } });
     return { success: true };
   });
 }

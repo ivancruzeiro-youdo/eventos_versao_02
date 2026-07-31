@@ -176,13 +176,16 @@ export async function deviceRoutes(app: FastifyInstance) {
             },
           },
         },
+        spotifyPlaylists: {
+          orderBy: { order: 'asc' },
+          select: { id: true, spotifyPlaylistId: true, spotifyPlaylistName: true, comment: true },
+        },
       },
     });
 
     const events = eventVenues.map((ev: any) => ({
       ...ev.event,
-      spotifyPlaylistId: ev.spotifyPlaylistId,
-      spotifyPlaylistName: ev.spotifyPlaylistName,
+      spotifyPlaylists: ev.spotifyPlaylists,
     }));
 
     return { success: true, venueId: session.venueId, events };

@@ -93,6 +93,11 @@ public partial class ControlWindow : Window
     {
         var selected = EventSelector.SelectedItem as EventDto;
         MediaList.ItemsSource = selected?.MediaAssets;
+
+        SpotifyPlaylistList.ItemsSource = selected?.SpotifyPlaylists;
+        SpotifyPlaylistsEmptyText.Visibility = (selected?.SpotifyPlaylists?.Count ?? 0) == 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     // Reordering only changes the in-memory list backing this session's ListBox/playback

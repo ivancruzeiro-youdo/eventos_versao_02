@@ -216,6 +216,17 @@
                         Tag="{Binding}" Click="MoveDown_Click"/>
             </Grid>
         </DataTemplate>
+
+        <!-- Read-only for now — picking one to actually play on the panel is a later step
+             (WebView2 + Web Playback SDK); this just surfaces what was curated on the web
+             (EventSpotifyPlaylist.tsx) so the operator has it in view on tela 1. -->
+        <DataTemplate x:Key="SpotifyPlaylistItemTemplate">
+            <StackPanel Margin="8,6">
+                <TextBlock Text="{Binding SpotifyPlaylistName}" FontSize="13"/>
+                <TextBlock Foreground="{StaticResource MutedTextBrush}" FontSize="11" FontStyle="Italic"
+                           Text="{Binding DisplayComment}"/>
+            </StackPanel>
+        </DataTemplate>
     </Window.Resources>
 
     <DockPanel Margin="20">
@@ -287,14 +298,34 @@
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <Border Grid.Column="0" Style="{StaticResource CardStyle}">
-                <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="MÍDIAS DO EVENTO (ordem de exibição)"
-                               Style="{StaticResource SectionLabel}"/>
-                    <ListBox x:Name="MediaList" ItemTemplate="{StaticResource MediaItemTemplate}"
-                             SelectionChanged="MediaList_SelectionChanged"/>
-                </DockPanel>
-            </Border>
+            <Grid Grid.Column="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="16"/>
+                    <RowDefinition Height="220"/>
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0" Style="{StaticResource CardStyle}">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Top" Text="MÍDIAS DO EVENTO (ordem de exibição)"
+                                   Style="{StaticResource SectionLabel}"/>
+                        <ListBox x:Name="MediaList" ItemTemplate="{StaticResource MediaItemTemplate}"
+                                 SelectionChanged="MediaList_SelectionChanged"/>
+                    </DockPanel>
+                </Border>
+
+                <Border Grid.Row="2" Style="{StaticResource CardStyle}">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Top" Text="PLAYLISTS SPOTIFY DO EVENTO"
+                                   Style="{StaticResource SectionLabel}"/>
+                        <TextBlock x:Name="SpotifyPlaylistsEmptyText" DockPanel.Dock="Top"
+                                   Text="Nenhuma playlist cadastrada pra este evento." FontSize="12"
+                                   Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"
+                                   Visibility="Collapsed"/>
+                        <ListBox x:Name="SpotifyPlaylistList" ItemTemplate="{StaticResource SpotifyPlaylistItemTemplate}"/>
+                    </DockPanel>
+                </Border>
+            </Grid>
 
             <Border Grid.Column="2" Style="{StaticResource CardStyle}">
                 <DockPanel>

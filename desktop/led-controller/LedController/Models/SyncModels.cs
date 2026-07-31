@@ -28,6 +28,20 @@ public class EventDto
     public DateTime? TeardownAt { get; set; }
     public string Status { get; set; } = "";
     public List<MediaAssetDto> MediaAssets { get; set; } = new();
+    public List<SpotifyPlaylistDto> SpotifyPlaylists { get; set; } = new();
+}
+
+// One of possibly several playlists curated for this event (see EventSpotifyPlaylist.tsx
+// on the web side) — Comment is operator-facing context (e.g. "tocar no jantar"), shown
+// alongside the name in ControlWindow so whoever's running the show picks the right one.
+public class SpotifyPlaylistDto
+{
+    public string Id { get; set; } = "";
+    public string SpotifyPlaylistId { get; set; } = "";
+    public string SpotifyPlaylistName { get; set; } = "";
+    public string? Comment { get; set; }
+
+    public string DisplayComment => string.IsNullOrWhiteSpace(Comment) ? "Sem comentário" : Comment;
 }
 
 public class MediaAssetDto
