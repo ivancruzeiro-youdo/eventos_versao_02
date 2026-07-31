@@ -7,14 +7,28 @@
         Topmost="True"
         Background="Black"
         ShowInTaskbar="False">
-    <Grid>
-        <!-- Idle slate — shown when nothing is selected on the control window -->
-        <TextBlock x:Name="IdleText" Text="YouDO" Foreground="#333" FontSize="48" FontWeight="Bold"
-                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+    <Grid ClipToBounds="True">
+        <!-- Idle slate — shown when nothing is selected on the control window. Uses the
+             white wordmark (dimmed) since a dark/colored logo doesn't read against the
+             panel's black background. -->
+        <Image x:Name="IdleText" Source="Assets/youdo-logo-white.png" Stretch="Uniform" Width="360"
+               Opacity="0.25" HorizontalAlignment="Center" VerticalAlignment="Center"/>
 
-        <Image x:Name="ImageDisplay" Stretch="Uniform" Visibility="Collapsed"/>
+        <!-- Stretch stays Uniform always — "preencher tela (zoom)" is applied as a manual
+             centered ScaleTransform in code (DisplayWindow.xaml.cs ApplyZoom), not via
+             Stretch=UniformToFill, which has a known WPF bug where MediaElement's crop
+             isn't reliably centered. ClipToBounds on the parent Grid crops the overflow. -->
+        <Image x:Name="ImageDisplay" Stretch="Uniform" Visibility="Collapsed"
+               HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
 
         <MediaElement x:Name="VideoDisplay" Stretch="Uniform" Visibility="Collapsed"
+                      HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                       LoadedBehavior="Manual" UnloadedBehavior="Manual" ScrubbingEnabled="False"/>
+
+        <!-- Manual override slate — YouDO wordmark, toggled on-demand from the control
+             window regardless of what's synced/selected (e.g. between shows). White
+             version, same reasoning as IdleText above. -->
+        <Image x:Name="LogoDisplay" Source="Assets/youdo-logo-white.png" Stretch="Uniform" Width="480"
+               HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
     </Grid>
 </Window>

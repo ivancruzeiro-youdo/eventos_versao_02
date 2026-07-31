@@ -19,8 +19,9 @@
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <FileVersion>1.0.0.0</FileVersion>
     <!-- UpdateService self-replaces the running .exe on startup, which only makes sense
-         for a single portable file. Publish with:
-         dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+         for a single portable file. Publish with (see README.md for the flag spelled
+         out; XML comments can't contain a literal double dash):
+         dotnet publish -c Release
          then upload the resulting YouDoLedController.exe via Sistemas → Downloads. -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
@@ -31,6 +32,11 @@
   <ItemGroup>
     <!-- Presigned S3 URLs are plain HTTPS GETs — no extra AWS SDK dependency needed. -->
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\youdo-logo.png" />
+    <Resource Include="Assets\youdo-logo-white.png" />
   </ItemGroup>
 
 </Project>

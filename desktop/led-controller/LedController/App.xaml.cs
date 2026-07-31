@@ -12,6 +12,12 @@ public partial class App : Application
 
     protected override async void OnStartup(StartupEventArgs e)
     {
+        // Per-Monitor-V2 DPI awareness: the control window (operator monitor) and the
+        // display window (LED panel monitor) are frequently scaled differently. Without
+        // this, WPF renders at the primary monitor's DPI only, which can leave a sliver
+        // of unscaled desktop visible at the edge of the fullscreen panel window.
+        System.Windows.Forms.Application.SetHighDpiMode(System.Windows.Forms.HighDpiMode.PerMonitorV2);
+
         base.OnStartup(e);
 
         var config = DeviceConfigStore.Load();
@@ -44,25 +50,34 @@ public partial class App : Application
         var api = new ApiClient(apiBaseUrl);
         _syncService = new MediaSyncService(api, deviceAuth, TimeSpan.FromMinutes(2));
 
-        var display = new DisplayWindow();
-        var control = new ControlWindow(display, _syncService, deviceName);
+        // A DisplayWindow, once closed, can't be un-closed — the operator reopening the
+        // LED panel (ControlWindow's "Reabrir tela 2") needs a fresh instance placed the
+        // same way the first one was, so that placement logic is a reusable factory
+        // instead of a one-shot block here.
+        DisplayWindow CreateDisplay()
+        {
+            var win = new DisplayWindow();
+            var screens = Screen.AllScreens;
+            if (screens.Length >= 2)
+            {
+                // Primary monitor: operator control UI. Secondary: the LED panel.
+                var secondary = screens.FirstOrDefault(s => !s.Primary) ?? screens[1];
+                win.PlaceOnScreen(secondary);
+            }
+            else
+            {
+                // Single-monitor dev/test setup: still show both windows so the control
+                // flow can be exercised, just without real fullscreen separation.
+                win.Width = 640;
+                win.Height = 360;
+                win.WindowStyle = WindowStyle.SingleBorderWindow;
+                win.Topmost = false;
+            }
+            return win;
+        }
 
-        var screens = Screen.AllScreens;
-        if (screens.Length >= 2)
-        {
-            // Primary monitor: operator control UI. Secondary: the LED panel.
-            var secondary = screens.FirstOrDefault(s => !s.Primary) ?? screens[1];
-            display.PlaceOnScreen(secondary);
-        }
-        else
-        {
-            // Single-monitor dev/test setup: still show both windows so the control
-            // flow can be exercised, just without real fullscreen separation.
-            display.Width = 640;
-            display.Height = 360;
-            display.WindowStyle = WindowStyle.SingleBorderWindow;
-            display.Topmost = false;
-        }
+        var display = CreateDisplay();
+        var control = new ControlWindow(display, CreateDisplay, _syncService, deviceName);
 
         display.Show();
         display.ShowIdle();
