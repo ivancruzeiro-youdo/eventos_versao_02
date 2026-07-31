@@ -16,10 +16,20 @@ const answerSchema = z.object({
   })),
 });
 
+// Tenant isolation, same pattern as guests.ts/events.ts/schedules.ts/layout.ts.
+// Freelancer-derived sessions (no employerId concept) are exempt.
+async function checkEventAccess(user: any, eventId: string): Promise<boolean> {
+  if (user.role === 'admin' || user.employerId === undefined) return true;
+  const event = await prisma.event.findUnique({ where: { id: eventId }, select: { employerId: true } });
+  return !!event && event.employerId === user.employerId;
+}
+
 export async function planRoutes(app: FastifyInstance) {
   // Get event plan
   app.get('/events/:id/plan', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId } = request.params as { id: string };
+    const user = (request as any).user;
+    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     const plan = await prisma.eventPlan.findUnique({
       where: { eventId },
@@ -41,6 +51,8 @@ export async function planRoutes(app: FastifyInstance) {
   // Create plan
   app.post('/events/:id/plan', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId } = request.params as { id: string };
+    const user = (request as any).user;
+    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
     const data = createPlanSchema.parse(request.body);
 
     // Check if plan already exists
@@ -68,6 +80,7 @@ export async function planRoutes(app: FastifyInstance) {
   // Save plan answers
   app.patch('/plans/:id/answers', { preHandler: requireAuth }, async (request, reply) => {
     const { id: planId } = request.params as { id: string };
+    const user = (request as any).user;
     const { answers } = answerSchema.parse(request.body);
 
     const plan = await prisma.eventPlan.findUnique({
@@ -77,6 +90,7 @@ export async function planRoutes(app: FastifyInstance) {
     if (!plan) {
       return reply.status(404).send({ error: 'Plan not found' });
     }
+    if (!(await checkEventAccess(user, plan.eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     // Upsert answers
     for (const answer of answers) {
@@ -106,6 +120,8 @@ export async function planRoutes(app: FastifyInstance) {
   // Get event checklists
   app.get('/events/:id/checklists', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId } = request.params as { id: string };
+    const user = (request as any).user;
+    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     const checklists = await prisma.eventChecklist.findMany({
       where: { eventId },
@@ -123,6 +139,11 @@ export async function planRoutes(app: FastifyInstance) {
   // Delete checklist
   app.delete('/checklists/:id', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const user = (request as any).user;
+
+    const checklist = await prisma.eventChecklist.findUnique({ where: { id }, select: { eventId: true } });
+    if (!checklist) return reply.status(404).send({ error: 'Checklist não encontrado' });
+    if (!(await checkEventAccess(user, checklist.eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     await prisma.eventChecklist.delete({
       where: { id },
@@ -134,11 +155,16 @@ export async function planRoutes(app: FastifyInstance) {
   // Add item to an event checklist
   app.post('/checklists/:id/items', { preHandler: requireAuth }, async (request, reply) => {
     const { id: checklistId } = request.params as { id: string };
+    const user = (request as any).user;
     const { text } = request.body as { text?: string };
 
     if (!text || !text.trim()) {
       return reply.status(400).send({ error: 'Texto do item é obrigatório' });
     }
+
+    const checklist = await prisma.eventChecklist.findUnique({ where: { id: checklistId }, select: { eventId: true } });
+    if (!checklist) return reply.status(404).send({ error: 'Checklist não encontrado' });
+    if (!(await checkEventAccess(user, checklist.eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     const last = await prisma.checklistItem.findFirst({
       where: { checklistId },
@@ -163,6 +189,10 @@ export async function planRoutes(app: FastifyInstance) {
     const user = (request as any).user;
     const { done, text } = request.body as { done?: boolean; text?: string };
 
+    const existingItem = await prisma.checklistItem.findUnique({ where: { id }, select: { checklist: { select: { eventId: true } } } });
+    if (!existingItem?.checklist) return reply.status(404).send({ error: 'Item não encontrado' });
+    if (!(await checkEventAccess(user, existingItem.checklist.eventId))) return reply.status(403).send({ error: 'Access denied' });
+
     const item = await prisma.checklistItem.update({
       where: { id },
       data: {
@@ -182,7 +212,13 @@ export async function planRoutes(app: FastifyInstance) {
 
   // Reorder items within a checklist
   app.patch('/checklists/:id/reorder', { preHandler: requireAuth }, async (request, reply) => {
+    const { id: checklistId } = request.params as { id: string };
+    const user = (request as any).user;
     const { items } = request.body as { items: { id: string; order: number }[] };
+
+    const checklist = await prisma.eventChecklist.findUnique({ where: { id: checklistId }, select: { eventId: true } });
+    if (!checklist) return reply.status(404).send({ error: 'Checklist não encontrado' });
+    if (!(await checkEventAccess(user, checklist.eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     await Promise.all(
       items.map(({ id, order }) =>
@@ -195,6 +231,11 @@ export async function planRoutes(app: FastifyInstance) {
   // Delete a single checklist item
   app.delete('/checklist-items/:id', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const user = (request as any).user;
+
+    const existingItem = await prisma.checklistItem.findUnique({ where: { id }, select: { checklist: { select: { eventId: true } } } });
+    if (!existingItem?.checklist) return reply.status(404).send({ error: 'Item não encontrado' });
+    if (!(await checkEventAccess(user, existingItem.checklist.eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     await prisma.checklistItem.delete({ where: { id } });
 
@@ -204,6 +245,8 @@ export async function planRoutes(app: FastifyInstance) {
   // Apply plan template to event
   app.post('/events/:id/plan/apply-template', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId } = request.params as { id: string };
+    const user = (request as any).user;
+    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
     const { templateId } = request.body as { templateId: string };
 
     // Check if plan already exists
@@ -252,7 +295,9 @@ export async function planRoutes(app: FastifyInstance) {
   // Update plan answers
   app.patch('/events/:id/plan/answers', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId } = request.params as { id: string };
-    const { answers } = request.body as { 
+    const user = (request as any).user;
+    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
+    const { answers } = request.body as {
       answers: { questionId: string; textValue?: string; selectedOptions?: string[] }[] 
     };
 

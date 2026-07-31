@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../server.js';
 import { normalizeCpf } from '../utils/cpf.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
-import { blacklistToken } from '../lib/redis.js';
+import { blacklistToken, isTokenBlacklisted } from '../lib/redis.js';
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -302,9 +302,14 @@ export async function authRoutes(app: FastifyInstance) {
   // Refresh token
   app.post('/refresh', async (request, reply) => {
     const token = request.cookies.token;
-    
+
     if (!token) {
       return reply.status(401).send({ error: 'No token provided' });
+    }
+
+    if (await isTokenBlacklisted(token)) {
+      reply.clearCookie('token', { path: '/' });
+      return reply.status(401).send({ error: 'Session revoked' });
     }
 
     try {

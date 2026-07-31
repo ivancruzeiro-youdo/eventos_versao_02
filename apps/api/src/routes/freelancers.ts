@@ -5,6 +5,13 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import bcrypt from 'bcryptjs';
 import * as acessosClient from '../services/acessos.js';
 
+// Shared `select` for every Freelancer row ever returned to a client — passwordHash
+// (bcrypt) must never leave the server, this is the single place that decides what's safe.
+const FREELANCER_SAFE_SELECT = {
+  id: true, name: true, email: true, cpf: true, phone: true, birthDate: true,
+  status: true, strikeCount: true, fotoBase64: true, createdAt: true, updatedAt: true,
+} as const;
+
 async function handleAcessoGrant(applicationId: string): Promise<void> {
   const application = await prisma.freelancerApplication.findUnique({
     where: { id: applicationId },
@@ -244,7 +251,8 @@ export async function freelancerRoutes(app: FastifyInstance) {
 
     const freelancer = await prisma.freelancer.findUnique({
       where: { id: user.id },
-      include: {
+      select: {
+        ...FREELANCER_SAFE_SELECT,
         penalties: {
           orderBy: { createdAt: 'desc' },
           take: 5,
@@ -514,9 +522,7 @@ export async function freelancerRoutes(app: FastifyInstance) {
     const freelancer = await prisma.freelancer.findUnique({
       where: { id: user.id },
       select: {
-        id: true, name: true, email: true, cpf: true, phone: true, birthDate: true,
-        status: true, strikeCount: true, fotoBase64: true, createdAt: true, updatedAt: true,
-        // passwordHash intentionally excluded — this is client-facing
+        ...FREELANCER_SAFE_SELECT,
         penalties: {
           orderBy: { createdAt: 'desc' },
         },
@@ -655,9 +661,7 @@ export async function freelancerRoutes(app: FastifyInstance) {
     const freelancer = await (prisma as any).freelancer.findUnique({
       where: { id },
       select: {
-        id: true, name: true, email: true, cpf: true, phone: true, birthDate: true,
-        status: true, strikeCount: true, fotoBase64: true, createdAt: true, updatedAt: true,
-        // passwordHash intentionally excluded
+        ...FREELANCER_SAFE_SELECT,
         services: { include: { service: true } },
         penalties: { orderBy: { createdAt: 'desc' }, take: 10 },
         _count: { select: { applications: { where: { status: 'approved' } } } },
@@ -685,6 +689,7 @@ export async function freelancerRoutes(app: FastifyInstance) {
         status: status || 'active',
         fotoBase64: fotoBase64 || null,
       },
+      select: FREELANCER_SAFE_SELECT,
     });
     return reply.status(201).send({ success: true, freelancer });
   });
@@ -701,7 +706,7 @@ export async function freelancerRoutes(app: FastifyInstance) {
     if (birthDate !== undefined) data.birthDate = birthDate ? new Date(birthDate) : null;
     if (status !== undefined) data.status = status;
     if (fotoBase64 !== undefined) data.fotoBase64 = fotoBase64 || null;
-    const freelancer = await prisma.freelancer.update({ where: { id }, data });
+    const freelancer = await prisma.freelancer.update({ where: { id }, data, select: FREELANCER_SAFE_SELECT });
     return { success: true, freelancer };
   });
 

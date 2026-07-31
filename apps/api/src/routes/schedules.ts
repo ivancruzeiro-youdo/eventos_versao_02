@@ -79,10 +79,21 @@ async function findTeamConflict(params: {
   });
 }
 
+// Tenant isolation: non-admin Users may only touch schedules belonging to their own
+// employer's events (same pattern as guests.ts / events.ts / devices.ts). Freelancer-
+// derived sessions have no employerId concept and are exempt, same rationale as elsewhere.
+async function checkEventAccess(user: any, eventId: string): Promise<boolean> {
+  if (user.role === 'admin' || user.employerId === undefined) return true;
+  const event = await prisma.event.findUnique({ where: { id: eventId }, select: { employerId: true } });
+  return !!event && event.employerId === user.employerId;
+}
+
 export async function scheduleRoutes(app: FastifyInstance) {
   // Get schedules for an event
   app.get('/events/:id/schedules', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId } = request.params as { id: string };
+    const user = (request as any).user;
+    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     const schedules = await prisma.eventSchedule.findMany({
       where: { eventId },
@@ -96,6 +107,11 @@ export async function scheduleRoutes(app: FastifyInstance) {
   // Get history for a schedule
   app.get('/schedules/:id/history', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const user = (request as any).user;
+
+    const schedule = await prisma.eventSchedule.findUnique({ where: { id }, select: { eventId: true } });
+    if (!schedule) return reply.status(404).send({ error: 'Atividade não encontrada' });
+    if (!(await checkEventAccess(user, schedule.eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     const history = await (prisma as any).eventComment.findMany({
       where: { eventScheduleId: id, isSystem: true },
@@ -109,6 +125,8 @@ export async function scheduleRoutes(app: FastifyInstance) {
   // Create a schedule for an event
   app.post('/events/:id/schedules', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId } = request.params as { id: string };
+    const user = (request as any).user;
+    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
     const data = createScheduleSchema.parse(request.body);
     const userId = (request.user as any)?.sub ?? null;
 
@@ -153,6 +171,7 @@ export async function scheduleRoutes(app: FastifyInstance) {
   // Update a schedule
   app.patch('/schedules/:id', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const user = (request as any).user;
     const data = updateScheduleSchema.parse(request.body);
     const userId = (request.user as any)?.sub ?? null;
 
@@ -163,6 +182,7 @@ export async function scheduleRoutes(app: FastifyInstance) {
     if (!current) {
       return reply.status(404).send({ error: 'Atividade não encontrada' });
     }
+    if (!(await checkEventAccess(user, current.eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     const startAt = data.startAt ? new Date(data.startAt) : current.startAt;
     const endAt = data.endAt ? new Date(data.endAt) : current.endAt;
@@ -223,6 +243,7 @@ export async function scheduleRoutes(app: FastifyInstance) {
   // Delete a schedule
   app.delete('/schedules/:id', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const user = (request as any).user;
     const userId = (request.user as any)?.sub ?? null;
 
     const current = await prisma.eventSchedule.findUnique({
@@ -232,6 +253,7 @@ export async function scheduleRoutes(app: FastifyInstance) {
     if (!current) {
       return reply.status(404).send({ error: 'Atividade não encontrada' });
     }
+    if (!(await checkEventAccess(user, current.eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     // Register history BEFORE delete (FK will become null after delete via SET NULL)
     await addScheduleHistory({

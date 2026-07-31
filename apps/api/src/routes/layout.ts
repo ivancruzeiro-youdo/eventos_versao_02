@@ -31,12 +31,28 @@ async function getFloorPlanUrl(s3Key: string): Promise<string> {
   return getSignedUrl(s3Client, new GetObjectCommand({ Bucket: getS3Bucket(), Key: s3Key }), { expiresIn: 3600 });
 }
 
+// Tenant isolation, same pattern as guests.ts/events.ts/schedules.ts. Freelancer-derived
+// sessions (no employerId concept) are exempt.
+async function checkEventAccess(user: any, eventId: string): Promise<boolean> {
+  if (user.role === 'admin' || user.employerId === undefined) return true;
+  const event = await prisma.event.findUnique({ where: { id: eventId }, select: { employerId: true } });
+  return !!event && event.employerId === user.employerId;
+}
+
+async function checkVenueAccess(user: any, venueId: string): Promise<boolean> {
+  if (user.role === 'admin' || user.employerId === undefined) return true;
+  const venue = await prisma.venue.findUnique({ where: { id: venueId }, select: { employerId: true } });
+  return !!venue && venue.employerId === user.employerId;
+}
+
 export async function layoutRoutes(app: FastifyInstance) {
   await app.register(multipart, { limits: { fileSize: 20 * 1024 * 1024, files: 1 } });
 
   // POST /venues/:id/floorplan — upload floor plan image
   app.post('/venues/:id/floorplan', { preHandler: requireAuth }, async (request, reply) => {
     const { id: venueId } = request.params as { id: string };
+    const user = (request as any).user;
+    if (!(await checkVenueAccess(user, venueId))) return reply.status(403).send({ error: 'Access denied' });
     let s3Key: string | null = null;
 
     for await (const part of request.parts()) {
@@ -63,6 +79,8 @@ export async function layoutRoutes(app: FastifyInstance) {
   // GET /venues/:id/floorplan-url — presigned URL for floor plan
   app.get('/venues/:id/floorplan-url', { preHandler: requireAuth }, async (request, reply) => {
     const { id: venueId } = request.params as { id: string };
+    const user = (request as any).user;
+    if (!(await checkVenueAccess(user, venueId))) return reply.status(403).send({ error: 'Access denied' });
     const venue = await prisma.venue.findUnique({ where: { id: venueId }, select: { floorPlanS3Key: true } });
     if (!venue) return reply.status(404).send({ error: 'Espaço não encontrado' });
     if (!venue.floorPlanS3Key) return { success: true, url: null };
@@ -74,6 +92,8 @@ export async function layoutRoutes(app: FastifyInstance) {
   // (an event can have multiple venues; each has its own independent floor plan/scale/stock)
   app.get('/events/:id/layout-venues', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId } = request.params as { id: string };
+    const user = (request as any).user;
+    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     const eventVenues = await prisma.eventVenue.findMany({
       where: { eventId },
@@ -100,6 +120,8 @@ export async function layoutRoutes(app: FastifyInstance) {
   // GET /events/:id/layouts — list all layouts for an event (optionally filtered by venueId)
   app.get('/events/:id/layouts', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId } = request.params as { id: string };
+    const user = (request as any).user;
+    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
     const { venueId } = request.query as { venueId?: string };
     const layouts = await (prisma as any).eventLayout.findMany({
       where: venueId ? { eventId, venueId } : { eventId },
@@ -113,6 +135,7 @@ export async function layoutRoutes(app: FastifyInstance) {
     const { id: eventId } = request.params as { id: string };
     const { name = 'Novo Layout', elements = [], venueId } = request.body as any;
     const user = (request as any).user;
+    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     if (venueId) {
       const link = await prisma.eventVenue.findFirst({ where: { eventId, venueId } });
@@ -128,6 +151,8 @@ export async function layoutRoutes(app: FastifyInstance) {
   // PUT /events/:id/layouts/:layoutId — update a layout
   app.put('/events/:id/layouts/:layoutId', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId, layoutId } = request.params as { id: string; layoutId: string };
+    const user = (request as any).user;
+    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
     const { name, elements, isLocked } = request.body as any;
 
     const existing = await (prisma as any).eventLayout.findUnique({ where: { id: layoutId } });
@@ -145,6 +170,8 @@ export async function layoutRoutes(app: FastifyInstance) {
   // DELETE /events/:id/layouts/:layoutId — delete a layout
   app.delete('/events/:id/layouts/:layoutId', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId, layoutId } = request.params as { id: string; layoutId: string };
+    const user = (request as any).user;
+    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
     const existing = await (prisma as any).eventLayout.findUnique({ where: { id: layoutId } });
     if (!existing || existing.eventId !== eventId) return reply.status(404).send({ error: 'Layout não encontrado' });
     await (prisma as any).eventLayout.delete({ where: { id: layoutId } });
@@ -154,6 +181,8 @@ export async function layoutRoutes(app: FastifyInstance) {
   // GET /venues/:id/layout-templates
   app.get('/venues/:id/layout-templates', { preHandler: requireAuth }, async (request, reply) => {
     const { id: venueId } = request.params as { id: string };
+    const user = (request as any).user;
+    if (!(await checkVenueAccess(user, venueId))) return reply.status(403).send({ error: 'Access denied' });
     const templates = await (prisma as any).venueLayoutTemplate.findMany({
       where: { venueId },
       orderBy: { createdAt: 'asc' },
@@ -164,6 +193,8 @@ export async function layoutRoutes(app: FastifyInstance) {
   // POST /venues/:id/layout-templates
   app.post('/venues/:id/layout-templates', { preHandler: requireAuth }, async (request, reply) => {
     const { id: venueId } = request.params as { id: string };
+    const user = (request as any).user;
+    if (!(await checkVenueAccess(user, venueId))) return reply.status(403).send({ error: 'Access denied' });
     const { name = 'Novo Modelo', elements = [] } = request.body as any;
     const template = await (prisma as any).venueLayoutTemplate.create({
       data: { venueId, name, elements },
@@ -174,6 +205,8 @@ export async function layoutRoutes(app: FastifyInstance) {
   // PUT /venues/:id/layout-templates/:templateId
   app.put('/venues/:id/layout-templates/:templateId', { preHandler: requireAuth }, async (request, reply) => {
     const { id: venueId, templateId } = request.params as { id: string; templateId: string };
+    const user = (request as any).user;
+    if (!(await checkVenueAccess(user, venueId))) return reply.status(403).send({ error: 'Access denied' });
     const { name, elements } = request.body as any;
     const existing = await (prisma as any).venueLayoutTemplate.findUnique({ where: { id: templateId } });
     if (!existing || existing.venueId !== venueId) return reply.status(404).send({ error: 'Template não encontrado' });
@@ -187,6 +220,8 @@ export async function layoutRoutes(app: FastifyInstance) {
   // DELETE /venues/:id/layout-templates/:templateId
   app.delete('/venues/:id/layout-templates/:templateId', { preHandler: requireAuth }, async (request, reply) => {
     const { id: venueId, templateId } = request.params as { id: string; templateId: string };
+    const user = (request as any).user;
+    if (!(await checkVenueAccess(user, venueId))) return reply.status(403).send({ error: 'Access denied' });
     const existing = await (prisma as any).venueLayoutTemplate.findUnique({ where: { id: templateId } });
     if (!existing || existing.venueId !== venueId) return reply.status(404).send({ error: 'Template não encontrado' });
     await (prisma as any).venueLayoutTemplate.delete({ where: { id: templateId } });

@@ -399,6 +399,8 @@ export async function guestRoutes(app: FastifyInstance) {
   // Generate RSVP token for guest
   app.post('/events/:id/guests/:guestId/rsvp-invite', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId, guestId } = request.params as { id: string; guestId: string };
+    const user = (request as any).user;
+    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     const guest = await prisma.guest.findFirst({
       where: { id: guestId, eventId },
@@ -430,6 +432,8 @@ export async function guestRoutes(app: FastifyInstance) {
   // Get QR code data for guest
   app.get('/events/:id/guests/:guestId/qr', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId, guestId } = request.params as { id: string; guestId: string };
+    const user = (request as any).user;
+    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     const guest = await prisma.guest.findFirst({
       where: { id: guestId, eventId },
@@ -463,6 +467,8 @@ export async function guestRoutes(app: FastifyInstance) {
   // Import guests from CSV
   app.post('/events/:id/guests/import', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId } = request.params as { id: string };
+    const user = (request as any).user;
+    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
     const { guests, forceStatus } = request.body as {
       guests: { name: string; email?: string; phone?: string; cpf?: string; status?: string }[];
       forceStatus?: string;

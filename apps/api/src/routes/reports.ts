@@ -135,7 +135,11 @@ export async function reportRoutes(app: FastifyInstance) {
     }
 
     const freelancers = await prisma.freelancer.findMany({
-      include: {
+      select: {
+        id: true, name: true, email: true, cpf: true, phone: true, birthDate: true,
+        status: true, strikeCount: true, fotoBase64: true, createdAt: true, updatedAt: true,
+        // passwordHash intentionally excluded — this report is readable by any
+        // non-freelancer role, not just admin
         _count: { select: { applications: true } },
         applications: {
           where: { status: 'approved' },
