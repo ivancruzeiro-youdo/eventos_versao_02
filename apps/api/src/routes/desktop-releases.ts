@@ -1,20 +1,7 @@
 import type { FastifyInstance } from 'fastify';
-import { z } from 'zod';
 import { prisma } from '../server.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
-import { createUploadPresignedUrl, createDownloadPresignedUrl, deleteS3Object, sanitizeFilenameForKey } from '../lib/s3.js';
-
-const presignSchema = z.object({
-  filename: z.string().min(1),
-  sizeBytes: z.number().int().positive(),
-});
-
-const confirmSchema = z.object({
-  version: z.string().min(1),
-  s3Key: z.string().min(1),
-  sizeBytes: z.number().int().positive(),
-  releaseNotes: z.string().optional(),
-});
+import { createDownloadPresignedUrl, deleteS3Object } from '../lib/s3.js';
 
 export async function desktopReleaseRoutes(app: FastifyInstance) {
   // Public — the Windows app calls this on every startup to check for updates, before
@@ -47,43 +34,20 @@ export async function desktopReleaseRoutes(app: FastifyInstance) {
     return { success: true, releases };
   });
 
-  // Publishing a new release is admin-only — this ships to every paired device.
+  // Manual upload from the web UI was disabled by design (2026-07-31): letting anyone
+  // with admin access push an arbitrary .exe that every paired venue device downloads
+  // and self-installs unattended is too much blast radius for a self-serve web form.
+  // Publish new releases via the deploy pipeline/CLI instead (upload to S3 + insert a
+  // DesktopRelease row directly) — see desktop/led-controller/README.md. These two
+  // routes are kept (rather than deleted) so re-enabling is a one-line revert if the
+  // process changes; GET /desktop-releases, DELETE /desktop-releases/:id, and the
+  // device-facing GET /devices/latest-version above are unaffected.
   app.post('/desktop-releases/presign', { preHandler: [requireAuth, requireRole(['admin'])] }, async (request, reply) => {
-    const { filename, sizeBytes } = presignSchema.parse(request.body);
-
-    const maxSize = 300 * 1024 * 1024; // 300MB — generous ceiling for a self-contained single-file .exe
-    if (sizeBytes > maxSize) {
-      return reply.status(400).send({ error: `O instalável pode ter no máximo ${Math.round(maxSize / (1024 * 1024))}MB.` });
-    }
-
-    const s3Key = `desktop-releases/${Date.now()}-${sanitizeFilenameForKey(filename)}`;
-    let uploadUrl: string;
-    try {
-      uploadUrl = await createUploadPresignedUrl(s3Key, 'application/octet-stream');
-    } catch (s3Error) {
-      console.error('S3 presign error (desktop-release):', s3Error);
-      return reply.status(502).send({ error: 'Falha ao gerar URL de upload. Verifique a configuração do S3.' });
-    }
-
-    return { success: true, uploadUrl, s3Key };
+    return reply.status(403).send({ error: 'Upload manual desativado — publique novas versões pelo pipeline de deploy.' });
   });
 
   app.post('/desktop-releases/confirm', { preHandler: [requireAuth, requireRole(['admin'])] }, async (request, reply) => {
-    const data = confirmSchema.parse(request.body);
-
-    const existing = await (prisma as any).desktopRelease.findUnique({ where: { version: data.version } });
-    if (existing) return reply.status(400).send({ error: `Já existe uma versão "${data.version}" publicada.` });
-
-    const release = await (prisma as any).desktopRelease.create({
-      data: {
-        version: data.version,
-        s3Key: data.s3Key,
-        sizeBytes: data.sizeBytes,
-        releaseNotes: data.releaseNotes || null,
-      },
-    });
-
-    return reply.status(201).send({ success: true, release });
+    return reply.status(403).send({ error: 'Upload manual desativado — publique novas versões pelo pipeline de deploy.' });
   });
 
   app.delete('/desktop-releases/:id', { preHandler: [requireAuth, requireRole(['admin'])] }, async (request, reply) => {

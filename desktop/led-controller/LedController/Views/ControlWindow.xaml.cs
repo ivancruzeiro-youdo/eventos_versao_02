@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Windows;
 using System.Windows.Media.Imaging;
 using LedController.Models;
@@ -30,6 +31,10 @@ public partial class ControlWindow : Window
         _createDisplay = createDisplay;
         _sync = sync;
         DeviceNameText.Text = deviceName;
+        // Auto-generated at build time (LedController.csproj) — never hand-typed, so
+        // it's always a clear, unambiguous signal of exactly which build is running.
+        var version = Assembly.GetExecutingAssembly().GetName().Version;
+        AppVersionText.Text = version == null ? "" : $"v{version.Major}.{version.Minor}.{version.Build}";
 
         _sync.Synced += OnSynced;
         _sync.SyncFailed += OnSyncFailed;

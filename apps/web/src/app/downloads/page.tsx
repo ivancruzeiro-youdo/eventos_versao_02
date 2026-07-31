@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Layout from '@/components/Layout';
 import { authApi } from '@/lib/api';
-import { Download, Upload, Trash2, Monitor, Clock } from 'lucide-react';
+import { Download, Trash2, Monitor, Clock } from 'lucide-react';
 
 interface Release {
   id: string;
@@ -25,11 +25,6 @@ export default function DownloadsPage() {
   const [releases, setReleases] = useState<Release[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState('');
-  const [version, setVersion] = useState('');
-  const [releaseNotes, setReleaseNotes] = useState('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     authApi.me().then((res: any) => setIsAdmin(res.user?.role === 'admin')).catch(() => {});
@@ -46,65 +41,6 @@ export default function DownloadsPage() {
       }
     } finally {
       setLoading(false);
-    }
-  }
-
-  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!version.trim()) {
-      alert('Informe o número da versão antes de escolher o arquivo.');
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      return;
-    }
-
-    setUploading(true);
-    setUploadProgress('Preparando envio...');
-    try {
-      const presignRes = await fetch('/api/v2/desktop-releases/presign', {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filename: file.name, sizeBytes: file.size }),
-      });
-      if (!presignRes.ok) {
-        const err = await presignRes.json().catch(() => ({}));
-        alert(err.error || 'Erro ao preparar upload.');
-        return;
-      }
-      const { uploadUrl, s3Key } = await presignRes.json();
-
-      setUploadProgress('Enviando arquivo...');
-      const putRes = await fetch(uploadUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/octet-stream' },
-        body: file,
-      });
-      if (!putRes.ok) {
-        alert('Falha ao enviar o arquivo para o armazenamento.');
-        return;
-      }
-
-      setUploadProgress('Confirmando...');
-      const confirmRes = await fetch('/api/v2/desktop-releases/confirm', {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ version: version.trim(), s3Key, sizeBytes: file.size, releaseNotes: releaseNotes.trim() || undefined }),
-      });
-      if (!confirmRes.ok) {
-        const err = await confirmRes.json().catch(() => ({}));
-        alert(err.error || 'Erro ao confirmar upload.');
-        return;
-      }
-
-      setVersion('');
-      setReleaseNotes('');
-      await load();
-    } catch {
-      alert('Erro ao enviar o arquivo.');
-    } finally {
-      setUploading(false);
-      setUploadProgress('');
-      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   }
 
@@ -158,34 +94,6 @@ export default function DownloadsPage() {
             {latest.releaseNotes && (
               <p className="text-sm text-muted-foreground mt-3 whitespace-pre-wrap border-t pt-3">{latest.releaseNotes}</p>
             )}
-          </div>
-        )}
-
-        {isAdmin && (
-          <div className="bg-card border rounded-xl p-5 space-y-3">
-            <p className="text-sm font-semibold">Publicar nova versão</p>
-            <div className="grid grid-cols-2 gap-3">
-              <input
-                placeholder="Versão (ex: 1.0.1)"
-                value={version}
-                onChange={e => setVersion(e.target.value)}
-                className="col-span-2 sm:col-span-1 px-3 py-2 border rounded-lg text-sm bg-background"
-              />
-            </div>
-            <textarea
-              placeholder="Notas da versão (opcional)"
-              value={releaseNotes}
-              onChange={e => setReleaseNotes(e.target.value)}
-              rows={3}
-              className="w-full px-3 py-2 border rounded-lg text-sm bg-background resize-none"
-            />
-            <label className={`flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed rounded-lg cursor-pointer text-sm transition ${
-              uploading ? 'opacity-50 pointer-events-none' : 'hover:border-primary hover:bg-muted/40'
-            }`}>
-              <Upload size={16} className="text-muted-foreground" />
-              <span className="text-muted-foreground">{uploading ? uploadProgress : 'Selecionar o .exe pra publicar'}</span>
-              <input ref={fileInputRef} type="file" accept=".exe" className="hidden" onChange={handleFileChange} disabled={uploading} />
-            </label>
           </div>
         )}
 

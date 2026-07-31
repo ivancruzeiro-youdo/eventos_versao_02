@@ -225,7 +225,12 @@
                 <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
                     <Image Source="Assets/youdo-logo-white.png" Height="28" Margin="0,0,12,0"/>
                     <StackPanel VerticalAlignment="Center">
-                        <TextBlock x:Name="DeviceNameText" FontSize="15" FontWeight="Bold"/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock x:Name="DeviceNameText" FontSize="15" FontWeight="Bold"/>
+                            <TextBlock x:Name="AppVersionText" FontSize="11" Margin="8,2,0,0" VerticalAlignment="Bottom"
+                                       Foreground="{StaticResource MutedTextBrush}"
+                                       ToolTip="Versão do app — gerada automaticamente a cada build, então dá pra ver na hora se está desatualizado"/>
+                        </StackPanel>
                         <TextBlock x:Name="SyncStatusText" Text="Sincronizando..." FontSize="12"
                                    Foreground="{StaticResource MutedTextBrush}"/>
                     </StackPanel>

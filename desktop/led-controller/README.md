@@ -4,10 +4,10 @@ App Windows (.NET 8 / WPF) instalado em cada espaço físico, controlando o pain
 como monitor secundário do PC. Parte do subsistema de gestão de áudio/vídeo/imagem
 descrito no plano da sessão que criou este projeto.
 
-## ⚠️ Importante — este código não foi compilado nem testado
+## Rodando localmente
 
-Este projeto foi escrito num Mac (sem SDK do .NET, sem Windows) — é só o esqueleto da
-Fase 1. **Precisa ser aberto e compilado numa máquina Windows** com:
+Testado e funcionando numa máquina Windows real (build limpo, pareamento, sync,
+autoatualização, tudo verificado). Precisa de:
 
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
 - Visual Studio 2022 (workload ".NET desktop development") **ou** `dotnet build` direto
@@ -50,11 +50,21 @@ dotnet run --project LedController
   arquivo e reabre, e então encerra o processo atual. **Só funciona no `.exe` publicado
   como single-file** (ver seção "Publicar uma nova versão" abaixo) — em `dotnet run`
   o processo "atual" é o `dotnet.exe`, então a checagem é pulada de propósito.
+- **Versão sempre nova, nunca digitada à mão**: o `<Version>` do `.csproj` é calculado a
+  cada build a partir do horário UTC atual (`yyyy.MMdd.HHmm`), então é fisicamente
+  impossível publicar duas vezes com o mesmo número — sempre vai ser maior que o
+  anterior. `ControlWindow` mostra essa versão no cabeçalho (ao lado do nome do
+  dispositivo), então só de abrir o app dá pra ver se ele já pegou o build mais novo.
 - **Publicar/baixar versões** (lado servidor + web): página "Sistemas → Downloads"
-  (`apps/web/src/app/downloads/page.tsx`) — administradores publicam um novo `.exe`
-  (upload direto pro S3 via presign/confirm, mesmo padrão de mídia) com um número de
-  versão; qualquer usuário logado pode baixar a versão atual dali. O app Windows nunca
-  precisa dessa tela — ele só consulta `/devices/latest-version` diretamente.
+  (`apps/web/src/app/downloads/page.tsx`) lista as versões publicadas e deixa qualquer
+  usuário logado baixar a atual — mas o **upload manual pela web foi desativado**
+  (2026-07-31, `POST /desktop-releases/presign` e `/confirm` retornam 403 de propósito):
+  deixar um formulário web publicar um `.exe` que todo dispositivo pareado baixa e
+  autoinstala sem supervisão era risco demais pra um clique de admin. Publicar uma nova
+  versão hoje é manual, direto no servidor: subir o `.exe` pro S3 (mesmo bucket de
+  mídia, prefixo `desktop-releases/`) e inserir a linha correspondente na tabela
+  `DesktopRelease` (via Prisma Studio, `pnpm db:studio`, ou uma query direta). O app
+  Windows nunca depende dessa tela — ele só consulta `/devices/latest-version`.
 
 ## O que ainda falta (Fase 3 — não implementada aqui)
 
@@ -71,14 +81,18 @@ script de substituição não sabe atualizar). O `.csproj` já está configurado
 
 ```powershell
 cd desktop/led-controller
-# 1. Bumpar a versão no LedController.csproj (<Version>, <AssemblyVersion>, <FileVersion>)
 dotnet publish LedController -c Release
 # gera: LedController/bin/Release/net8.0-windows/win-x64/publish/YouDoLedController.exe
+# a versão já sai calculada automaticamente do horário do build — não precisa (nem deve)
+# ser digitada à mão.
 ```
 
-Depois, subir esse `.exe` em **Sistemas → Downloads** (como admin) informando o mesmo
-número de versão do `<Version>` — é essa comparação que decide se um espaço já
-atualizado precisa baixar de novo.
+Depois, com o `.exe` gerado:
+1. Sobe pro S3 (bucket de mídia, prefixo `desktop-releases/<algum-nome>.exe`).
+2. Insere uma linha na tabela `DesktopRelease` (`version`, `s3Key`, `sizeBytes`,
+   `releaseNotes` opcional) — mais fácil via `pnpm db:studio`. O `version` tem que ser
+   exatamente o que saiu no build (visível no cabeçalho do app, ou no nome do arquivo
+   publicado).
 
 ## Estrutura
 

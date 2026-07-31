@@ -12,17 +12,23 @@
     <RootNamespace>LedController</RootNamespace>
     <AssemblyName>YouDoLedController</AssemblyName>
     <ApplicationIcon></ApplicationIcon>
-    <!-- Bump this on every release published via Sistemas → Downloads — UpdateService
-         compares this (via Assembly.GetName().Version) against DesktopRelease.version
-         from GET /devices/latest-version. Keep it a plain "Major.Minor.Patch". -->
-    <Version>1.0.0</Version>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
+    <!-- Auto-generated at every build from the current UTC time (Year.MMdd.HHmm) — never
+         hand-typed, so it's impossible to accidentally publish a release with an
+         unchanged version number (UpdateService compares this, via
+         Assembly.GetName().Version, against DesktopRelease.version from
+         GET /devices/latest-version; ControlWindow shows it in the header so opening
+         the app tells you immediately whether it picked up the latest build). Override
+         with `dotnet publish -p:Version=1.2.3` if an exact version is ever needed. -->
+    <BuildTimestampVersion Condition="'$(BuildTimestampVersion)' == ''">$([System.DateTime]::UtcNow.ToString('yyyy.MMdd.HHmm'))</BuildTimestampVersion>
+    <Version Condition="'$(Version)' == '1.0.0' Or '$(Version)' == ''">$(BuildTimestampVersion)</Version>
+    <AssemblyVersion>$(BuildTimestampVersion).0</AssemblyVersion>
+    <FileVersion>$(BuildTimestampVersion).0</FileVersion>
     <!-- UpdateService self-replaces the running .exe on startup, which only makes sense
          for a single portable file. Publish with (see README.md for the flag spelled
          out; XML comments can't contain a literal double dash):
          dotnet publish -c Release
-         then upload the resulting YouDoLedController.exe via Sistemas → Downloads. -->
+         then publish the resulting YouDoLedController.exe — see README.md "Publicando
+         uma nova versão" (manual upload via Sistemas → Downloads was disabled). -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
