@@ -53,7 +53,8 @@ const adminNavigation = [
   { name: 'Relatórios', href: '/admin/reports' },
   { name: 'Logs', href: '/admin/audit-log' },
   { name: 'Acessos por Serviço', href: '/admin/acessos' },
-  { name: 'Integrações', href: '/admin/integrations/userp' },
+  { name: 'Integração Userp', href: '/admin/integrations/userp' },
+  { name: 'Integração Spotify', href: '/admin/integrations/spotify' },
   { name: 'Elementos de Layout', href: '/admin/layout-elements' },
 ];
 

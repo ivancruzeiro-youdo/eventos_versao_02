@@ -50,10 +50,12 @@ public class ApiClient
     }
 
     /// <summary>Public, no auth header needed — the app checks this on every startup,
-    /// even before it has a paired session (mirrors PairAsync's public design).</summary>
+    /// even before it has a paired session (mirrors PairAsync's public design). Sistemas →
+    /// Downloads now lists releases for multiple desktop apps, so this is explicit about
+    /// which one it is instead of relying on the server's "led-controller" default.</summary>
     public async Task<LatestVersionResponse> GetLatestVersionAsync(CancellationToken ct = default)
     {
-        var res = await _http.GetAsync("api/v2/devices/latest-version", ct);
+        var res = await _http.GetAsync("api/v2/devices/latest-version?system=led-controller", ct);
         await EnsureSuccess(res, ct);
         return (await res.Content.ReadFromJsonAsync<LatestVersionResponse>(JsonOptions, ct))!;
     }

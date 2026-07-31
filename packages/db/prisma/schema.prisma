@@ -286,6 +286,18 @@ model VenueSpotifyConnection {
   venue Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
 }
 
+// Client ID/Secret of the ONE Spotify app registered at developer.spotify.com/dashboard —
+// shared across all venues (each venue's OAuth authorization produces its own
+// VenueSpotifyConnection tokens, but they all authorize against this same app).
+// Singleton table, same shape/rationale as UerpConfig: an admin pastes these in via
+// Sistemas → Integrações → Spotify instead of an env var, no server access needed.
+model SpotifyAppConfig {
+  id           String   @id @default(uuid())
+  clientId     String
+  clientSecret String
+  updatedAt    DateTime @updatedAt
+}
+
 // ============================================
 // Mídia (painel de LED) + Spotify por espaço
 // ============================================
@@ -335,13 +347,23 @@ model EventMediaAsset {
 // the "Sistemas → Downloads" page and polled by the app itself on every startup
 // (GET /devices/latest-version, public — the app needs this before it necessarily has
 // a paired session) to self-update.
+// systemKey identifies which downloadable app this release belongs to (the "Sistemas →
+// Downloads" page groups by this) — e.g. "led-controller" for the LED-panel Windows app.
+// Not an enum: new systems just start using a new key, no schema change needed. Version
+// uniqueness is scoped per system, not global, since two different systems' version
+// numbers are unrelated (e.g. both could legitimately publish a "1.0.0").
 model DesktopRelease {
   id           String   @id @default(uuid())
-  version      String   @unique // e.g. "1.2.0" — compared as System.Version on the client
+  systemKey    String   @default("led-controller")
+  systemLabel  String   @default("Painel de LED (Windows)") // shown on the Downloads page
+  version      String   // e.g. "1.2.0" — compared as System.Version on the client
   s3Key        String
   sizeBytes    Int
   releaseNotes String?
   createdAt    DateTime @default(now())
+
+  @@unique([systemKey, version])
+  @@index([systemKey])
 }
 
 model VenueLayoutTemplate {

@@ -3,6 +3,14 @@
 // function per operation, no client class. This is the first OAuth integration in this
 // codebase — the existing UERP integration (routes/uerp.ts) uses a static email+password
 // pair instead, so there's no OAuth precedent here to follow beyond this file.
+//
+// Client ID/Secret are entered by an admin at Sistemas → Integrações → Spotify (stored in
+// SpotifyAppConfig, see routes/spotify.ts) rather than an env var — same reasoning as the
+// UERP integration's config page: whoever registers the app at
+// developer.spotify.com/dashboard needs to paste the values in without server access.
+// SPOTIFY_CLIENT_ID/SECRET env vars, if set, are used only as a fallback default.
+
+import { prisma } from '../server.js';
 
 const AUTHORIZE_URL = 'https://accounts.spotify.com/authorize';
 const TOKEN_URL = 'https://accounts.spotify.com/api/token';
@@ -21,16 +29,22 @@ export const SPOTIFY_SCOPES = [
   'playlist-read-collaborative',
 ].join(' ');
 
-function getClientId(): string {
-  const id = process.env.SPOTIFY_CLIENT_ID;
-  if (!id) throw new Error('SPOTIFY_CLIENT_ID não configurado no ambiente.');
-  return id;
+export async function getSpotifyAppCredentials(): Promise<{ clientId: string; clientSecret: string } | null> {
+  const config = await (prisma as any).spotifyAppConfig.findFirst();
+  const clientId = config?.clientId || process.env.SPOTIFY_CLIENT_ID || '';
+  const clientSecret = config?.clientSecret || process.env.SPOTIFY_CLIENT_SECRET || '';
+  if (!clientId || !clientSecret) return null;
+  return { clientId, clientSecret };
 }
 
-function getClientSecret(): string {
-  const secret = process.env.SPOTIFY_CLIENT_SECRET;
-  if (!secret) throw new Error('SPOTIFY_CLIENT_SECRET não configurado no ambiente.');
-  return secret;
+async function requireCredentials(): Promise<{ clientId: string; clientSecret: string }> {
+  const creds = await getSpotifyAppCredentials();
+  if (!creds) {
+    throw new Error(
+      'Spotify não configurado — cadastre o Client ID/Secret em Sistemas → Integrações → Spotify.'
+    );
+  }
+  return creds;
 }
 
 function getRedirectUri(): string {
@@ -39,10 +53,11 @@ function getRedirectUri(): string {
   return uri;
 }
 
-export function getAuthorizeUrl(state: string): string {
+export async function getAuthorizeUrl(state: string): Promise<string> {
+  const { clientId } = await requireCredentials();
   const params = new URLSearchParams({
     response_type: 'code',
-    client_id: getClientId(),
+    client_id: clientId,
     scope: SPOTIFY_SCOPES,
     redirect_uri: getRedirectUri(),
     state,
@@ -58,8 +73,9 @@ interface SpotifyTokenResponse {
   token_type: string;
 }
 
-function basicAuthHeader(): string {
-  return 'Basic ' + Buffer.from(`${getClientId()}:${getClientSecret()}`).toString('base64');
+async function basicAuthHeader(): Promise<string> {
+  const { clientId, clientSecret } = await requireCredentials();
+  return 'Basic ' + Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
 }
 
 export async function exchangeCode(code: string): Promise<SpotifyTokenResponse> {
@@ -67,7 +83,7 @@ export async function exchangeCode(code: string): Promise<SpotifyTokenResponse> 
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
-      Authorization: basicAuthHeader(),
+      Authorization: await basicAuthHeader(),
     },
     body: new URLSearchParams({
       grant_type: 'authorization_code',
@@ -84,7 +100,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<SpotifyT
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
-      Authorization: basicAuthHeader(),
+      Authorization: await basicAuthHeader(),
     },
     body: new URLSearchParams({
       grant_type: 'refresh_token',

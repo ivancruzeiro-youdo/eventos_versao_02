@@ -4,15 +4,23 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { createDownloadPresignedUrl, deleteS3Object } from '../lib/s3.js';
 
 export async function desktopReleaseRoutes(app: FastifyInstance) {
-  // Public — the Windows app calls this on every startup to check for updates, before
-  // it necessarily has a paired session (same rationale as /devices/pair being public).
+  // Public — a desktop app calls this on every startup to check for updates, before it
+  // necessarily has a paired session (same rationale as /devices/pair being public).
+  // ?system= defaults to "led-controller" so the existing Windows app (which doesn't
+  // send this param) keeps working unchanged as new systems are added alongside it.
   app.get('/devices/latest-version', async (request, reply) => {
-    const latest = await (prisma as any).desktopRelease.findFirst({ orderBy: { createdAt: 'desc' } });
+    const { system } = request.query as { system?: string };
+    const systemKey = system || 'led-controller';
+
+    const latest = await (prisma as any).desktopRelease.findFirst({
+      where: { systemKey },
+      orderBy: { createdAt: 'desc' },
+    });
     if (!latest) return { success: true, version: null };
 
     let downloadUrl: string;
     try {
-      downloadUrl = await createDownloadPresignedUrl(latest.s3Key, `YouDoLedController-${latest.version}.exe`);
+      downloadUrl = await createDownloadPresignedUrl(latest.s3Key, `${systemKey}-${latest.version}.exe`);
     } catch (s3Error) {
       console.error('S3 download presign error (latest-version):', s3Error);
       return reply.status(502).send({ error: 'Falha ao gerar link de download.' });
@@ -27,8 +35,9 @@ export async function desktopReleaseRoutes(app: FastifyInstance) {
     };
   });
 
-  // List all releases — any logged-in user (this is the "Sistemas → Downloads" page;
-  // any operator may need to install/reinstall the app on a venue PC).
+  // List all releases across every system — any logged-in user (this is the
+  // "Sistemas → Downloads" page; any operator may need to install/reinstall an app).
+  // The web page groups these by systemKey itself; N systems can share this one list.
   app.get('/desktop-releases', { preHandler: requireAuth }, async (request, reply) => {
     const releases = await (prisma as any).desktopRelease.findMany({ orderBy: { createdAt: 'desc' } });
     return { success: true, releases };

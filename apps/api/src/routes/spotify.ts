@@ -1,8 +1,15 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../server.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requireRole } from '../middleware/auth.js';
 import { encrypt, decrypt } from '../lib/crypto.js';
-import { getAuthorizeUrl, exchangeCode, refreshAccessToken, getProfile, getPlaylists } from '../lib/spotify.js';
+import {
+  getAuthorizeUrl,
+  exchangeCode,
+  refreshAccessToken,
+  getProfile,
+  getPlaylists,
+  getSpotifyAppCredentials,
+} from '../lib/spotify.js';
 
 const STATE_TOKEN_TTL = '10m'; // just needs to survive the redirect round-trip to Spotify and back
 
@@ -52,6 +59,41 @@ async function assertVenueAccess(app: FastifyInstance, request: any, reply: any,
 }
 
 export async function spotifyRoutes(app: FastifyInstance) {
+  // ── App-level credentials (admin-only) — Sistemas → Integrações → Spotify ──
+  // Same shape as /userp-config (routes/uerp.ts): an admin pastes what they generated
+  // at developer.spotify.com/dashboard, stored in the DB instead of an env var so it
+  // doesn't require server/SSH access to set up or rotate.
+
+  app.get('/admin/spotify-config', { preHandler: [requireAuth, requireRole(['admin'])] }, async () => {
+    const config = await (prisma as any).spotifyAppConfig.findFirst();
+    return {
+      success: true,
+      config: {
+        clientId: config?.clientId || '',
+        hasClientSecret: !!config?.clientSecret,
+        redirectUri: process.env.SPOTIFY_REDIRECT_URI || '',
+      },
+    };
+  });
+
+  app.post('/admin/spotify-config', { preHandler: [requireAuth, requireRole(['admin'])] }, async (request, reply) => {
+    const { clientId, clientSecret } = request.body as { clientId?: string; clientSecret?: string };
+    if (!clientId?.trim()) return reply.status(400).send({ error: 'Client ID é obrigatório' });
+
+    const existing = await (prisma as any).spotifyAppConfig.findFirst();
+    const data: any = { clientId: clientId.trim() };
+    if (clientSecret?.trim()) data.clientSecret = clientSecret.trim();
+
+    if (existing) {
+      await (prisma as any).spotifyAppConfig.update({ where: { id: existing.id }, data });
+    } else {
+      if (!clientSecret?.trim()) return reply.status(400).send({ error: 'Client Secret é obrigatório na primeira configuração' });
+      await (prisma as any).spotifyAppConfig.create({ data: { clientId: clientId.trim(), clientSecret: clientSecret.trim() } });
+    }
+
+    return { success: true };
+  });
+
   // ── Connect/disconnect (human session, same venue-ownership check as /venues/:id/devices) ──
 
   app.get('/venues/:id/spotify/authorize', { preHandler: requireAuth }, async (request, reply) => {
@@ -59,8 +101,12 @@ export async function spotifyRoutes(app: FastifyInstance) {
     const venue = await assertVenueAccess(app, request, reply, venueId);
     if (!venue) return;
 
+    if (!(await getSpotifyAppCredentials())) {
+      return reply.status(400).send({ error: 'Spotify não configurado — peça a um admin pra cadastrar em Sistemas → Integrações → Spotify.' });
+    }
+
     const state = app.jwt.sign({ venueId }, { expiresIn: STATE_TOKEN_TTL });
-    return reply.redirect(getAuthorizeUrl(state));
+    return reply.redirect(await getAuthorizeUrl(state));
   });
 
   // Public — Spotify redirects the browser here directly, with no cookie of ours
