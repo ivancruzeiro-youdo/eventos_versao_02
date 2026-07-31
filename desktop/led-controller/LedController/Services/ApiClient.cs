@@ -48,6 +48,15 @@ public class ApiClient
         return (await res.Content.ReadFromJsonAsync<DownloadUrlResponse>(JsonOptions, ct))!;
     }
 
+    /// <summary>Public, no auth header needed — the app checks this on every startup,
+    /// even before it has a paired session (mirrors PairAsync's public design).</summary>
+    public async Task<LatestVersionResponse> GetLatestVersionAsync(CancellationToken ct = default)
+    {
+        var res = await _http.GetAsync("api/v2/devices/latest-version", ct);
+        await EnsureSuccess(res, ct);
+        return (await res.Content.ReadFromJsonAsync<LatestVersionResponse>(JsonOptions, ct))!;
+    }
+
     public async Task HeartbeatAsync(string deviceAuth, CancellationToken ct = default)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, "api/v2/devices/heartbeat");

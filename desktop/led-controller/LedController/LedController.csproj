@@ -12,6 +12,20 @@
     <RootNamespace>LedController</RootNamespace>
     <AssemblyName>YouDoLedController</AssemblyName>
     <ApplicationIcon></ApplicationIcon>
+    <!-- Bump this on every release published via Sistemas → Downloads — UpdateService
+         compares this (via Assembly.GetName().Version) against DesktopRelease.version
+         from GET /devices/latest-version. Keep it a plain "Major.Minor.Patch". -->
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <!-- UpdateService self-replaces the running .exe on startup, which only makes sense
+         for a single portable file. Publish with:
+         dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+         then upload the resulting YouDoLedController.exe via Sistemas → Downloads. -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
 
   <ItemGroup>

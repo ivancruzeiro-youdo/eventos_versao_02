@@ -303,6 +303,19 @@ model EventMediaAsset {
   @@index([eventId])
 }
 
+// A published build of the Windows LED-panel app (desktop/led-controller), listed on
+// the "Sistemas → Downloads" page and polled by the app itself on every startup
+// (GET /devices/latest-version, public — the app needs this before it necessarily has
+// a paired session) to self-update.
+model DesktopRelease {
+  id           String   @id @default(uuid())
+  version      String   @unique // e.g. "1.2.0" — compared as System.Version on the client
+  s3Key        String
+  sizeBytes    Int
+  releaseNotes String?
+  createdAt    DateTime @default(now())
+}
+
 model VenueLayoutTemplate {
   id        String   @id @default(uuid())
   venueId   String

@@ -53,3 +53,12 @@ public class DownloadUrlResponse
     public string DownloadUrl { get; set; } = "";
     public string Checksum { get; set; } = "";
 }
+
+public class LatestVersionResponse
+{
+    public bool Success { get; set; }
+    public string? Version { get; set; } // null when no release has been published yet
+    public string? DownloadUrl { get; set; }
+    public string? ReleaseNotes { get; set; }
+    public DateTime? PublishedAt { get; set; }
+}

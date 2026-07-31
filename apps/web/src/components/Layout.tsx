@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { ChevronDown, ChevronRight, LayoutDashboard, Calendar, MapPin, Users, FileText, Settings, LogOut, ChefHat, Package, UtensilsCrossed, ShoppingCart, ClipboardList, BrainCircuit, SlidersHorizontal, Menu, X, Truck, UserRound } from 'lucide-react';
+import { ChevronDown, ChevronRight, LayoutDashboard, Calendar, MapPin, Users, FileText, Settings, LogOut, ChefHat, Package, UtensilsCrossed, ShoppingCart, ClipboardList, BrainCircuit, SlidersHorizontal, Menu, X, Truck, UserRound, Monitor, Download } from 'lucide-react';
 import { logoutHub } from '@/lib/sso';
 import { authApi, ApiError } from '@/lib/api';
 
@@ -38,6 +38,10 @@ const kitchenNavigation = [
   { name: 'Configurações', href: '/cozinha/config', icon: SlidersHorizontal },
 ];
 
+const systemsNavigation = [
+  { name: 'Downloads', href: '/downloads', icon: Download },
+];
+
 const adminNavigation = [
   { name: 'Usuários', href: '/admin/users' },
   { name: 'Empresas', href: '/admin/employers' },
@@ -58,6 +62,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [adminOpen, setAdminOpen] = useState(pathname.startsWith('/admin'));
   const [kitchenOpen, setKitchenOpen] = useState(pathname.startsWith('/cozinha'));
+  const [systemsOpen, setSystemsOpen] = useState(pathname.startsWith('/downloads'));
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -158,6 +163,48 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               {kitchenNavigation.map((item) => {
                 const Icon = item.icon;
                 const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+                return (
+                  <Link
+                    key={item.name}
+                    href={item.href}
+                    onClick={onNav}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
+                      isActive
+                        ? 'bg-sidebar-accent text-sidebar-foreground font-medium'
+                        : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'
+                    }`}
+                  >
+                    <Icon className="size-3.5" />
+                    <span>{item.name}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Systems Section */}
+        <div className="pt-4 mt-4 border-t border-sidebar-border">
+          <button
+            onClick={() => setSystemsOpen(!systemsOpen)}
+            className={`flex items-center justify-between w-full px-3 py-2 rounded-md text-sm transition-colors ${
+              pathname.startsWith('/downloads')
+                ? 'bg-sidebar-accent text-sidebar-foreground font-medium'
+                : 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Monitor className="size-4" />
+              <span>Sistemas</span>
+            </div>
+            {systemsOpen ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+          </button>
+
+          {systemsOpen && (
+            <div className="mt-1 ml-4 space-y-1">
+              {systemsNavigation.map((item) => {
+                const Icon = item.icon;
+                const isActive = pathname.startsWith(item.href);
                 return (
                   <Link
                     key={item.name}

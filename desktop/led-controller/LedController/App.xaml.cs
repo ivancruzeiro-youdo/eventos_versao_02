@@ -10,7 +10,7 @@ public partial class App : Application
 {
     private MediaSyncService? _syncService;
 
-    protected override void OnStartup(StartupEventArgs e)
+    protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
 
@@ -20,9 +20,19 @@ public partial class App : Application
         if (config == null || deviceAuth == null)
         {
             // Not paired (or the saved token couldn't be decrypted, e.g. moved to another
-            // machine/user account) — show the pairing screen and stop here.
+            // machine/user account) — show the pairing screen and stop here. No API base
+            // URL is known yet, so there's nothing to check an update against.
             var pairing = new PairingWindow();
             pairing.Show();
+            return;
+        }
+
+        // Check for an update on every startup, before showing the paired UI. If one is
+        // staged, a relaunch script has already been scheduled — exit immediately so it
+        // can swap the .exe (Windows won't let it touch a running file).
+        if (await UpdateService.CheckAndApplyAsync(config.ApiBaseUrl))
+        {
+            Shutdown();
             return;
         }
 

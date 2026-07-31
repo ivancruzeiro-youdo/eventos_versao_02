@@ -42,23 +42,56 @@ dotnet run --project LedController
   (presign/confirm), renomear, reordenar, excluir. É o que popula a `EventMediaAsset`
   que o `/devices/sync` devolve.
 
+- **Autoatualização** (`Services/UpdateService.cs`): a cada início (depois de pareado),
+  chama `GET /api/v2/devices/latest-version` (endpoint público, sem auth — o app pode
+  checar mesmo antes de ter sessão pareada) e compara com a versão do próprio `.exe`
+  (`<Version>` do `.csproj`, embutida no assembly). Se houver versão mais nova, baixa o
+  novo `.exe`, agenda um script `.bat` que espera o processo atual encerrar, substitui o
+  arquivo e reabre, e então encerra o processo atual. **Só funciona no `.exe` publicado
+  como single-file** (ver seção "Publicar uma nova versão" abaixo) — em `dotnet run`
+  o processo "atual" é o `dotnet.exe`, então a checagem é pulada de propósito.
+- **Publicar/baixar versões** (lado servidor + web): página "Sistemas → Downloads"
+  (`apps/web/src/app/downloads/page.tsx`) — administradores publicam um novo `.exe`
+  (upload direto pro S3 via presign/confirm, mesmo padrão de mídia) com um número de
+  versão; qualquer usuário logado pode baixar a versão atual dali. O app Windows nunca
+  precisa dessa tela — ele só consulta `/devices/latest-version` diretamente.
+
 ## O que ainda falta (Fase 3 — não implementada aqui)
 
 - Integração com Spotify (Web Playback SDK via `WebView2`, token de reprodução vindo
   do backend). O pacote `Microsoft.Web.WebView2` já está no `.csproj`, mas nenhuma
   tela/serviço de Spotify existe ainda — nem do lado do app, nem da API.
 
+## Publicar uma nova versão
+
+A autoatualização só funciona com um `.exe` único e autocontido (sem depender de um
+runtime .NET instalado na máquina do espaço, e sem uma pasta de DLLs ao lado que o
+script de substituição não sabe atualizar). O `.csproj` já está configurado para isso
+(`PublishSingleFile`, `SelfContained`, `RuntimeIdentifier=win-x64`). Para publicar:
+
+```powershell
+cd desktop/led-controller
+# 1. Bumpar a versão no LedController.csproj (<Version>, <AssemblyVersion>, <FileVersion>)
+dotnet publish LedController -c Release
+# gera: LedController/bin/Release/net8.0-windows/win-x64/publish/YouDoLedController.exe
+```
+
+Depois, subir esse `.exe` em **Sistemas → Downloads** (como admin) informando o mesmo
+número de versão do `<Version>` — é essa comparação que decide se um espaço já
+atualizado precisa baixar de novo.
+
 ## Estrutura
 
 ```
 LedController/
-  App.xaml(.cs)              — decide pareamento vs. sessão pareada; posiciona
-                                DisplayWindow no monitor secundário via
-                                System.Windows.Forms.Screen
+  App.xaml(.cs)              — decide pareamento vs. sessão pareada; checa
+                                atualização; posiciona DisplayWindow no monitor
+                                secundário via System.Windows.Forms.Screen
   Models/SyncModels.cs        — DTOs que espelham o JSON de devices.ts
-  Services/ApiClient.cs        — cliente HTTP (pair, sync, heartbeat, download)
+  Services/ApiClient.cs        — cliente HTTP (pair, sync, heartbeat, download, latest-version)
   Services/DeviceConfigStore.cs — persistência local (config + cache de mídia)
   Services/MediaSyncService.cs  — timer de sync + manifesto local
+  Services/UpdateService.cs     — checagem de versão + autossubstituição do .exe
   Views/PairingWindow           — tela de pareamento (1ª execução)
   Views/ControlWindow           — UI do operador (monitor principal)
   Views/DisplayWindow           — o painel de LED em si (monitor secundário, fullscreen)
