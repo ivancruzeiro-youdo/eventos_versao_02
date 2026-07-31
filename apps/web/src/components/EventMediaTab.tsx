@@ -11,6 +11,7 @@ interface MediaAsset {
   sizeBytes: number;
   durationSec: number | null;
   order: number;
+  comment: string | null;
   deletedAt: string | null;
 }
 
@@ -53,6 +54,7 @@ export default function EventMediaTab({ eventId }: Props) {
   const [uploadProgress, setUploadProgress] = useState<string>('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
+  const [editComment, setEditComment] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { load(); }, [eventId]);
@@ -141,6 +143,7 @@ export default function EventMediaTab({ eventId }: Props) {
   function openRename(asset: MediaAsset) {
     setEditingId(asset.id);
     setEditName(asset.name);
+    setEditComment(asset.comment || '');
   }
 
   async function saveRename(assetId: string) {
@@ -148,7 +151,7 @@ export default function EventMediaTab({ eventId }: Props) {
     await fetch(`/api/v2/events/${eventId}/media/${assetId}`, {
       method: 'PATCH', credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: editName.trim() }),
+      body: JSON.stringify({ name: editName.trim(), comment: editComment }),
     });
     setEditingId(null);
     load();
@@ -234,21 +237,34 @@ export default function EventMediaTab({ eventId }: Props) {
               {mediaIcon(asset.mediaType)}
               <div className="flex-1 min-w-0">
                 {editingId === asset.id ? (
-                  <div className="flex items-center gap-2">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <input
+                        autoFocus
+                        value={editName}
+                        onChange={e => setEditName(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Escape') setEditingId(null); }}
+                        placeholder="Nome"
+                        className="flex-1 text-sm px-2 py-1 border rounded bg-background"
+                      />
+                      <button onClick={() => saveRename(asset.id)} className="p-1 text-green-600 hover:bg-green-50 rounded"><Check size={14} /></button>
+                      <button onClick={() => setEditingId(null)} className="p-1 text-muted-foreground hover:bg-muted rounded"><X size={14} /></button>
+                    </div>
                     <input
-                      autoFocus
-                      value={editName}
-                      onChange={e => setEditName(e.target.value)}
+                      value={editComment}
+                      onChange={e => setEditComment(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter') saveRename(asset.id); if (e.key === 'Escape') setEditingId(null); }}
-                      className="flex-1 text-sm px-2 py-1 border rounded bg-background"
+                      placeholder="Comentário — ex: usar às 20h, tocar na abertura"
+                      className="w-full text-xs px-2 py-1 border rounded bg-background"
                     />
-                    <button onClick={() => saveRename(asset.id)} className="p-1 text-green-600 hover:bg-green-50 rounded"><Check size={14} /></button>
-                    <button onClick={() => setEditingId(null)} className="p-1 text-muted-foreground hover:bg-muted rounded"><X size={14} /></button>
                   </div>
                 ) : (
                   <p className="text-sm font-medium truncate">{asset.name}</p>
                 )}
                 <p className="text-xs text-muted-foreground mt-0.5">{formatSize(asset.sizeBytes)}</p>
+                {editingId !== asset.id && asset.comment && (
+                  <p className="text-xs text-muted-foreground italic mt-0.5">{asset.comment}</p>
+                )}
               </div>
               <div className="flex items-center gap-1 shrink-0">
                 <button onClick={() => move(i, -1)} disabled={i === 0} className="p-1.5 text-muted-foreground hover:text-foreground disabled:opacity-30 rounded"><ArrowUp size={14} /></button>

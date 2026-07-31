@@ -19,7 +19,7 @@ const confirmSchema = z.object({
   durationSec: z.number().positive().optional(),
 });
 
-function mediaTypeFromMime(mimeType: string): 'video' | 'image' | 'audio' | null {
+export function mediaTypeFromMime(mimeType: string): 'video' | 'image' | 'audio' | null {
   // SVG excluded even though it's `image/*` — it can embed <script>, and this asset is
   // meant to be a photo/video for the LED panel, not an interactive document.
   if (mimeType === 'image/svg+xml') return null;
@@ -29,13 +29,13 @@ function mediaTypeFromMime(mimeType: string): 'video' | 'image' | 'audio' | null
   return null;
 }
 
-const MAX_SIZE_BYTES: Record<'video' | 'image' | 'audio', number> = {
+export const MAX_SIZE_BYTES: Record<'video' | 'image' | 'audio', number> = {
   video: 500 * 1024 * 1024, // 500MB
   image: 50 * 1024 * 1024,  // 50MB
   audio: 500 * 1024 * 1024, // same ceiling as video — full-event background tracks can run long
 };
 
-function formatMb(bytes: number): string {
+export function formatMb(bytes: number): string {
   return `${Math.round(bytes / (1024 * 1024))}MB`;
 }
 
@@ -134,7 +134,7 @@ export async function eventMediaRoutes(app: FastifyInstance) {
     const { id: eventId, assetId } = request.params as { id: string; assetId: string };
     const user = (request as any).user;
     if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
-    const { name, order } = request.body as { name?: string; order?: number };
+    const { name, order, comment } = request.body as { name?: string; order?: number; comment?: string };
 
     const existing = await (prisma as any).eventMediaAsset.findFirst({ where: { id: assetId, eventId } });
     if (!existing) return reply.status(404).send({ error: 'Mídia não encontrada' });
@@ -145,6 +145,9 @@ export async function eventMediaRoutes(app: FastifyInstance) {
       data: {
         ...(name?.trim() ? { name: name.trim() } : {}),
         ...(order !== undefined ? { order } : {}),
+        // Operator-facing note on when/how to use this asset (e.g. "usar às 20h") — sent
+        // even when empty so clearing the field actually clears it, unlike name/order.
+        ...(comment !== undefined ? { comment: comment.trim() || null } : {}),
       },
     });
 

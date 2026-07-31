@@ -347,6 +347,7 @@ model EventMediaAsset {
   durationSec Float?
   checksum    String
   order       Int       @default(0)
+  comment     String?   // operator-facing note, e.g. "usar às 20h" / "tocar na abertura"
   deletedAt   DateTime? // set by the retention worker (20 days after event closure) — row kept as a record
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt

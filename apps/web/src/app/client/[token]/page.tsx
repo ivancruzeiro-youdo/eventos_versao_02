@@ -6,7 +6,8 @@ import {
   FileText, Users, Calendar, Clock, Download, Eye, EyeOff,
   Upload, Trash2, Plus, Search, CheckCircle, AlertCircle,
   FileImage, FileVideo, User, ChevronDown, ChevronRight, X,
-  Utensils, Circle, LayoutGrid, Lock,
+  Utensils, Circle, LayoutGrid, Lock, MonitorPlay, Video, Music,
+  Image as ImageIcon, Pencil, Check,
 } from 'lucide-react';
 import { ELEMENT_ICONS } from '@/components/layout-element-icons';
 
@@ -217,6 +218,347 @@ function FilesTab({ token, jwt }: { token: string; jwt: string }) {
           >
             <Download size={14} /> VER
           </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Media tab (painel de LED) ────────────────────────────────────────────────
+
+interface ClientMediaAsset {
+  id: string;
+  name: string;
+  mediaType: 'video' | 'image' | 'audio';
+  sizeBytes: number;
+  comment: string | null;
+}
+
+const MEDIA_MAX_SIZE_BYTES: Record<'video' | 'image' | 'audio', number> = {
+  video: 500 * 1024 * 1024,
+  image: 50 * 1024 * 1024,
+  audio: 500 * 1024 * 1024,
+};
+
+function mediaTypeFromMime(mimeType: string): 'video' | 'image' | 'audio' | null {
+  if (mimeType === 'image/svg+xml') return null;
+  if (mimeType.startsWith('video/')) return 'video';
+  if (mimeType.startsWith('image/')) return 'image';
+  if (mimeType.startsWith('audio/')) return 'audio';
+  return null;
+}
+
+function mediaIcon(type: string) {
+  if (type === 'video') return <Video size={16} className="text-blue-500 shrink-0" />;
+  if (type === 'audio') return <Music size={16} className="text-purple-500 shrink-0" />;
+  return <ImageIcon size={16} className="text-green-500 shrink-0" />;
+}
+
+function MediaTab({ token, jwt }: { token: string; jwt: string }) {
+  const [assets, setAssets] = useState<ClientMediaAsset[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editComment, setEditComment] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/v2/client/${token}/media`, { headers: { 'x-client-auth': jwt } });
+      if (res.ok) {
+        const data = await res.json();
+        setAssets(data.assets || []);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [token, jwt]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const detected = mediaTypeFromMime(file.type);
+    if (!detected) {
+      alert('Formato não suportado — envie vídeo, imagem ou áudio.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+    if (file.size > MEDIA_MAX_SIZE_BYTES[detected]) {
+      alert(`Arquivo muito grande (limite: ${Math.round(MEDIA_MAX_SIZE_BYTES[detected] / (1024 * 1024))}MB).`);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    setUploading(true);
+    setUploadProgress('Preparando envio...');
+    try {
+      const presignRes = await fetch(`/api/v2/client/${token}/media/presign`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-client-auth': jwt },
+        body: JSON.stringify({ filename: file.name, mimeType: file.type, sizeBytes: file.size }),
+      });
+      if (!presignRes.ok) {
+        const err = await presignRes.json().catch(() => ({}));
+        alert(err.error || 'Erro ao preparar upload.');
+        return;
+      }
+      const { uploadUrl, s3Key, mediaType } = await presignRes.json();
+
+      setUploadProgress('Enviando arquivo...');
+      const putRes = await fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file });
+      if (!putRes.ok) { alert('Falha ao enviar o arquivo.'); return; }
+
+      setUploadProgress('Confirmando...');
+      await fetch(`/api/v2/client/${token}/media/confirm`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-client-auth': jwt },
+        body: JSON.stringify({ name: file.name, mediaType, mimeType: file.type, sizeBytes: file.size, s3Key }),
+      });
+      await load();
+    } catch {
+      alert('Erro ao enviar o arquivo.');
+    } finally {
+      setUploading(false);
+      setUploadProgress('');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
+  function openEdit(asset: ClientMediaAsset) {
+    setEditingId(asset.id);
+    setEditComment(asset.comment || '');
+  }
+
+  async function saveComment(assetId: string) {
+    await fetch(`/api/v2/client/${token}/media/${assetId}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', 'x-client-auth': jwt },
+      body: JSON.stringify({ comment: editComment }),
+    });
+    setEditingId(null);
+    load();
+  }
+
+  async function remove(assetId: string, name: string) {
+    if (!confirm(`Remover "${name}"?`)) return;
+    await fetch(`/api/v2/client/${token}/media/${assetId}`, { method: 'DELETE', headers: { 'x-client-auth': jwt } });
+    load();
+  }
+
+  if (loading) return <div className="py-8 text-center text-gray-400">Carregando mídia...</div>;
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+        <p className="text-sm text-blue-900 mb-3">
+          Envie fotos, vídeos ou áudios pra tocar no painel de LED do seu evento. Use o comentário pra avisar quando cada um deve ser usado (ex: "usar às 20h").
+        </p>
+        <label className={`flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed rounded-lg cursor-pointer text-sm bg-white transition ${
+          uploading ? 'opacity-50 pointer-events-none' : 'hover:border-primary'
+        }`}>
+          <Upload size={16} className="text-gray-400" />
+          <span className="text-gray-500">{uploading ? uploadProgress : 'Enviar vídeo, imagem ou áudio'}</span>
+          <input ref={fileInputRef} type="file" accept="video/*,image/*,audio/*" className="hidden" onChange={handleFileChange} disabled={uploading} />
+        </label>
+      </div>
+
+      {assets.length === 0 ? (
+        <div className="py-12 text-center">
+          <MonitorPlay size={40} className="mx-auto text-gray-300 mb-3" />
+          <p className="text-gray-500">Nenhuma mídia enviada ainda.</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {assets.map(asset => (
+            <div key={asset.id} className="bg-white border rounded-xl p-4 flex items-center gap-3">
+              {mediaIcon(asset.mediaType)}
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-gray-900 truncate text-sm">{asset.name}</p>
+                {editingId === asset.id ? (
+                  <div className="flex items-center gap-2 mt-1">
+                    <input
+                      autoFocus
+                      value={editComment}
+                      onChange={e => setEditComment(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') saveComment(asset.id); if (e.key === 'Escape') setEditingId(null); }}
+                      placeholder="Ex: usar às 20h"
+                      className="flex-1 text-xs px-2 py-1 border rounded"
+                    />
+                    <button onClick={() => saveComment(asset.id)} className="p-1 text-green-600"><Check size={14} /></button>
+                    <button onClick={() => setEditingId(null)} className="p-1 text-gray-400"><X size={14} /></button>
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-400 mt-0.5">{asset.comment || 'Sem comentário'}</p>
+                )}
+              </div>
+              {editingId !== asset.id && (
+                <>
+                  <button onClick={() => openEdit(asset)} className="p-1.5 text-gray-400 hover:text-primary rounded shrink-0"><Pencil size={14} /></button>
+                  <button onClick={() => remove(asset.id, asset.name)} className="p-1.5 text-gray-400 hover:text-red-500 rounded shrink-0"><Trash2 size={14} /></button>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Spotify tab ───────────────────────────────────────────────────────────────
+
+interface ClientSpotifyPlaylist {
+  id: string;
+  spotifyPlaylistId: string;
+  spotifyPlaylistName: string;
+  comment: string | null;
+}
+
+interface ClientSpotifyVenue {
+  venueId: string;
+  venueName: string;
+  playlists: ClientSpotifyPlaylist[];
+}
+
+function SpotifyTab({ token, jwt }: { token: string; jwt: string }) {
+  const [venues, setVenues] = useState<ClientSpotifyVenue[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [urlByVenue, setUrlByVenue] = useState<Record<string, string>>({});
+  const [commentByVenue, setCommentByVenue] = useState<Record<string, string>>({});
+  const [adding, setAdding] = useState<string | null>(null);
+  const [addError, setAddError] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editComment, setEditComment] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/v2/client/${token}/spotify-playlists`, { headers: { 'x-client-auth': jwt } });
+      if (res.ok) {
+        const data = await res.json();
+        setVenues(data.venues || []);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [token, jwt]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function add(venueId: string) {
+    const url = urlByVenue[venueId]?.trim();
+    if (!url) return;
+    setAdding(venueId);
+    setAddError('');
+    try {
+      const res = await fetch(`/api/v2/client/${token}/spotify-playlists`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-client-auth': jwt },
+        body: JSON.stringify({ venueId, url, comment: commentByVenue[venueId] || '' }),
+      });
+      if (res.ok) {
+        setUrlByVenue(v => ({ ...v, [venueId]: '' }));
+        setCommentByVenue(v => ({ ...v, [venueId]: '' }));
+        load();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setAddError(err.error || 'Erro ao adicionar playlist.');
+      }
+    } finally {
+      setAdding(null);
+    }
+  }
+
+  async function remove(playlistId: string) {
+    if (!confirm('Remover esta playlist?')) return;
+    await fetch(`/api/v2/client/${token}/spotify-playlists/${playlistId}`, { method: 'DELETE', headers: { 'x-client-auth': jwt } });
+    load();
+  }
+
+  async function saveComment(playlistId: string) {
+    await fetch(`/api/v2/client/${token}/spotify-playlists/${playlistId}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', 'x-client-auth': jwt },
+      body: JSON.stringify({ comment: editComment }),
+    });
+    setEditingId(null);
+    load();
+  }
+
+  if (loading) return <div className="py-8 text-center text-gray-400">Carregando Spotify...</div>;
+
+  if (venues.length === 0) {
+    return (
+      <div className="py-12 text-center">
+        <Music size={40} className="mx-auto text-gray-300 mb-3" />
+        <p className="text-gray-500">Nenhum espaço vinculado a este evento ainda.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {venues.map(v => (
+        <div key={v.venueId} className="bg-white border rounded-xl p-4 space-y-3">
+          <p className="font-medium text-gray-900 text-sm flex items-center gap-2"><Music size={16} className="text-green-600" /> {v.venueName}</p>
+
+          {v.playlists.length > 0 && (
+            <div className="space-y-2">
+              {v.playlists.map(p => (
+                <div key={p.id} className="border rounded-lg px-3 py-2 flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{p.spotifyPlaylistName}</p>
+                    {editingId === p.id ? (
+                      <div className="flex items-center gap-2 mt-1">
+                        <input
+                          autoFocus
+                          value={editComment}
+                          onChange={e => setEditComment(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') saveComment(p.id); if (e.key === 'Escape') setEditingId(null); }}
+                          placeholder="Ex: tocar no jantar"
+                          className="flex-1 text-xs px-2 py-1 border rounded"
+                        />
+                        <button onClick={() => saveComment(p.id)} className="p-1 text-green-600"><Check size={14} /></button>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-400 italic">{p.comment || 'Sem comentário'}</p>
+                    )}
+                  </div>
+                  {editingId !== p.id && (
+                    <>
+                      <button onClick={() => { setEditingId(p.id); setEditComment(p.comment || ''); }} className="p-1.5 text-gray-400 hover:text-primary rounded shrink-0"><Pencil size={14} /></button>
+                      <button onClick={() => remove(p.id)} className="p-1.5 text-gray-400 hover:text-red-500 rounded shrink-0"><Trash2 size={14} /></button>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="border-t pt-3 space-y-2">
+            <input
+              value={commentByVenue[v.venueId] || ''}
+              onChange={e => setCommentByVenue(s => ({ ...s, [v.venueId]: e.target.value }))}
+              placeholder="Comentário (opcional) — ex: tocar no jantar"
+              className="w-full px-3 py-2 border rounded-lg text-sm"
+            />
+            <div className="flex gap-2">
+              <input
+                value={urlByVenue[v.venueId] || ''}
+                onChange={e => setUrlByVenue(s => ({ ...s, [v.venueId]: e.target.value }))}
+                placeholder="Cole o link da playlist (open.spotify.com/playlist/...)"
+                className="flex-1 px-3 py-2 border rounded-lg text-sm"
+              />
+              <button
+                onClick={() => add(v.venueId)}
+                disabled={adding === v.venueId || !urlByVenue[v.venueId]?.trim()}
+                className="flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium disabled:opacity-50"
+              >
+                <Plus size={14} /> Adicionar
+              </button>
+            </div>
+            {addError && <p className="text-xs text-red-500">{addError}</p>}
+          </div>
         </div>
       ))}
     </div>
@@ -1366,6 +1708,8 @@ const TABS = [
   { id: 'checkin', label: 'Check-in', icon: CheckCircle },
   { id: 'files', label: 'Arquivos', icon: FileText },
   { id: 'layout', label: 'Layout', icon: LayoutGrid },
+  { id: 'media', label: 'Mídia', icon: MonitorPlay },
+  { id: 'spotify', label: 'Spotify', icon: Music },
 ];
 
 export default function ClientPortalPage() {
@@ -1484,6 +1828,8 @@ export default function ClientPortalPage() {
         {activeTab === 'plan' && <PlanTab token={token} jwt={jwt} approvals={approvals} onToggle={toggleApproval} locked={locked} />}
         {activeTab === 'schedule' && <ScheduleTab token={token} jwt={jwt} approvals={approvals} onToggle={toggleApproval} locked={locked} />}
         {activeTab === 'layout' && <LayoutTab eventId={event.id} />}
+        {activeTab === 'media' && <MediaTab token={token} jwt={jwt} />}
+        {activeTab === 'spotify' && <SpotifyTab token={token} jwt={jwt} />}
       </div>
     </div>
   );

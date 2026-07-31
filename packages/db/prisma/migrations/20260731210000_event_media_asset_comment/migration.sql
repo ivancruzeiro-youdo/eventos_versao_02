@@ -1,0 +1,1 @@
+ALTER TABLE "EventMediaAsset" ADD COLUMN IF NOT EXISTS "comment" TEXT;

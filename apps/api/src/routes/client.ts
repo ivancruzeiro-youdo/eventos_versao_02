@@ -1,6 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../server.js';
-import { createDownloadPresignedUrl } from '../lib/s3.js';
+import { createDownloadPresignedUrl, createUploadPresignedUrl, deleteS3Object, sanitizeFilenameForKey } from '../lib/s3.js';
+import { mediaTypeFromMime, MAX_SIZE_BYTES, formatMb } from './event-media.js';
+import { getValidAccessToken } from './spotify.js';
+import { getPlaylist, parsePlaylistId } from '../lib/spotify.js';
 
 async function getClientSession(app: FastifyInstance, request: any, reply: any) {
   const auth = request.headers['x-client-auth'] as string | undefined;
@@ -412,5 +415,209 @@ export async function clientRoutes(app: FastifyInstance) {
     });
 
     return reply.status(201).send({ success: true, professional });
+  });
+
+  // ── Mídia (painel de LED) — o cliente pode subir suas próprias fotos/vídeos/áudios
+  // pro evento, com um comentário livre (ex: "usar às 20h") pro operador saber quando
+  // usar cada uma. Mesmo fluxo de presign/confirm de routes/event-media.ts, só que
+  // escopado por session.eventId (JWT do cliente) em vez de requireAuth (staff). ──
+
+  app.get('/client/:token/media', async (request, reply) => {
+    const session = await getClientSession(app, request, reply);
+    if (!session) return;
+
+    const assets = await (prisma as any).eventMediaAsset.findMany({
+      where: { eventId: session.eventId, deletedAt: null },
+      orderBy: { order: 'asc' },
+    });
+    return { success: true, assets };
+  });
+
+  app.post('/client/:token/media/presign', async (request, reply) => {
+    const session = await getClientSession(app, request, reply);
+    if (!session) return;
+    const { filename, mimeType, sizeBytes } = request.body as { filename: string; mimeType: string; sizeBytes: number };
+
+    const detected = mediaTypeFromMime(mimeType);
+    if (!detected) return reply.status(400).send({ error: 'Formato não suportado — envie vídeo, imagem ou áudio.' });
+
+    const maxSize = MAX_SIZE_BYTES[detected];
+    if (sizeBytes > maxSize) {
+      const label = detected === 'image' ? 'Imagens' : detected === 'video' ? 'Vídeos' : 'Áudios';
+      return reply.status(400).send({ error: `${label} podem ter no máximo ${formatMb(maxSize)}.` });
+    }
+
+    const s3Key = `events/${session.eventId}/media/${Date.now()}-${sanitizeFilenameForKey(filename)}`;
+    let uploadUrl: string;
+    try {
+      uploadUrl = await createUploadPresignedUrl(s3Key, mimeType);
+    } catch (s3Error) {
+      console.error('S3 presign error (client media):', s3Error);
+      return reply.status(502).send({ error: 'Falha ao gerar URL de upload.' });
+    }
+    return { success: true, uploadUrl, s3Key, mediaType: detected };
+  });
+
+  app.post('/client/:token/media/confirm', async (request, reply) => {
+    const session = await getClientSession(app, request, reply);
+    if (!session) return;
+    const { name, mediaType, mimeType, sizeBytes, s3Key, durationSec, comment } = request.body as {
+      name: string; mediaType: 'video' | 'image' | 'audio'; mimeType: string; sizeBytes: number;
+      s3Key: string; durationSec?: number; comment?: string;
+    };
+
+    const maxSize = MAX_SIZE_BYTES[mediaType];
+    if (sizeBytes > maxSize) return reply.status(400).send({ error: 'Arquivo excede o tamanho máximo.' });
+
+    const maxOrder = await (prisma as any).eventMediaAsset.aggregate({
+      where: { eventId: session.eventId },
+      _max: { order: true },
+    });
+
+    const asset = await (prisma as any).eventMediaAsset.create({
+      data: {
+        eventId: session.eventId,
+        name, mediaType, mimeType, sizeBytes, s3Key,
+        durationSec: durationSec ?? null,
+        comment: comment?.trim() || null,
+        checksum: crypto.randomUUID(),
+        order: (maxOrder._max.order ?? -1) + 1,
+      },
+    });
+
+    return reply.status(201).send({ success: true, asset });
+  });
+
+  app.patch('/client/:token/media/:assetId', async (request, reply) => {
+    const session = await getClientSession(app, request, reply);
+    if (!session) return;
+    const { assetId } = request.params as { assetId: string };
+    const { name, comment } = request.body as { name?: string; comment?: string };
+
+    const existing = await (prisma as any).eventMediaAsset.findFirst({ where: { id: assetId, eventId: session.eventId } });
+    if (!existing) return reply.status(404).send({ error: 'Mídia não encontrada' });
+
+    const asset = await (prisma as any).eventMediaAsset.update({
+      where: { id: assetId },
+      data: {
+        ...(name?.trim() ? { name: name.trim() } : {}),
+        ...(comment !== undefined ? { comment: comment.trim() || null } : {}),
+      },
+    });
+    return { success: true, asset };
+  });
+
+  app.delete('/client/:token/media/:assetId', async (request, reply) => {
+    const session = await getClientSession(app, request, reply);
+    if (!session) return;
+    const { assetId } = request.params as { assetId: string };
+
+    const existing = await (prisma as any).eventMediaAsset.findFirst({ where: { id: assetId, eventId: session.eventId } });
+    if (!existing) return reply.status(404).send({ error: 'Mídia não encontrada' });
+
+    await (prisma as any).eventMediaAsset.delete({ where: { id: assetId } });
+    if (existing.s3Key) {
+      try {
+        await deleteS3Object(existing.s3Key);
+      } catch (s3Error) {
+        console.error('S3 delete error (client media, row already removed):', s3Error);
+      }
+    }
+    return { success: true };
+  });
+
+  // ── Spotify — o cliente adiciona playlists (por link) pro(s) espaço(s) do evento,
+  // com comentário. Não expõe a biblioteca de playlists da conta do espaço (só a
+  // tela de staff faz isso) — o cliente só pode colar um link específico. ──
+
+  app.get('/client/:token/spotify-playlists', async (request, reply) => {
+    const session = await getClientSession(app, request, reply);
+    if (!session) return;
+
+    const eventVenues = await (prisma as any).eventVenue.findMany({
+      where: { eventId: session.eventId },
+      include: {
+        venue: { select: { id: true, name: true } },
+        spotifyPlaylists: { orderBy: { order: 'asc' } },
+      },
+    });
+
+    return {
+      success: true,
+      venues: eventVenues.map((ev: any) => ({
+        venueId: ev.venueId,
+        venueName: ev.venue.name,
+        connected: null, // resolved client-side isn't needed — POST already fails clearly if not connected
+        playlists: ev.spotifyPlaylists,
+      })),
+    };
+  });
+
+  app.post('/client/:token/spotify-playlists', async (request, reply) => {
+    const session = await getClientSession(app, request, reply);
+    if (!session) return;
+    const { venueId, url, comment } = request.body as { venueId?: string; url?: string; comment?: string };
+    if (!venueId || !url?.trim()) return reply.status(400).send({ error: 'Informe o espaço e o link da playlist.' });
+
+    const eventVenue = await (prisma as any).eventVenue.findFirst({ where: { eventId: session.eventId, venueId } });
+    if (!eventVenue) return reply.status(404).send({ error: 'Espaço não vinculado a este evento' });
+
+    const parsedId = parsePlaylistId(url);
+    if (!parsedId) return reply.status(400).send({ error: 'Link de playlist inválido — cole a URL ou URI do Spotify.' });
+
+    const accessToken = await getValidAccessToken(venueId);
+    if (!accessToken) return reply.status(404).send({ error: 'Este espaço ainda não conectou o Spotify' });
+
+    let playlist;
+    try {
+      playlist = await getPlaylist(accessToken, parsedId);
+    } catch (err: any) {
+      return reply.status(502).send({ error: err.message || 'Falha ao buscar a playlist no Spotify' });
+    }
+
+    const count = await (prisma as any).eventVenueSpotifyPlaylist.count({ where: { eventVenueId: eventVenue.id } });
+    const created = await (prisma as any).eventVenueSpotifyPlaylist.create({
+      data: {
+        eventVenueId: eventVenue.id,
+        spotifyPlaylistId: playlist.id,
+        spotifyPlaylistName: playlist.name,
+        comment: comment?.trim() || null,
+        order: count,
+      },
+    });
+
+    return reply.status(201).send({ success: true, playlist: created });
+  });
+
+  app.patch('/client/:token/spotify-playlists/:playlistId', async (request, reply) => {
+    const session = await getClientSession(app, request, reply);
+    if (!session) return;
+    const { playlistId } = request.params as { playlistId: string };
+    const { comment } = request.body as { comment?: string };
+
+    const existing = await (prisma as any).eventVenueSpotifyPlaylist.findFirst({
+      where: { id: playlistId, eventVenue: { eventId: session.eventId } },
+    });
+    if (!existing) return reply.status(404).send({ error: 'Playlist não encontrada' });
+
+    await (prisma as any).eventVenueSpotifyPlaylist.update({
+      where: { id: playlistId },
+      data: { comment: comment?.trim() || null },
+    });
+    return { success: true };
+  });
+
+  app.delete('/client/:token/spotify-playlists/:playlistId', async (request, reply) => {
+    const session = await getClientSession(app, request, reply);
+    if (!session) return;
+    const { playlistId } = request.params as { playlistId: string };
+
+    const existing = await (prisma as any).eventVenueSpotifyPlaylist.findFirst({
+      where: { id: playlistId, eventVenue: { eventId: session.eventId } },
+    });
+    if (!existing) return reply.status(404).send({ error: 'Playlist não encontrada' });
+
+    await (prisma as any).eventVenueSpotifyPlaylist.delete({ where: { id: playlistId } });
+    return { success: true };
   });
 }
