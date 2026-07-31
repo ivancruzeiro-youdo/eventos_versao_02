@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
+import VenueSpotifyCard from '@/components/VenueSpotifyCard';
 import { venuesApiExtended } from '@/lib/api';
 import { MapPin, Users, Phone, User, ArrowLeft, Edit2, Trash2, Plus, HelpCircle, X, Check, GripVertical, Upload, Image, Package, Save, Loader2, LayoutGrid, RotateCw, AlertCircle } from 'lucide-react';
 import { ELEMENT_ICONS } from '@/components/layout-element-icons';
@@ -1271,6 +1272,8 @@ export default function VenueDetailPage() {
           )}
         </div>
       </div>
+
+      <VenueSpotifyCard venueId={venueId} />
     </Layout>
   );
 }

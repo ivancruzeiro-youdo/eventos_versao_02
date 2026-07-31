@@ -40,6 +40,7 @@ import { layoutRoutes } from './routes/layout.js';
 import { parkingRoutes } from './routes/parking.js';
 import { deviceRoutes } from './routes/devices.js';
 import { eventMediaRoutes } from './routes/event-media.js';
+import { spotifyRoutes } from './routes/spotify.js';
 import { desktopReleaseRoutes } from './routes/desktop-releases.js';
 
 const logger = pino({
@@ -173,6 +174,7 @@ const start = async () => {
   await app.register(parkingRoutes, { prefix: '/api/v2' });
   await app.register(deviceRoutes, { prefix: '/api/v2' });
   await app.register(eventMediaRoutes, { prefix: '/api/v2' });
+  await app.register(spotifyRoutes, { prefix: '/api/v2' });
   await app.register(desktopReleaseRoutes, { prefix: '/api/v2' });
 
     const port = parseInt(process.env.PORT || '3001', 10);

@@ -223,6 +223,14 @@ model EventVenue {
   venueId  String
   notes    String?
 
+  // Which Spotify playlist plays on this venue's LED panel while this event is
+  // active — scoped per event+venue pair (not per Venue) since the join table is
+  // technically N:N, and per Event since one venue's Spotify connection could
+  // reasonably serve different music per event. Only the id/name are cached here;
+  // the actual playlist contents are always fetched live from Spotify.
+  spotifyPlaylistId   String?
+  spotifyPlaylistName String?
+
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
   venue Venue @relation(fields: [venueId], references: [id])
 
@@ -254,8 +262,28 @@ model Venue {
   layoutTemplates  VenueLayoutTemplate[]
   eventLayouts     EventLayout[]
   devices          VenueDevice[]
+  spotifyConnection VenueSpotifyConnection?
 
   @@index([employerId])
+}
+
+// One Spotify account connected per venue (OAuth authorization-code flow — see
+// apps/api/src/routes/spotify.ts). Tokens are encrypted at rest (lib/crypto.ts) since a
+// refresh token is a long-lived credential; unlike VenueDevice.deviceToken or
+// UerpConfig, this is genuinely sensitive enough to be worth the extra layer.
+model VenueSpotifyConnection {
+  id                    String   @id @default(uuid())
+  venueId               String   @unique
+  spotifyUserId         String
+  displayName           String
+  encryptedAccessToken  String
+  encryptedRefreshToken String
+  accessTokenExpiresAt  DateTime
+  scope                 String
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  venue Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
 }
 
 // ============================================

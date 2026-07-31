@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '../server.js';
 import { requireAuth } from '../middleware/auth.js';
 import { createDownloadPresignedUrl } from '../lib/s3.js';
+import { getValidAccessToken } from './spotify.js';
 
 const PAIRING_CODE_TTL_MS = 15 * 60 * 1000; // 15 min
 const DEVICE_TOKEN_TTL = '365d'; // hardware installs are long-lived
@@ -178,9 +179,27 @@ export async function deviceRoutes(app: FastifyInstance) {
       },
     });
 
-    const events = eventVenues.map((ev: any) => ev.event);
+    const events = eventVenues.map((ev: any) => ({
+      ...ev.event,
+      spotifyPlaylistId: ev.spotifyPlaylistId,
+      spotifyPlaylistName: ev.spotifyPlaylistName,
+    }));
 
     return { success: true, venueId: session.venueId, events };
+  });
+
+  // Short-lived Spotify access token for the Web Playback SDK running in the device's
+  // WebView2 — refreshed transparently by getValidAccessToken (shared with the web UI's
+  // playlists endpoint, routes/spotify.ts). The device is expected to call this again
+  // roughly every 50 minutes (Spotify access tokens last ~1h) to keep playback alive.
+  app.get('/devices/spotify-token', async (request, reply) => {
+    const session = await getDeviceSession(app, request, reply);
+    if (!session) return;
+
+    const accessToken = await getValidAccessToken(session.venueId);
+    if (!accessToken) return reply.status(404).send({ error: 'Espaço não tem Spotify conectado' });
+
+    return { success: true, accessToken };
   });
 
   // Presigned download for one media asset — only for events actually linked to this

@@ -18,6 +18,7 @@ import EventLayoutTab from '@/components/EventLayoutTab';
 import EventKitchenTab from '@/components/EventKitchenTab';
 import EventTeamTab from '@/components/EventTeamTab';
 import EventProfessionalsTab from '@/components/EventProfessionalsTab';
+import EventSpotifyPlaylist from '@/components/EventSpotifyPlaylist';
 import UserpStatusBanner from '@/components/UserpStatusBanner';
 import { eventsApi, guestsApi } from '@/lib/api';
 import { formatDateTime, getStatusColor, getStatusLabel, getEventDisplayStatus, formatPhone, formatCpf } from '@/lib/utils';
@@ -25,7 +26,7 @@ import {
   MessageCircle, FileText, Clock, CheckSquare, Users,
   ClipboardList, Briefcase, UtensilsCrossed, HardHat, Trash2, ChevronDown,
   Calendar, MapPin, Pencil, Check, X, Copy, UserCog, ChefHat, LogOut, Star, Plus,
-  GripVertical, Printer, Mail, Phone, CreditCard, FileSignature, Receipt, ListTodo, LayoutGrid, AlertTriangle, Camera, MonitorPlay
+  GripVertical, Printer, Mail, Phone, CreditCard, FileSignature, Receipt, ListTodo, LayoutGrid, AlertTriangle, Camera, MonitorPlay, Music
 } from 'lucide-react';
 
 interface EventContract {
@@ -95,6 +96,7 @@ const tabs = [
   { id: 'professionals', label: 'Profissionais', icon: Camera },
   { id: 'layout', label: 'Layout', icon: LayoutGrid },
   { id: 'media', label: 'Mídia', icon: MonitorPlay },
+  { id: 'spotify', label: 'Spotify', icon: Music },
 ];
 
 export default function EventDetailPage() {
@@ -1227,6 +1229,19 @@ export default function EventDetailPage() {
       )}
       {activeTab === 'media' && (
         <EventMediaTab eventId={eventId} />
+      )}
+      {activeTab === 'spotify' && (
+        <div className="space-y-4">
+          {(event?.venues || []).filter(v => v.venue).length === 0 ? (
+            <div className="bg-card rounded-lg border shadow-sm p-6 text-sm text-muted-foreground">
+              Este evento ainda não tem espaço vinculado.
+            </div>
+          ) : (
+            event.venues.filter(v => v.venue).map(v => (
+              <EventSpotifyPlaylist key={v.venue.id} eventId={eventId} venue={v.venue} />
+            ))
+          )}
+        </div>
       )}
     </Layout>
   );
