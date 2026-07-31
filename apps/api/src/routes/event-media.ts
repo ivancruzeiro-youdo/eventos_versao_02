@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../server.js';
 import { requireAuth } from '../middleware/auth.js';
-import { createUploadPresignedUrl, deleteS3Object } from '../lib/s3.js';
+import { createUploadPresignedUrl, deleteS3Object, sanitizeFilenameForKey } from '../lib/s3.js';
 
 const presignSchema = z.object({
   filename: z.string().min(1),
@@ -78,7 +78,7 @@ export async function eventMediaRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: `${label} podem ter no máximo ${formatMb(maxSize)}.` });
     }
 
-    const s3Key = `events/${eventId}/media/${Date.now()}-${filename}`;
+    const s3Key = `events/${eventId}/media/${Date.now()}-${sanitizeFilenameForKey(filename)}`;
 
     let uploadUrl: string;
     try {

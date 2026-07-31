@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../server.js';
 import { requireAuth } from '../middleware/auth.js';
 import multipart from '@fastify/multipart';
-import { uploadBufferToS3, createUploadPresignedUrl, createDownloadPresignedUrl, deleteS3Object } from '../lib/s3.js';
+import { uploadBufferToS3, createUploadPresignedUrl, createDownloadPresignedUrl, deleteS3Object, sanitizeFilenameForKey } from '../lib/s3.js';
 
 const presignSchema = z.object({
   filename: z.string().min(1),
@@ -96,7 +96,7 @@ export async function fileRoutes(app: FastifyInstance) {
       }
 
       // Generate S3 key
-      const s3Key = `events/${eventId}/${Date.now()}-${data.filename}`;
+      const s3Key = `events/${eventId}/${Date.now()}-${sanitizeFilenameForKey(data.filename)}`;
 
       try {
         await uploadBufferToS3(s3Key, buffer, data.mimetype);
@@ -142,7 +142,7 @@ export async function fileRoutes(app: FastifyInstance) {
     const mimeError = rejectDangerousMimeType(mimeType);
     if (mimeError) return reply.status(400).send({ error: mimeError });
 
-    const s3Key = `events/${eventId}/${Date.now()}-${filename}`;
+    const s3Key = `events/${eventId}/${Date.now()}-${sanitizeFilenameForKey(filename)}`;
 
     let presignedUrl: string;
     try {
@@ -296,7 +296,7 @@ export async function fileRoutes(app: FastifyInstance) {
         return reply.status(400).send({ error: 'File too large. Maximum size is 128MB' });
       }
 
-      const s3Key = `services/${serviceId}/${Date.now()}-${data.filename}`;
+      const s3Key = `services/${serviceId}/${Date.now()}-${sanitizeFilenameForKey(data.filename)}`;
       try {
         await uploadBufferToS3(s3Key, buffer, data.mimetype);
       } catch {

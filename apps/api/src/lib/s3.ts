@@ -52,3 +52,18 @@ export async function deleteS3Object(key: string): Promise<void> {
     Key: key,
   }));
 }
+
+// Strips path separators, "..", and control characters from a client-supplied filename
+// before it's interpolated into an S3 key (e.g. `events/${eventId}/media/${Date.now()}-${filename}`).
+// S3 has a flat namespace so this was never a real bucket-escape risk, but an unsanitized
+// name could still produce a key with unexpected segments — this is defense-in-depth, not
+// a fix for an active exploit. Only touches the *storage key*; the original filename is
+// still kept verbatim as display metadata (the `name` field), so nothing user-facing changes.
+export function sanitizeFilenameForKey(filename: string): string {
+  const base = filename.split(/[/\\]/).pop() || filename; // drop any directory components
+  const cleaned = base
+    .replace(/\.\./g, '')            // no parent-dir traversal segments
+    .replace(/[\x00-\x1f\x7f]/g, '') // strip control characters
+    .trim();
+  return cleaned || 'arquivo';
+}
