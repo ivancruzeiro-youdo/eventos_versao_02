@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using LedController.Models;
+using Timer = System.Threading.Timer;
 
 namespace LedController.Services;
 
@@ -58,7 +59,7 @@ public class MediaSyncService : IDisposable
                 try
                 {
                     var download = await _api.GetMediaDownloadUrlAsync(_deviceAuth, asset.Id);
-                    var destPath = Path.Combine(DeviceConfigStore.MediaCacheDir, asset.Id);
+                    var destPath = GetCachedPath(asset);
                     await _api.DownloadToFileAsync(download.DownloadUrl, destPath);
                     _manifest[asset.Id] = asset.Checksum;
                 }
@@ -71,19 +72,37 @@ public class MediaSyncService : IDisposable
         }
 
         // Clean up cached files for assets no longer referenced by any upcoming event.
+        // Match by id prefix since the cached filename carries a mime-derived extension.
         foreach (var staleId in _manifest.Keys.Except(neededIds).ToList())
         {
-            var path = Path.Combine(DeviceConfigStore.MediaCacheDir, staleId);
-            if (File.Exists(path)) File.Delete(path);
+            foreach (var file in Directory.GetFiles(DeviceConfigStore.MediaCacheDir, staleId + ".*"))
+                File.Delete(file);
             _manifest.Remove(staleId);
         }
 
         SaveManifest();
     }
 
-    public string GetCachedPath(string assetId) => Path.Combine(DeviceConfigStore.MediaCacheDir, assetId);
+    // MediaElement (Media Foundation) picks its decoder from the local file's extension,
+    // not by sniffing content — a cached file saved without one silently fails to play
+    // (shows as a black/blank panel with no error), so the cache filename must carry it.
+    public string GetCachedPath(MediaAssetDto asset) =>
+        Path.Combine(DeviceConfigStore.MediaCacheDir, asset.Id + ExtensionForMimeType(asset.MimeType));
 
-    public bool IsCached(string assetId) => File.Exists(GetCachedPath(assetId));
+    public bool IsCached(MediaAssetDto asset) => File.Exists(GetCachedPath(asset));
+
+    private static string ExtensionForMimeType(string mimeType) => mimeType switch
+    {
+        "video/mp4" => ".mp4",
+        "video/webm" => ".webm",
+        "video/quicktime" => ".mov",
+        "image/jpeg" => ".jpg",
+        "image/png" => ".png",
+        "image/gif" => ".gif",
+        "audio/mpeg" => ".mp3",
+        "audio/wav" => ".wav",
+        _ => "",
+    };
 
     private static Dictionary<string, string> LoadManifest()
     {
