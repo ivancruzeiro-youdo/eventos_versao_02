@@ -45,7 +45,7 @@ const systemsNavigation = [
 const adminNavigation = [
   { name: 'Usuários', href: '/admin/users' },
   { name: 'Empresas', href: '/admin/employers' },
-  { name: 'Times', href: '/admin/times' },
+  { name: 'Equipes', href: '/admin/users/teams' },
   { name: 'Produtos', href: '/admin/products' },
   { name: 'Templates de Plano', href: '/admin/plan-templates' },
   { name: 'Templates de Briefing', href: '/admin/briefing-templates' },

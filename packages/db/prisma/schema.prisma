@@ -46,6 +46,7 @@ model User {
   activitiesCreated   EventActivity[]            @relation("ActivityCreatedBy")
   activitiesAssigned  EventActivity[]            @relation("ActivityAssignedTo")
   activitiesCompleted EventActivity[]            @relation("ActivityCompletedBy")
+  teamMemberships     TeamMember[]
 
   @@index([email])
   @@index([employerId])
@@ -89,6 +90,7 @@ model FreelancerService {
   products       ProductServiceLink[]
   eventServices  EventService[]
   acessoMappings ServiceAcessoMapping[]
+  teams          Team[]
 }
 
 model FreelancerServiceLink {
@@ -848,10 +850,31 @@ model Team {
   id        String   @id @default(uuid())
   name      String   @unique
   active    Boolean  @default(true)
+  serviceId String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  service   FreelancerService? @relation(fields: [serviceId], references: [id])
   schedules EventSchedule[]
+  members   TeamMember[]
+
+  @@index([serviceId])
+}
+
+// Vincula usuários (User) a um Team — quem recebe alerta via WhatsApp quando uma
+// atividade do cronograma (EventSchedule) daquele time é criada/alterada.
+model TeamMember {
+  id        String   @id @default(uuid())
+  teamId    String
+  userId    String
+  createdAt DateTime @default(now())
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@index([teamId])
+  @@index([userId])
 }
 
 // ============================================

@@ -30,9 +30,9 @@ export function mediaTypeFromMime(mimeType: string): 'video' | 'image' | 'audio'
 }
 
 export const MAX_SIZE_BYTES: Record<'video' | 'image' | 'audio', number> = {
-  video: 500 * 1024 * 1024, // 500MB
-  image: 50 * 1024 * 1024,  // 50MB
-  audio: 500 * 1024 * 1024, // same ceiling as video — full-event background tracks can run long
+  video: 2 * 1024 * 1024 * 1024, // 2GB
+  image: 50 * 1024 * 1024,       // 50MB
+  audio: 2 * 1024 * 1024 * 1024, // same ceiling as video — full-event background tracks can run long
 };
 
 export function formatMb(bytes: number): string {

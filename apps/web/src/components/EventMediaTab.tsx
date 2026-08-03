@@ -20,9 +20,9 @@ interface Props {
 }
 
 const MAX_SIZE_BYTES: Record<'video' | 'image' | 'audio', number> = {
-  video: 500 * 1024 * 1024,
+  video: 2 * 1024 * 1024 * 1024,
   image: 50 * 1024 * 1024,
-  audio: 500 * 1024 * 1024,
+  audio: 2 * 1024 * 1024 * 1024,
 };
 
 function mediaTypeFromMime(mimeType: string): 'video' | 'image' | 'audio' | null {
@@ -85,7 +85,7 @@ export default function EventMediaTab({ eventId }: Props) {
     const maxSize = MAX_SIZE_BYTES[detected];
     if (file.size > maxSize) {
       const label = detected === 'image' ? 'Imagens' : detected === 'video' ? 'Vídeos' : 'Áudios';
-      alert(`${label} podem ter no máximo ${Math.round(maxSize / (1024 * 1024))}MB. Este arquivo tem ${formatSize(file.size)}.`);
+      alert(`${label} podem ter no máximo ${formatSize(maxSize)}. Este arquivo tem ${formatSize(file.size)}.`);
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
@@ -197,7 +197,7 @@ export default function EventMediaTab({ eventId }: Props) {
         </div>
         <p className="text-xs text-muted-foreground mb-3">
           Vídeos, imagens e áudios que o dispositivo instalado no espaço baixa e exibe no painel de LED durante o evento.
-          Limites: vídeo/áudio até 500MB, imagem até 50MB. Arquivos são excluídos automaticamente 4 dias após o evento ser encerrado.
+          Limites: vídeo/áudio até 2GB, imagem até 50MB. Arquivos são excluídos automaticamente 4 dias após o evento ser encerrado.
         </p>
         <label className={`flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed rounded-lg cursor-pointer text-sm transition ${
           uploading ? 'opacity-50 pointer-events-none' : 'hover:border-primary hover:bg-muted/40'

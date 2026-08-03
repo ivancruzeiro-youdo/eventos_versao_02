@@ -2,10 +2,11 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import Layout from '@/components/Layout';
 import { adminApi } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
-import { User, Plus, Search, Edit2, Trash2, Download, X, Check, Loader2, ChevronDown, Phone } from 'lucide-react';
+import { User, Plus, Search, Edit2, Trash2, Download, X, Check, Loader2, ChevronDown, Phone, Users2 } from 'lucide-react';
 
 interface UserData {
   id: string;
@@ -332,13 +333,22 @@ export default function AdminUsersPage() {
           <h1 className="text-2xl font-semibold tracking-tight text-foreground mb-2">Usuários</h1>
           <p className="text-muted-foreground">Gerencie os usuários do sistema</p>
         </div>
-        <button
-          onClick={() => setShowImport(true)}
-          className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition text-sm font-medium flex items-center gap-2"
-        >
-          <Download className="size-4" />
-          Importar do UERP
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <Link
+            href="/admin/users/teams"
+            className="px-4 py-2 border rounded-lg hover:bg-muted/40 transition text-sm font-medium flex items-center gap-2"
+          >
+            <Users2 className="size-4" />
+            Equipes
+          </Link>
+          <button
+            onClick={() => setShowImport(true)}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition text-sm font-medium flex items-center gap-2"
+          >
+            <Download className="size-4" />
+            Importar do UERP
+          </button>
+        </div>
       </div>
 
       {/* Search */}
