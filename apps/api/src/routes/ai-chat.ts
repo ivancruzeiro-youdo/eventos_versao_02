@@ -7,6 +7,17 @@ import { SCHEMA_PRIMER } from '../lib/ai-chat-schema.js';
 
 const MAX_TOOL_ITERATIONS = 6;
 
+// O resultado de uma ferramenta nunca deve derrubar a requisição inteira: se sobrar algum
+// tipo que o JSON não engole (BigInt, referência circular), devolvemos o erro pro modelo
+// como conteúdo da ferramenta, e ele tenta outra abordagem.
+function safeStringify(value: any): string {
+  try {
+    return JSON.stringify(value, (_k, v) => (typeof v === 'bigint' ? v.toString() : v));
+  } catch (err: any) {
+    return JSON.stringify({ error: `Resultado não serializável: ${err.message}` });
+  }
+}
+
 const TOOLS = [
   {
     type: 'function' as const,
@@ -189,7 +200,7 @@ export async function aiChatRoutes(app: FastifyInstance) {
           conversation.push({
             role: 'tool',
             tool_call_id: call.id,
-            content: JSON.stringify(result),
+            content: safeStringify(result),
           });
         }
 
