@@ -328,8 +328,15 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       select: { externalId: true, eventId: true, clientCode: true, startDate: true },
     });
     const existingContractIds = new Set(existingContracts.map((c: any) => String(c.externalId)));
+    // Identidade do evento vem do codlocacontrato, que é imutável. A chave
+    // clientCode__startDate depende de data_checkin, que MUDA no UERP quando o evento é
+    // remarcado — e aí a chave antiga nunca mais casava, o evento parecia novo e cada
+    // sincronização criava uma duplicata (14 eventos do mesmo contrato, na prática).
+    // Mantemos a chave por data só como fallback pra eventos importados antes disso.
+    const eventIdByContractId: Map<string, string> = new Map();
     const keyToEventId: Map<string, string> = new Map();
     for (const c of existingContracts) {
+      eventIdByContractId.set(String(c.externalId), c.eventId);
       keyToEventId.set(`${c.clientCode}__${c.startDate}`, c.eventId);
     }
 
@@ -339,10 +346,24 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     for (const [key, contracts] of grouped) {
       const [clientCode, startDate] = key.split('__');
       const clientName = contracts[0]?.razaosocial || contracts[0]?.cliente_info?.razaosocial || clientCode;
-      const existingEventId = keyToEventId.get(key) || null;
 
       // Determine action — use codlocacontrato as external ID
       const newContractIds = contracts.map((c: any) => String(c.codlocacontrato || ''));
+
+      // Procura o evento primeiro pelos contratos deste grupo (inclui os secundários, que
+      // também identificam o evento), e só cai na chave por data se nenhum contrato for
+      // conhecido — ou seja, se o evento realmente nunca foi importado.
+      const identifyingIds = [
+        ...newContractIds,
+        ...contracts.flatMap((c: any) => (c._secondary || []).map((s: any) => String(s.codlocacontrato || ''))),
+      ].filter(Boolean);
+      let existingEventId: string | null = null;
+      for (const cid of identifyingIds) {
+        const mapped = eventIdByContractId.get(cid);
+        if (mapped) { existingEventId = mapped; break; }
+      }
+      if (!existingEventId) existingEventId = keyToEventId.get(key) || null;
+
       const hasNewContracts = newContractIds.some(id => !existingContractIds.has(id));
       const action: 'create' | 'update' | 'no_change' = !existingEventId
         ? 'create'
@@ -477,8 +498,27 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       }
 
       let eventId = existingEventId || '';
+      let effectiveAction = action;
 
-      if (action === 'create') {
+      // O `previews` chega do frontend, então `action` pode estar velho: reenvio do mesmo
+      // payload, duplo clique, outra aba aberta, ou um preview gerado antes de outro
+      // operador importar o mesmo evento. Reconfere agora, pela identidade imutável do
+      // contrato, se o evento já existe — sem isso, um "create" velho cria uma duplicata.
+      if (effectiveAction === 'create') {
+        const ids = contractIds.filter(Boolean);
+        const already = ids.length
+          ? await (prisma as any).eventContract.findFirst({
+              where: { externalId: { in: ids } },
+              select: { eventId: true },
+            })
+          : null;
+        if (already) {
+          eventId = already.eventId;
+          effectiveAction = 'update';
+        }
+      }
+
+      if (effectiveAction === 'create') {
         // Prefer real times from Userp (inicio_evento/fim_evento/data_checkin); fall back to the
         // old fixed placeholder (noon-to-7pm BRT) when Userp's hour fields aren't filled in.
         const primaryRaw = relatedRaw[0] || null;
@@ -522,7 +562,13 @@ export async function syncEventsRoutes(app: FastifyInstance) {
         if (!extId) continue;
         const exists = await (prisma as any).eventContract.findFirst({ where: { externalId: extId } });
         if (exists) {
-          await (prisma as any).eventContract.update({ where: { id: exists.id }, data: { rawJson: rc } });
+          // Reescreve também clientCode/startDate: antes só o rawJson era atualizado, então
+          // um evento remarcado no UERP ficava com o startDate antigo pra sempre e a chave
+          // de deduplicação nunca se corrigia (gerando uma duplicata por sincronização).
+          await (prisma as any).eventContract.update({
+            where: { id: exists.id },
+            data: { rawJson: rc, clientCode, startDate },
+          });
         } else {
           await (prisma as any).eventContract.create({
             data: { eventId, externalId: extId, clientCode, startDate, rawJson: rc },
@@ -535,7 +581,10 @@ export async function syncEventsRoutes(app: FastifyInstance) {
           if (!secExtId) continue;
           const secExists = await (prisma as any).eventContract.findFirst({ where: { externalId: secExtId } });
           if (secExists) {
-            await (prisma as any).eventContract.update({ where: { id: secExists.id }, data: { rawJson: sec } });
+            await (prisma as any).eventContract.update({
+              where: { id: secExists.id },
+              data: { rawJson: sec, clientCode, startDate },
+            });
           } else {
             await (prisma as any).eventContract.create({
               data: { eventId, externalId: secExtId, clientCode, startDate, rawJson: sec },
@@ -694,8 +743,39 @@ export async function syncEventsRoutes(app: FastifyInstance) {
         }
       }
 
+      // Datas remarcadas no UERP: avisa em vez de sobrescrever. O evento pode ter horários
+      // ajustados à mão pelo operador (o resto deste import nunca sobrescreve dado humano),
+      // mas uma divergência silenciosa é pior — foi assim que um evento ficou marcado 5 dias
+      // depois da data real, com freelancer já inscrito. Aqui a equipe vê e decide.
+      if (effectiveAction !== 'create') {
+        const primaryRaw = relatedRaw[0] || null;
+        const uerpStart = parseBrt(primaryRaw?.inicio_evento);
+        const evNow = await (prisma as any).event.findUnique({
+          where: { id: eventId },
+          select: { startAt: true },
+        });
+        const curStart: Date | null = evNow?.startAt ?? null;
+        const sameDay = uerpStart && curStart
+          && uerpStart.toISOString().slice(0, 10) === curStart.toISOString().slice(0, 10);
+        if (uerpStart && curStart && !sameDay) {
+          await (prisma as any).eventComment.create({
+            data: {
+              eventId,
+              userId: null,
+              isSystem: true,
+              content:
+                `ATENÇÃO — data divergente do UERP (contrato ${contractIds.filter(Boolean).join(', ')}):\n` +
+                `no sistema: ${curStart.toISOString().slice(0, 10)}\n` +
+                `no UERP: ${uerpStart.toISOString().slice(0, 10)}\n\n` +
+                `A data não foi alterada automaticamente para não sobrescrever ajustes manuais. ` +
+                `Confira e corrija o evento se necessário.`,
+            },
+          });
+        }
+      }
+
       // Auto system comment — only when there are real changes
-      if (action !== 'create' && (syncAddedItems.length > 0 || syncUpdatedQty.length > 0)) {
+      if (effectiveAction !== 'create' && (syncAddedItems.length > 0 || syncUpdatedQty.length > 0)) {
         const lines: string[] = [
           `Sincronização UERP — contrato(s): ${contractIds.filter(Boolean).join(', ')}`,
         ];
@@ -722,18 +802,18 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       // Compute diff for sync log
       const newItemsSnap = items.map(i => ({ name: i.name, qty: i.qty }));
       const oldSnap = oldItemsSnap.map((i: any) => ({ name: i.name, qty: i.quantity }));
-      const diff = action !== 'no_change' ? { old: oldSnap, new: newItemsSnap } : null;
+      const diff = effectiveAction !== 'no_change' ? { old: oldSnap, new: newItemsSnap } : null;
 
       await (prisma as any).eventSyncLog.create({
         data: {
           eventId,
-          action,
+          action: effectiveAction,
           diff,
           triggeredBy: user.id || null,
         },
       });
 
-      results.push({ key, action, eventId });
+      results.push({ key, action: effectiveAction, eventId });
     }
 
     return { success: true, results };

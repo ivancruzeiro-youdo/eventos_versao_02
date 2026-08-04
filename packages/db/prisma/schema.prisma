@@ -1093,7 +1093,9 @@ model ProductQuestion {
 model EventContract {
   id              String   @id @default(uuid())
   eventId         String
-  externalId      String   // contrato_id from Userp
+  // Único por natureza: uma linha por contrato do Userp. Sem essa trava, um contrato podia
+  // ser vinculado a dois eventos e o sync criava duplicatas sem nada barrar.
+  externalId      String   @unique // contrato_id from Userp
   clientCode      String   // cliente_codigo
   startDate       String   // data_inicio (YYYY-MM-DD) — matches events
   rawJson         Json     // full contract payload snapshot
