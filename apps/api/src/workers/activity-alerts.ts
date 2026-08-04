@@ -1,8 +1,8 @@
 import { prisma } from '../server.js';
+import { sendWhatsAppMessage, YOUDOCHAT_INBOX } from '../lib/youdochat.js';
 
-// Envia alerta via n8n para atividades atrasadas, no máximo a cada 30 min por atividade.
-// URL de produção do fluxo ENVIAR_MSG; sobrescrever com N8N_WEBHOOK_URL se necessário.
-const WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || 'https://n8n.youdobrasil.com.br/webhook/ENVIAR_MSG';
+// Envia alerta via YouDoChat (inbox AVISOS) para atividades atrasadas, no máximo a cada
+// 30 min por atividade (antes ia por um webhook n8n; ver lib/youdochat.ts).
 const CHECK_INTERVAL_MS = 5 * 60 * 1000;   // verifica a cada 5 min
 const TZ = 'America/Sao_Paulo';
 const BUSINESS_HOUR_START = 8;
@@ -16,11 +16,12 @@ function isBusinessHours(d: Date): boolean {
   return hour >= BUSINESS_HOUR_START && hour < BUSINESS_HOUR_END;
 }
 
-// O fluxo n8n prefixa "+55" — enviar apenas DDD + número (dígitos, sem código do país)
+// YouDoChat wants DDI (55) + DDD + número — it strips non-digits itself but needs the
+// country code present, unlike the old n8n flow which added "+55" on its own side.
 function normalizePhone(raw: string): string | null {
   let digits = raw.replace(/\D/g, '');
-  if (digits.startsWith('55') && digits.length > 11) digits = digits.slice(2);
   if (digits.length < 10) return null;
+  if (!digits.startsWith('55')) digits = `55${digits}`;
   return digits;
 }
 
@@ -67,31 +68,23 @@ async function checkOverdueActivities(log: (msg: string) => void) {
       continue;
     }
 
-    // Quebras de linha como texto literal "\n\n" (o fluxo n8n espera assim;
-    // newlines reais quebram o JSON montado dentro do workflow)
-    const BR = '\\n\\n';
     const mensagem =
-      `⚠️ *ATIVIDADE ATRASADA*${BR}` +
-      `Olá ${assigneeName}! Você tem uma atividade pendente que já passou do prazo.${BR}` +
-      `📋 *Atividade:* ${act.title}${BR}` +
-      `🎪 *Evento:* ${act.event?.name ?? '—'}${BR}` +
-      `🕐 *Prazo:* ${fmtDateTime(new Date(act.dueAt))}${BR}` +
+      `⚠️ *ATIVIDADE ATRASADA*\n\n` +
+      `Olá ${assigneeName}! Você tem uma atividade pendente que já passou do prazo.\n\n` +
+      `📋 *Atividade:* ${act.title}\n\n` +
+      `🎪 *Evento:* ${act.event?.name ?? '—'}\n\n` +
+      `🕐 *Prazo:* ${fmtDateTime(new Date(act.dueAt))}\n\n` +
       `Acesse https://eventos.youdobrasil.com.br para concluir ou reagendar.`;
 
     try {
-      const res = await fetch(WEBHOOK_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fone: phone, mensagem }),
+      await sendWhatsAppMessage(phone, mensagem, {
+        inboxId: YOUDOCHAT_INBOX.avisos,
+        agentName: 'Alertas de Atividade',
       });
-      if (res.ok) {
-        await (prisma as any).eventActivity.update({ where: { id: act.id }, data: { lastAlertAt: now } });
-        log(`Alerta enviado: atividade "${act.title}" -> ${phone}`);
-      } else {
-        log(`Falha no webhook (${res.status}) para atividade "${act.title}"`);
-      }
+      await (prisma as any).eventActivity.update({ where: { id: act.id }, data: { lastAlertAt: now } });
+      log(`Alerta enviado: atividade "${act.title}" -> ${phone}`);
     } catch (err: any) {
-      log(`Erro ao chamar webhook: ${err.message}`);
+      log(`Falha ao enviar alerta (atividade "${act.title}"): ${err.message}`);
     }
   }
 }
@@ -100,5 +93,5 @@ export function startActivityAlerts(log: (msg: string) => void = console.log) {
   const run = () => checkOverdueActivities(log).catch(err => log(`activity-alerts: ${err.message}`));
   setInterval(run, CHECK_INTERVAL_MS);
   setTimeout(run, 15_000); // primeira checagem 15s após o boot
-  log(`activity-alerts iniciado (webhook: ${WEBHOOK_URL})`);
+  log(`activity-alerts iniciado (YouDoChat, inbox AVISOS)`);
 }

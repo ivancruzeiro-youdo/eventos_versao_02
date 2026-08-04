@@ -58,7 +58,7 @@ Só existe um `.env.example`, na raiz — não tem `.env` separado por app. Cate
   (`ACESSOS_API_*`)
 - **Storage**: AWS S3 (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`) — usado
   pra upload de mídia/arquivos (presigned URLs)
-- **Notificações**: Twilio WhatsApp (`TWILIO_*`), Resend e-mail (`RESEND_API_KEY`)
+- **Notificações**: WhatsApp via YouDoChat (`YOUDOCHAT_API_KEY`, `apps/api/src/lib/youdochat.ts`), Resend e-mail (`RESEND_API_KEY`)
 - **Observabilidade**: `SENTRY_DSN`
 - **URLs**: `NEXT_PUBLIC_API_URL`, `WEB_URL`, `API_URL`
 - `NODE_ENV`, `PORT`

@@ -136,7 +136,7 @@ pnpm test            # Rodar testes
 - **Freelancers**: Portal de vagas e candidaturas
 - **Planos e Briefings**: Templates dinâmicos
 - **NPS**: Coleta automática pós-evento
-- **Notificações**: WhatsApp (Twilio) + Email (Resend)
+- **Notificações**: WhatsApp (YouDoChat) + Email (Resend)
 - **Auditoria**: Log completo de todas as ações
 
 ## Autenticação
