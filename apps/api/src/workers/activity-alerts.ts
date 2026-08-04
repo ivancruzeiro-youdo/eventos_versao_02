@@ -1,8 +1,8 @@
 import { prisma } from '../server.js';
-import { sendWhatsAppMessage, YOUDOCHAT_INBOX } from '../lib/youdochat.js';
+import { normalizePhone, sendWhatsAppAlert } from '../lib/notifications.js';
 
 // Envia alerta via YouDoChat (inbox AVISOS) para atividades atrasadas, no máximo a cada
-// 30 min por atividade (antes ia por um webhook n8n; ver lib/youdochat.ts).
+// 30 min por atividade (antes ia por um webhook n8n; ver lib/notifications.ts).
 const CHECK_INTERVAL_MS = 5 * 60 * 1000;   // verifica a cada 5 min
 const TZ = 'America/Sao_Paulo';
 const BUSINESS_HOUR_START = 8;
@@ -14,15 +14,6 @@ function isBusinessHours(d: Date): boolean {
   if (weekday === 'Sat' || weekday === 'Sun') return false;
   const hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', hour12: false }).format(d));
   return hour >= BUSINESS_HOUR_START && hour < BUSINESS_HOUR_END;
-}
-
-// YouDoChat wants DDI (55) + DDD + número — it strips non-digits itself but needs the
-// country code present, unlike the old n8n flow which added "+55" on its own side.
-function normalizePhone(raw: string): string | null {
-  let digits = raw.replace(/\D/g, '');
-  if (digits.length < 10) return null;
-  if (!digits.startsWith('55')) digits = `55${digits}`;
-  return digits;
 }
 
 function fmtDateTime(d: Date): string {
@@ -76,15 +67,12 @@ async function checkOverdueActivities(log: (msg: string) => void) {
       `🕐 *Prazo:* ${fmtDateTime(new Date(act.dueAt))}\n\n` +
       `Acesse https://eventos.youdobrasil.com.br para concluir ou reagendar.`;
 
-    try {
-      await sendWhatsAppMessage(phone, mensagem, {
-        inboxId: YOUDOCHAT_INBOX.avisos,
-        agentName: 'Alertas de Atividade',
-      });
+    const ok = await sendWhatsAppAlert(phone, mensagem);
+    if (ok) {
       await (prisma as any).eventActivity.update({ where: { id: act.id }, data: { lastAlertAt: now } });
       log(`Alerta enviado: atividade "${act.title}" -> ${phone}`);
-    } catch (err: any) {
-      log(`Falha ao enviar alerta (atividade "${act.title}"): ${err.message}`);
+    } else {
+      log(`Falha ao enviar alerta (atividade "${act.title}")`);
     }
   }
 }
@@ -93,5 +81,5 @@ export function startActivityAlerts(log: (msg: string) => void = console.log) {
   const run = () => checkOverdueActivities(log).catch(err => log(`activity-alerts: ${err.message}`));
   setInterval(run, CHECK_INTERVAL_MS);
   setTimeout(run, 15_000); // primeira checagem 15s após o boot
-  log(`activity-alerts iniciado (YouDoChat, inbox AVISOS)`);
+  log('activity-alerts iniciado (YouDoChat, inbox AVISOS)');
 }

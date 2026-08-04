@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../server.js';
 import { requireAuth } from '../middleware/auth.js';
+import { normalizePhone, sendWhatsAppAlert } from '../lib/notifications.js';
 
 const createScheduleSchema = z.object({
   name: z.string().min(1),
@@ -55,6 +56,48 @@ async function addScheduleHistory(params: {
       content: params.content,
     },
   });
+}
+
+// Avisa por WhatsApp todos os usuários vinculados ao time responsável por uma atividade
+// de cronograma, quando ela é criada ou alterada. Nunca lança — um erro no envio (número
+// inválido, webhook fora do ar) não pode impedir a criação/edição da atividade em si.
+async function notifyTeamMembers(params: {
+  teamId: string;
+  eventName: string;
+  scheduleName: string;
+  startAt: Date;
+  endAt: Date;
+  changeType: 'criada' | 'alterada' | 'removida';
+}) {
+  const { teamId, eventName, scheduleName, startAt, endAt, changeType } = params;
+  try {
+    const team = await (prisma as any).team.findUnique({
+      where: { id: teamId },
+      include: { members: { include: { user: { select: { name: true, phone: true } } } } },
+    });
+    if (!team) return;
+
+    const BR = '\\n\\n';
+    const titulo = changeType === 'criada' ? '📅 *NOVA ATIVIDADE NO CRONOGRAMA*' : changeType === 'alterada' ? '📅 *ATIVIDADE DO CRONOGRAMA ALTERADA*' : '📅 *ATIVIDADE DO CRONOGRAMA REMOVIDA*';
+
+    for (const member of team.members) {
+      const phone = member.user?.phone ? normalizePhone(member.user.phone) : null;
+      if (!phone) continue;
+
+      const mensagem =
+        `${titulo}${BR}` +
+        `Olá ${member.user.name}! Uma atividade do time *${team.name}* foi ${changeType}.${BR}` +
+        `🎪 *Evento:* ${eventName}${BR}` +
+        `📋 *Atividade:* ${scheduleName}${BR}` +
+        `🕐 *Horário:* ${fmtDateTime(startAt)}–${fmtTime(endAt)}${BR}` +
+        `Acesse https://eventos.youdobrasil.com.br para ver os detalhes.`;
+
+      const ok = await sendWhatsAppAlert(phone, mensagem);
+      if (!ok) console.error(`notifyTeamMembers: falha ao enviar WhatsApp para ${member.user.name} (time ${team.name})`);
+    }
+  } catch (err: any) {
+    console.error('notifyTeamMembers: erro inesperado:', err.message);
+  }
 }
 
 // Find an existing activity of the same team whose time range overlaps [startAt, endAt).
@@ -165,6 +208,18 @@ export async function scheduleRoutes(app: FastifyInstance) {
       content: `Atividade criada: "${schedule.name}" · ${fmtDateTime(startAt)}–${fmtTime(endAt)}${schedule.team ? ` · Time: ${schedule.team.name}` : ''}`,
     });
 
+    if (schedule.teamId) {
+      const event = await prisma.event.findUnique({ where: { id: eventId }, select: { name: true } });
+      notifyTeamMembers({
+        teamId: schedule.teamId,
+        eventName: event?.name ?? '—',
+        scheduleName: schedule.name,
+        startAt,
+        endAt,
+        changeType: 'criada',
+      });
+    }
+
     return reply.status(201).send({ success: true, schedule });
   });
 
@@ -236,6 +291,33 @@ export async function scheduleRoutes(app: FastifyInstance) {
       userId,
       content: `Atividade editada: "${schedule.name}" · ${changeSummary}`,
     });
+
+    if (changes.length > 0) {
+      const event = await prisma.event.findUnique({ where: { id: current.eventId }, select: { name: true } });
+      const teamChanged = data.teamId && data.teamId !== current.teamId;
+
+      if (schedule.teamId) {
+        notifyTeamMembers({
+          teamId: schedule.teamId,
+          eventName: event?.name ?? '—',
+          scheduleName: schedule.name,
+          startAt,
+          endAt,
+          changeType: 'alterada',
+        });
+      }
+      // O time anterior deixou de ter essa atividade — avisa que ela saiu da agenda dele.
+      if (teamChanged && current.teamId) {
+        notifyTeamMembers({
+          teamId: current.teamId,
+          eventName: event?.name ?? '—',
+          scheduleName: schedule.name,
+          startAt,
+          endAt,
+          changeType: 'removida',
+        });
+      }
+    }
 
     return { success: true, schedule };
   });

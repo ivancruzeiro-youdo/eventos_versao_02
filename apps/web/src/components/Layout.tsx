@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { ChevronDown, ChevronRight, LayoutDashboard, Calendar, MapPin, Users, FileText, Settings, LogOut, ChefHat, Package, UtensilsCrossed, ShoppingCart, ClipboardList, BrainCircuit, SlidersHorizontal, Menu, X, Truck, UserRound, Monitor, Download } from 'lucide-react';
+import { ChevronDown, ChevronRight, LayoutDashboard, Calendar, MapPin, Users, FileText, Settings, LogOut, ChefHat, Package, UtensilsCrossed, ShoppingCart, ClipboardList, BrainCircuit, SlidersHorizontal, Menu, X, Truck, UserRound, Monitor, Download, Plug } from 'lucide-react';
 import { logoutHub } from '@/lib/sso';
 import { authApi, ApiError } from '@/lib/api';
 
@@ -42,21 +42,53 @@ const systemsNavigation = [
   { name: 'Downloads', href: '/downloads', icon: Download },
 ];
 
-const adminNavigation = [
-  { name: 'Usuários', href: '/admin/users' },
-  { name: 'Empresas', href: '/admin/employers' },
-  { name: 'Times', href: '/admin/times' },
-  { name: 'Produtos', href: '/admin/products' },
-  { name: 'Templates de Plano', href: '/admin/plan-templates' },
-  { name: 'Templates de Briefing', href: '/admin/briefing-templates' },
-  { name: 'Templates de Checklist', href: '/admin/checklist-templates' },
-  { name: 'Relatórios', href: '/admin/reports' },
-  { name: 'Logs', href: '/admin/audit-log' },
-  { name: 'Acessos por Serviço', href: '/admin/acessos' },
-  { name: 'Integração Userp', href: '/admin/integrations/userp' },
-  { name: 'Integração Spotify', href: '/admin/integrations/spotify' },
-  { name: 'Elementos de Layout', href: '/admin/layout-elements' },
+// "Administração" ficou grande demais como lista única — dividida em subgrupos, cada um
+// com seu próprio expandir/recolher (2º nível de navegação dentro do menu Admin).
+const adminGroups = [
+  {
+    name: 'Cadastros',
+    icon: Users,
+    items: [
+      { name: 'Usuários', href: '/admin/users' },
+      { name: 'Empresas', href: '/admin/employers' },
+      { name: 'Equipes', href: '/admin/users/teams' },
+      { name: 'Produtos', href: '/admin/products' },
+    ],
+  },
+  {
+    name: 'Templates',
+    icon: FileText,
+    items: [
+      { name: 'Templates de Plano', href: '/admin/plan-templates' },
+      { name: 'Templates de Briefing', href: '/admin/briefing-templates' },
+      { name: 'Templates de Checklist', href: '/admin/checklist-templates' },
+    ],
+  },
+  {
+    name: 'Integrações',
+    icon: Plug,
+    items: [
+      { name: 'Integração Userp', href: '/admin/integrations/userp' },
+      { name: 'Integração Spotify', href: '/admin/integrations/spotify' },
+    ],
+  },
+  {
+    name: 'Sistema',
+    icon: Settings,
+    items: [
+      { name: 'Relatórios', href: '/admin/reports' },
+      { name: 'Logs', href: '/admin/audit-log' },
+      { name: 'Acessos por Serviço', href: '/admin/acessos' },
+      { name: 'Elementos de Layout', href: '/admin/layout-elements' },
+    ],
+  },
 ];
+
+const adminNavigation = adminGroups.flatMap((g) => g.items);
+
+function isNavItemActive(pathname: string, href: string): boolean {
+  return pathname === href || pathname.startsWith(href + '/');
+}
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -64,6 +96,19 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [adminOpen, setAdminOpen] = useState(pathname.startsWith('/admin'));
   const [kitchenOpen, setKitchenOpen] = useState(pathname.startsWith('/cozinha'));
   const [systemsOpen, setSystemsOpen] = useState(pathname.startsWith('/downloads'));
+  // Subgrupos dentro de "Administração" — abre por padrão só o que contém a página atual.
+  const [openAdminGroups, setOpenAdminGroups] = useState<Set<string>>(
+    () => new Set(adminGroups.filter((g) => g.items.some((item) => isNavItemActive(pathname, item.href))).map((g) => g.name))
+  );
+
+  function toggleAdminGroup(name: string) {
+    setOpenAdminGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -245,21 +290,49 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
           {adminOpen && (
             <div className="mt-1 ml-4 space-y-1">
-              {adminNavigation.map((item) => {
-                const isActive = pathname.startsWith(item.href);
+              {adminGroups.map((group) => {
+                const GroupIcon = group.icon;
+                const groupOpen = openAdminGroups.has(group.name);
+                const groupActive = group.items.some((item) => isNavItemActive(pathname, item.href));
                 return (
-                  <Link
-                    key={item.name}
-                    href={item.href}
-                    onClick={onNav}
-                    className={`flex items-center px-3 py-2 rounded-md text-sm transition-colors ${
-                      isActive
-                        ? 'bg-sidebar-accent text-sidebar-foreground font-medium'
-                        : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'
-                    }`}
-                  >
-                    <span>{item.name}</span>
-                  </Link>
+                  <div key={group.name}>
+                    <button
+                      onClick={() => toggleAdminGroup(group.name)}
+                      className={`flex items-center justify-between w-full px-3 py-1.5 rounded-md text-sm transition-colors ${
+                        groupActive
+                          ? 'bg-sidebar-accent text-sidebar-foreground font-medium'
+                          : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <GroupIcon className="size-3.5" />
+                        <span>{group.name}</span>
+                      </div>
+                      {groupOpen ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+                    </button>
+
+                    {groupOpen && (
+                      <div className="mt-1 ml-4 space-y-1">
+                        {group.items.map((item) => {
+                          const isActive = isNavItemActive(pathname, item.href);
+                          return (
+                            <Link
+                              key={item.name}
+                              href={item.href}
+                              onClick={onNav}
+                              className={`flex items-center px-3 py-2 rounded-md text-sm transition-colors ${
+                                isActive
+                                  ? 'bg-sidebar-accent text-sidebar-foreground font-medium'
+                                  : 'text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground'
+                              }`}
+                            >
+                              <span>{item.name}</span>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </div>
@@ -316,7 +389,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Desktop sidebar */}
-      <aside className="w-64 min-h-screen bg-sidebar text-sidebar-foreground hidden md:flex flex-col fixed left-0 top-0">
+      <aside className="w-64 h-screen bg-sidebar text-sidebar-foreground hidden md:flex flex-col fixed left-0 top-0">
         {sidebarContent()}
       </aside>
 
