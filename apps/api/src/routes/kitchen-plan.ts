@@ -1,31 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../server.js';
 import { requireAuth } from '../middleware/auth.js';
-import OpenAI from 'openai';
+import { getConfig, setConfig, getOpenAI } from '../lib/openai.js';
 
 function getEmployerId(user: any): string | undefined {
   return user.employerId;
-}
-
-// ─── Config helpers ────────────────────────────────────────────────────────────
-
-async function getConfig(key: string): Promise<string | null> {
-  const cfg = await (prisma as any).uerpConfig.findUnique({ where: { key } });
-  return cfg?.value ?? null;
-}
-
-async function setConfig(key: string, value: string) {
-  await (prisma as any).uerpConfig.upsert({
-    where: { key },
-    create: { key, value },
-    update: { value },
-  });
-}
-
-async function getOpenAI() {
-  const apiKey = await getConfig('openai_api_key');
-  if (!apiKey) return null;
-  return new OpenAI({ apiKey });
 }
 
 // ─── AI Prompt builder ────────────────────────────────────────────────────────

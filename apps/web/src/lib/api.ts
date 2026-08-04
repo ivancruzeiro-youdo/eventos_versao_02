@@ -66,6 +66,16 @@ export const authApi = {
   logout: () => fetchApi('/api/v2/auth/logout', { method: 'DELETE' }),
 };
 
+// AI Chat API (assistente de dados no dashboard)
+export const aiChatApi = {
+  listThreads: () => fetchApi('/api/v2/ai-chat/threads'),
+  createThread: () => fetchApi('/api/v2/ai-chat/threads', { method: 'POST' }),
+  deleteThread: (id: string) => fetchApi(`/api/v2/ai-chat/threads/${id}`, { method: 'DELETE' }),
+  listMessages: (threadId: string) => fetchApi(`/api/v2/ai-chat/threads/${threadId}/messages`),
+  sendMessage: (threadId: string, content: string) =>
+    fetchApi(`/api/v2/ai-chat/threads/${threadId}/messages`, { method: 'POST', body: JSON.stringify({ content }) }),
+};
+
 // Freelancer API
 export const freelancerApi = {
   jobs: () => fetchApi('/api/v2/freelancer/jobs'),

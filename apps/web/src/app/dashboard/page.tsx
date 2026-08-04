@@ -5,7 +5,8 @@ import Link from 'next/link';
 import Layout from '@/components/Layout';
 import StatCard from '@/components/StatCard';
 import EventCard from '@/components/EventCard';
-import { eventsApi } from '@/lib/api';
+import AiChatWidget from '@/components/AiChatWidget';
+import { eventsApi, authApi } from '@/lib/api';
 import { AlertTriangle, Calendar, CheckCircle2, ListTodo } from 'lucide-react';
 
 interface Event {
@@ -45,6 +46,9 @@ export default function DashboardPage() {
   const [activities, setActivities] = useState<MyActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // O assistente de dados IA roda SQL livre no banco — só admin vê (o backend também
+  // exige requireRole(['admin']), isso aqui é só pra não mostrar uma seção que daria 403).
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     load();
@@ -53,13 +57,15 @@ export default function DashboardPage() {
   async function load() {
     try {
       setLoading(true);
-      const [evRes, actRes] = await Promise.allSettled([
+      const [evRes, actRes, meRes] = await Promise.allSettled([
         eventsApi.list(),
         fetch('/api/v2/my/activities', { credentials: 'include' }).then(r => r.ok ? r.json() : { activities: [] }),
+        authApi.me(),
       ]);
       if (evRes.status === 'fulfilled') setEvents(evRes.value.events || []);
       else setError('Erro ao carregar eventos');
       if (actRes.status === 'fulfilled') setActivities(actRes.value.activities || []);
+      if (meRes.status === 'fulfilled') setIsAdmin(meRes.value.user?.role === 'admin');
     } finally {
       setLoading(false);
     }
@@ -104,6 +110,9 @@ export default function DashboardPage() {
         </div>
       ) : (
         <div className="space-y-8">
+
+          {/* Assistente de Dados (IA) — só admin */}
+          {isAdmin && <AiChatWidget />}
 
           {/* Minhas Atividades */}
           <div className="bg-card rounded-lg border shadow-sm">

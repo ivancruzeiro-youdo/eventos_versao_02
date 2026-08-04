@@ -42,6 +42,7 @@ import { deviceRoutes } from './routes/devices.js';
 import { eventMediaRoutes } from './routes/event-media.js';
 import { spotifyRoutes } from './routes/spotify.js';
 import { desktopReleaseRoutes } from './routes/desktop-releases.js';
+import { aiChatRoutes } from './routes/ai-chat.js';
 
 const logger = pino({
   transport: {
@@ -176,6 +177,7 @@ const start = async () => {
   await app.register(eventMediaRoutes, { prefix: '/api/v2' });
   await app.register(spotifyRoutes, { prefix: '/api/v2' });
   await app.register(desktopReleaseRoutes, { prefix: '/api/v2' });
+  await app.register(aiChatRoutes, { prefix: '/api/v2' });
 
     const port = parseInt(process.env.PORT || '3001', 10);
     const host = process.env.HOST || '0.0.0.0';

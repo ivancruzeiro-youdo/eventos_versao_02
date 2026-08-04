@@ -47,6 +47,7 @@ model User {
   activitiesAssigned  EventActivity[]            @relation("ActivityAssignedTo")
   activitiesCompleted EventActivity[]            @relation("ActivityCompletedBy")
   teamMemberships     TeamMember[]
+  aiChatThreads       AiChatThread[]
 
   @@index([email])
   @@index([employerId])
@@ -1771,4 +1772,44 @@ model EventLayoutConfig {
   id        String   @id @default("default")
   config    Json
   updatedAt DateTime @updatedAt
+}
+
+// ============================================
+// Assistente de dados (chat IA — dashboard)
+// ============================================
+
+model AiChatThread {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages AiChatMessage[]
+
+  @@index([userId])
+}
+
+model AiChatMessage {
+  id        String   @id @default(uuid())
+  threadId  String
+  role      String   // user | assistant
+  content   String   @db.Text
+  toolTrace Json?    // consultas SQL rodadas + nº de linhas — só transparência/debug
+  createdAt DateTime @default(now())
+
+  thread AiChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId])
+}
+
+// Fatos/regras de negócio que a IA aprende durante as conversas (ex.: "evento fechado
+// = Event sem EventClosure associado") — incluídos no prompt de toda conversa futura
+// (routes/ai-chat.ts buildSystemPrompt), crescendo com o uso em vez de precisar mudar
+// código a cada nova regra descoberta.
+model AiKnowledge {
+  id        String   @id @default(uuid())
+  fact      String   @db.Text
+  createdAt DateTime @default(now())
 }
