@@ -16,10 +16,22 @@ function getReadOnlyClient(): PrismaClient {
   return client;
 }
 
-// Bloqueia qualquer palavra-chave de escrita/DDL/administração, como whole-word (evita
-// falso positivo em nomes de coluna/tabela que só contenham a palavra como substring).
-const FORBIDDEN_KEYWORDS =
-  /\b(insert|update|delete|drop|alter|truncate|grant|revoke|create|exec|execute|call|copy|merge|vacuum|reindex|attach|detach|pragma|listen|notify|unlisten|do|comment|lock|refresh)\b/i;
+// A consulta já é obrigada a começar com SELECT/WITH e a não conter ";", então a única
+// escrita que ainda cabe aqui é uma CTE que modifica dados — o Postgres aceita
+// `WITH x AS (INSERT ...) SELECT ...`. É só isso que precisa ser bloqueado.
+//
+// Uma lista mais ampla parece mais segura e não é: `comment` é nome de coluna real
+// ("EventNPS"."comment", "EventMediaAsset"."comment") e `do` aparece em nome próprio em
+// português ("Lucas berg do Prado"), então bloquear essas palavras rejeitava consultas
+// perfeitamente legítimas. Palavras como DROP/ALTER/GRANT não precisam estar aqui: não são
+// aninháveis dentro de um SELECT, e a role ai_readonly não teria permissão de executá-las
+// de todo jeito (é essa a camada que realmente protege).
+const FORBIDDEN_KEYWORDS = /\b(insert|update|delete|merge)\s/i;
+
+// Funções que a role só-leitura ainda conseguiria chamar e que causam dano sem escrever
+// nada (travar a conexão, ler arquivo, abrir socket).
+const FORBIDDEN_FUNCTIONS =
+  /\b(pg_sleep|pg_read_file|pg_read_binary_file|pg_ls_dir|pg_stat_file|lo_import|lo_export|dblink|pg_terminate_backend|pg_cancel_backend|set_config|pg_reload_conf)\b/i;
 
 export async function runReadOnlyQuery(sql: string): Promise<any[]> {
   const trimmed = sql.trim().replace(/;+\s*$/, '');
@@ -32,7 +44,10 @@ export async function runReadOnlyQuery(sql: string): Promise<any[]> {
     throw new Error('Apenas uma instrução por consulta — remova o ";" no meio do texto.');
   }
   if (FORBIDDEN_KEYWORDS.test(trimmed)) {
-    throw new Error('Consulta contém uma palavra-chave não permitida (só leitura é permitida).');
+    throw new Error('Consulta tenta modificar dados (INSERT/UPDATE/DELETE/MERGE) — só leitura é permitida.');
+  }
+  if (FORBIDDEN_FUNCTIONS.test(trimmed)) {
+    throw new Error('Consulta usa uma função de sistema não permitida.');
   }
 
   // Nunca deixa a IA devolver um resultado gigante pro modelo (custo de tokens) nem

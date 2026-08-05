@@ -66,8 +66,13 @@ ${knowledgeText}
 
 ## Instruções
 - Sempre que uma pergunta depender de dados (contagens, listas, status), rode uma consulta com run_sql_query em vez de supor.
-- Se descobrir uma regra de negócio nova e útil (ex.: como determinar se algo está "fechado"), salve com remember_fact.
-- Responda de forma direta e objetiva, com os números encontrados. Se a consulta falhar, ajuste e tente de novo (até um limite razoável de tentativas).`;
+- A descrição de tabelas acima é PARCIAL — o banco tem muito mais tabelas e colunas. Se a pergunta envolver algo que não está descrito, NÃO desista e NÃO invente nomes de coluna: descubra o esquema consultando o catálogo, que também está disponível via run_sql_query. Por exemplo:
+    SELECT table_name, column_name, data_type FROM information_schema.columns
+    WHERE table_schema='public' AND table_name ILIKE '%freelancer%' ORDER BY table_name, ordinal_position;
+  Para descobrir como duas tabelas se ligam, procure as foreign keys em information_schema.table_constraints + key_column_usage. Explore primeiro, depois responda.
+- Se um termo da pergunta for ambíguo no modelo de dados (ex.: "trabalhou" pode ser candidatura aprovada ou apenas inscrição), escolha a interpretação mais útil, responda com ela e DIGA explicitamente qual definição usou. Não devolva a pergunta pro usuário sem antes ter tentado.
+- Se descobrir uma regra de negócio nova e útil (ex.: como determinar se algo está "fechado", ou qual tabela liga duas entidades), salve com remember_fact — assim a próxima conversa já começa sabendo.
+- Responda de forma direta e objetiva, com os números encontrados. Se a consulta falhar, leia a mensagem de erro, corrija e tente de novo (até um limite razoável de tentativas).`;
 }
 
 export async function aiChatRoutes(app: FastifyInstance) {
