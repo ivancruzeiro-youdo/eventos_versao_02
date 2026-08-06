@@ -1753,15 +1753,19 @@ model EventActivityFile {
 }
 
 model EventLayout {
-  id          String   @id @default(uuid())
-  eventId     String
-  venueId     String?
-  name        String   @default("Layout Padrão")
-  elements    Json
-  createdById String?
-  isLocked    Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String   @id @default(uuid())
+  eventId         String
+  venueId         String?
+  name            String   @default("Layout Padrão")
+  elements        Json
+  createdById     String?
+  // True when the client made this layout themselves (via the client portal, optionally
+  // starting from a copy of a staff layout) — distinct from createdById (a User, staff-only).
+  // A client may only edit/delete layouts where this is true, never a staff-authored one.
+  createdByClient Boolean  @default(false)
+  isLocked        Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   event Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
   venue Venue? @relation(fields: [venueId], references: [id])

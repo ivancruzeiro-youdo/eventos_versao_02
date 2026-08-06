@@ -27,7 +27,7 @@ const DEFAULT_ELEMENTS = [
   { type: 'wc',           label: 'WC',                       widthMeters: 1.0,  heightMeters: 1.0,  active: true },
 ];
 
-async function getFloorPlanUrl(s3Key: string): Promise<string> {
+export async function getFloorPlanUrl(s3Key: string): Promise<string> {
   return getSignedUrl(s3Client, new GetObjectCommand({ Bucket: getS3Bucket(), Key: s3Key }), { expiresIn: 3600 });
 }
 

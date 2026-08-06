@@ -54,6 +54,7 @@ interface SavedLayout {
   elements: PlacedElement[];
   isLocked: boolean;
   createdById: string | null;
+  createdByClient: boolean;
 }
 
 interface EventVenueInfo {
@@ -721,6 +722,9 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
               }`}
             >
               {layout.isLocked && <Lock className="size-3 opacity-70" />}
+              {layout.createdByClient && (
+                <span className="text-[10px] px-1 py-0.5 rounded bg-blue-500/20 text-blue-600 dark:text-blue-400 font-medium">Cliente</span>
+              )}
               {editingName && layout.id === activeLayoutId ? (
                 <input
                   autoFocus

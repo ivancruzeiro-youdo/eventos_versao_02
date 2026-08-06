@@ -1479,17 +1479,18 @@ function StatusBanner({ token, jwt, approvals }: { token: string; jwt: string; a
 
 // ── Layout tab ────────────────────────────────────────────────────────────────
 
-const API_URL_CLIENT = process.env.NEXT_PUBLIC_API_URL || '';
-
 interface LayoutElement { id: string; type: string; x: number; y: number; rotation: number; }
-interface ClientLayout { id: string; venueId: string | null; name: string; elements: LayoutElement[]; isLocked: boolean; }
-interface ElementCfg { type: string; widthMeters: number; heightMeters: number; iconUrl?: string; }
+interface ClientLayout { id: string; venueId: string | null; name: string; elements: LayoutElement[]; isLocked: boolean; createdByClient: boolean; }
+interface ElementCfg { type: string; label: string; widthMeters: number; heightMeters: number; iconUrl?: string; }
 interface ClientVenueInfo {
   venueId: string; venueName: string;
   floorPlanUrl: string | null; floorPlanWidthMeters: number | null; floorPlanHeightMeters: number | null;
+  layoutStock: Record<string, number> | null;
 }
 
-function LayoutTab({ eventId }: { eventId: string }) {
+function layoutUid() { return Math.random().toString(36).slice(2) + Date.now().toString(36); }
+
+function LayoutTab({ token, jwt }: { token: string; jwt: string }) {
   const [venues,       setVenues]         = useState<ClientVenueInfo[]>([]);
   const [activeVenueId, setActiveVenueId] = useState<string | null>(null);
   const [imgAspect,    setImgAspect]      = useState<number | null>(null);
@@ -1498,30 +1499,57 @@ function LayoutTab({ eventId }: { eventId: string }) {
   const [configs,      setConfigs]        = useState<ElementCfg[]>([]);
   const [loading,      setLoading]        = useState(true);
 
+  // Editing — only ever a layout the client made themselves (createdByClient: true).
+  const [editingId,      setEditingId]      = useState<string | null>(null);
+  const [draftElements,  setDraftElements]  = useState<LayoutElement[]>([]);
+  const [saving,         setSaving]         = useState(false);
+  const [saveMsg,        setSaveMsg]        = useState<{ ok: boolean; text: string } | null>(null);
+  const [showNewPicker,  setShowNewPicker]  = useState(false);
+  const [creating,       setCreating]       = useState(false);
+
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const trashRef  = useRef<HTMLDivElement>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOffset, setDragOffset] = useState({ ox: 0, oy: 0 });
+  const [overTrash,  setOverTrash]  = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const apiClient = useCallback(async (path: string, opts: RequestInit = {}) => {
+    const res = await fetch(`/api/v2/client/${token}${path}`, {
+      ...opts,
+      headers: { ...(opts.headers || {}), 'x-client-auth': jwt },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  }, [token, jwt]);
+
   useEffect(() => {
     async function load() {
       try {
         const [venuesRes, layoutsRes, cfgRes] = await Promise.all([
-          fetch(`${API_URL_CLIENT}/api/v2/events/${eventId}/layout-venues`, { credentials: 'include' }).then(r => r.json()),
-          fetch(`${API_URL_CLIENT}/api/v2/events/${eventId}/layouts`, { credentials: 'include' }).then(r => r.json()),
-          fetch(`${API_URL_CLIENT}/api/v2/admin/layout-config`, { credentials: 'include' }).then(r => r.json()),
+          apiClient('/layout-venues'),
+          apiClient('/layouts'),
+          apiClient('/layout-config'),
         ]);
         const venueList: ClientVenueInfo[] = venuesRes.venues ?? [];
         setVenues(venueList);
         if (venueList.length > 0) setActiveVenueId(venueList[0].venueId);
-        setAllLayouts((layoutsRes.layouts ?? []).filter((l: ClientLayout) => !l.isLocked));
+        // Staff layouts only show once explicitly finalized ("Bloquear para cliente" on the
+        // internal editor); a layout the client made themselves is always visible to them.
+        setAllLayouts((layoutsRes.layouts ?? []).filter((l: ClientLayout) => l.isLocked || l.createdByClient));
         setConfigs(cfgRes.elements ?? []);
       } catch { /* ignore */ } finally {
         setLoading(false);
       }
     }
     load();
-  }, [eventId]);
+  }, [apiClient]);
 
   const activeVenue = venues.find(v => v.venueId === activeVenueId) ?? null;
   const floorPlanUrl = activeVenue?.floorPlanUrl ?? null;
   const floorPlanW   = activeVenue?.floorPlanWidthMeters ?? null;
   const floorPlanH   = activeVenue?.floorPlanHeightMeters ?? null;
+  const maxCounts    = activeVenue?.layoutStock ?? {};
 
   const layouts = allLayouts.filter(l =>
     l.venueId ? l.venueId === activeVenueId : activeVenueId === venues[0]?.venueId
@@ -1529,24 +1557,180 @@ function LayoutTab({ eventId }: { eventId: string }) {
 
   useEffect(() => {
     setActiveId(layouts[0]?.id ?? null);
+    setEditingId(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeVenueId]);
 
   const active = layouts.find(l => l.id === activeId);
+  const isEditing = editingId !== null && editingId === active?.id;
+  const displayElements = isEditing ? draftElements : (active?.elements ?? []);
 
-  function elementStyle(el: LayoutElement): React.CSSProperties {
+  // Legend: every element type used in the layout being shown, with its icon/label and how
+  // many are placed — so the client can tell what each icon represents, and how many of each
+  // (e.g. how many chairs) are actually in the plan.
+  const legendCounts: Record<string, number> = {};
+  for (const el of displayElements) legendCounts[el.type] = (legendCounts[el.type] ?? 0) + 1;
+  const legendItems = Object.entries(legendCounts)
+    .map(([type, count]) => ({ type, count, cfg: configs.find(c => c.type === type) }))
+    .sort((a, b) => (a.cfg?.label ?? a.type).localeCompare(b.cfg?.label ?? b.type));
+
+  function elementStyle(el: LayoutElement, interactive: boolean): React.CSSProperties {
     const cfg = configs.find(c => c.type === el.type);
     const base: React.CSSProperties = {
       position: 'absolute',
       left: `${el.x * 100}%`,
       top: `${el.y * 100}%`,
       transform: `translate(-50%, -50%) rotate(${el.rotation}deg)`,
-      pointerEvents: 'none',
+      pointerEvents: interactive ? 'auto' : 'none',
+      cursor: interactive ? (draggingId === el.id ? 'grabbing' : 'grab') : 'default',
+      zIndex: interactive && selectedId === el.id ? 20 : 10,
     };
     if (floorPlanW && floorPlanH && cfg?.widthMeters && cfg?.heightMeters) {
       return { ...base, width: `${(cfg.widthMeters / floorPlanW) * 100}%`, height: `${(cfg.heightMeters / floorPlanH) * 100}%` };
     }
     return { ...base, width: '6%', aspectRatio: '1' };
+  }
+
+  // ── Own-layout actions ─────────────────────────────────────────────────────
+
+  async function createLayout(fromElements: LayoutElement[], name: string) {
+    if (!activeVenueId) return;
+    setCreating(true);
+    try {
+      const data = await apiClient('/layouts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, elements: fromElements, venueId: activeVenueId }),
+      });
+      const l: ClientLayout = data.layout;
+      setAllLayouts(prev => [...prev, l]);
+      setActiveId(l.id);
+      setEditingId(l.id);
+      setDraftElements(fromElements);
+      setSelectedId(null);
+      setShowNewPicker(false);
+    } catch {
+      alert('Erro ao criar layout.');
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  function enterEdit() {
+    if (!active || !active.createdByClient) return;
+    setEditingId(active.id);
+    setDraftElements(active.elements ?? []);
+    setSelectedId(null);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setSelectedId(null);
+  }
+
+  async function saveDraft() {
+    if (!editingId) return;
+    setSaving(true); setSaveMsg(null);
+    try {
+      await apiClient(`/layouts/${editingId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ elements: draftElements }),
+      });
+      setAllLayouts(prev => prev.map(l => l.id === editingId ? { ...l, elements: draftElements } : l));
+      setSaveMsg({ ok: true, text: 'Salvo!' });
+    } catch {
+      setSaveMsg({ ok: false, text: 'Erro ao salvar.' });
+    } finally {
+      setSaving(false);
+      setTimeout(() => setSaveMsg(null), 3000);
+    }
+  }
+
+  async function deleteOwnLayout(id: string) {
+    if (!confirm('Excluir este layout?')) return;
+    try {
+      await apiClient(`/layouts/${id}`, { method: 'DELETE' });
+      setAllLayouts(prev => prev.filter(l => l.id !== id));
+      if (activeId === id) { setActiveId(null); setEditingId(null); }
+    } catch {
+      alert('Erro ao excluir layout.');
+    }
+  }
+
+  // ── Drag & drop (own layout, editing only) ─────────────────────────────────
+
+  function handleSidebarDragStart(e: React.DragEvent, type: string) {
+    e.dataTransfer.setData('elementType', type);
+    e.dataTransfer.effectAllowed = 'copy';
+  }
+
+  function handleCanvasDrop(e: React.DragEvent) {
+    e.preventDefault();
+    if (!isEditing || !canvasRef.current) return;
+    const type = e.dataTransfer.getData('elementType');
+    if (!type) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
+    const count = draftElements.filter(el => el.type === type).length;
+    const max = maxCounts[type];
+    if (max !== undefined && count >= max) return;
+    setDraftElements(prev => [...prev, { id: layoutUid(), type, x, y, rotation: 0 }]);
+    setSelectedId(null);
+  }
+
+  function handleElementMouseDown(e: React.MouseEvent, id: string) {
+    if (!isEditing || !canvasRef.current) return;
+    e.stopPropagation();
+    setSelectedId(id);
+    const rect = canvasRef.current.getBoundingClientRect();
+    const el = draftElements.find(x => x.id === id)!;
+    setDragOffset({
+      ox: (e.clientX - rect.left) / rect.width - el.x,
+      oy: (e.clientY - rect.top) / rect.height - el.y,
+    });
+    setDraggingId(id);
+  }
+
+  useEffect(() => {
+    if (!draggingId) return;
+    const onMove = (e: MouseEvent) => {
+      if (!canvasRef.current) return;
+      const rect = canvasRef.current.getBoundingClientRect();
+      const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width - dragOffset.ox));
+      const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height - dragOffset.oy));
+      setDraftElements(prev => prev.map(el => el.id === draggingId ? { ...el, x, y } : el));
+      if (trashRef.current) {
+        const tr = trashRef.current.getBoundingClientRect();
+        setOverTrash(e.clientX >= tr.left && e.clientX <= tr.right && e.clientY >= tr.top && e.clientY <= tr.bottom);
+      }
+    };
+    const onUp = (e: MouseEvent) => {
+      if (trashRef.current) {
+        const tr = trashRef.current.getBoundingClientRect();
+        if (e.clientX >= tr.left && e.clientX <= tr.right && e.clientY >= tr.top && e.clientY <= tr.bottom) {
+          setDraftElements(prev => prev.filter(el => el.id !== draggingId));
+          if (selectedId === draggingId) setSelectedId(null);
+        }
+      }
+      setDraggingId(null);
+      setOverTrash(false);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+  }, [draggingId, dragOffset, selectedId]);
+
+  function rotateSelected() {
+    if (!selectedId) return;
+    setDraftElements(prev => prev.map(el => el.id === selectedId ? { ...el, rotation: (el.rotation + 45) % 360 } : el));
+  }
+
+  function removeSelected() {
+    if (!selectedId) return;
+    setDraftElements(prev => prev.filter(el => el.id !== selectedId));
+    setSelectedId(null);
   }
 
   if (loading) {
@@ -1592,15 +1776,53 @@ function LayoutTab({ eventId }: { eventId: string }) {
     );
   }
 
+  const newLayoutPicker = showNewPicker && (
+    <div className="border rounded-xl bg-card p-3 space-y-2">
+      <p className="text-sm font-medium">Novo layout — começar de:</p>
+      <div className="flex flex-col gap-1.5">
+        <button
+          onClick={() => createLayout([], `Meu layout ${allLayouts.filter(l => l.createdByClient).length + 1}`)}
+          disabled={creating}
+          className="text-left px-3 py-2 rounded-lg border hover:bg-muted/50 transition text-sm disabled:opacity-50"
+        >
+          Em branco
+        </button>
+        {layouts.map(l => (
+          <button
+            key={l.id}
+            onClick={() => createLayout(l.elements.map(el => ({ ...el, id: layoutUid() })), `Cópia de ${l.name}`)}
+            disabled={creating}
+            className="text-left px-3 py-2 rounded-lg border hover:bg-muted/50 transition text-sm disabled:opacity-50 flex items-center justify-between gap-2"
+          >
+            <span className="truncate">Copiar "{l.name}"</span>
+            <span className="text-xs text-muted-foreground flex-shrink-0">{l.createdByClient ? 'meu' : 'equipe'}</span>
+          </button>
+        ))}
+      </div>
+      <button onClick={() => setShowNewPicker(false)} className="text-xs text-muted-foreground hover:text-foreground transition">
+        Cancelar
+      </button>
+    </div>
+  );
+
   if (layouts.length === 0) {
     return (
       <div className="flex flex-col gap-3">
         {venueSwitcher}
-        <div className="flex flex-col items-center justify-center gap-3 py-20 text-muted-foreground text-center px-4">
+        {newLayoutPicker}
+        <div className="flex flex-col items-center justify-center gap-3 py-16 text-muted-foreground text-center px-4">
           <Lock className="size-10 opacity-30" />
           <p className="text-sm font-medium uppercase tracking-widest max-w-xs leading-relaxed">
-            Layout em preparação. Confira o layout final com a equipe de produção.
+            Layout da equipe em preparação.
           </p>
+          {!showNewPicker && (
+            <button
+              onClick={() => setShowNewPicker(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm hover:bg-primary/90 transition"
+            >
+              <Plus className="size-4" /> Criar meu layout
+            </button>
+          )}
         </div>
       </div>
     );
@@ -1611,84 +1833,213 @@ function LayoutTab({ eventId }: { eventId: string }) {
       {venueSwitcher}
 
       {/* Layout tabs */}
-      {layouts.length > 1 && (
-        <div className="flex gap-2 flex-wrap">
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex gap-2 flex-wrap flex-1">
           {layouts.map(l => (
             <button
               key={l.id}
-              onClick={() => setActiveId(l.id)}
-              className={`px-3 py-1.5 rounded-lg text-sm border transition ${
+              onClick={() => { setActiveId(l.id); setEditingId(null); }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border transition ${
                 l.id === activeId
                   ? 'bg-primary text-primary-foreground border-primary'
                   : 'bg-card border-input hover:bg-muted/50'
               }`}
             >
               {l.name}
+              {l.createdByClient && <span className="text-[10px] opacity-75">(meu)</span>}
             </button>
           ))}
+        </div>
+        {!showNewPicker && (
+          <button
+            onClick={() => setShowNewPicker(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs hover:bg-muted transition flex-shrink-0"
+          >
+            <Plus className="size-3.5" /> Novo
+          </button>
+        )}
+      </div>
+
+      {newLayoutPicker}
+
+      {/* Own-layout controls */}
+      {active && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {active.createdByClient ? (
+            isEditing ? (
+              <>
+                <button
+                  onClick={saveDraft}
+                  disabled={saving}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-medium hover:bg-primary/90 transition disabled:opacity-50"
+                >
+                  {saving ? 'Salvando...' : 'Salvar'}
+                </button>
+                <button onClick={cancelEdit} className="px-3 py-1.5 border rounded-lg text-xs hover:bg-muted transition">
+                  Fechar edição
+                </button>
+                {saveMsg && <span className={`text-xs ${saveMsg.ok ? 'text-green-600' : 'text-destructive'}`}>{saveMsg.text}</span>}
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={enterEdit}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-medium hover:bg-primary/90 transition"
+                >
+                  <Pencil className="size-3.5" /> Editar meu layout
+                </button>
+                <button
+                  onClick={() => deleteOwnLayout(active.id)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs text-destructive hover:bg-destructive/10 transition"
+                >
+                  <Trash2 className="size-3.5" /> Excluir
+                </button>
+              </>
+            )
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Layout da equipe — somente leitura. Use "Novo" para copiar e editar sua própria versão.
+            </p>
+          )}
         </div>
       )}
 
       {/* Floor plan */}
       <div className="border rounded-xl overflow-hidden bg-muted/20">
-        <div className="flex items-center justify-center p-2">
-          <div
-            className="relative select-none"
-            style={{
-              width: '100%',
-              aspectRatio: imgAspect
-                ? `${imgAspect}`
-                : (floorPlanW && floorPlanH ? `${floorPlanW}/${floorPlanH}` : undefined),
-              maxHeight: '70vh',
-            }}
-          >
-            <img
-              src={floorPlanUrl}
-              alt="Planta baixa"
-              className="absolute inset-0 w-full h-full"
-              style={{ objectFit: 'fill', pointerEvents: 'none' }}
-              draggable={false}
-              onLoad={e => {
-                const img = e.target as HTMLImageElement;
-                setImgAspect(img.naturalWidth / img.naturalHeight);
-              }}
-            />
-
-            {/* Scale lines */}
-            {floorPlanW && floorPlanH && (
-              <svg
-                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 30 }}
-                viewBox="0 0 100 100"
-                preserveAspectRatio="none"
+        <div className="flex flex-col md:flex-row gap-2 p-2">
+          {isEditing && (
+            <div className="md:w-40 flex-shrink-0 flex md:flex-col gap-1.5 overflow-x-auto md:overflow-y-auto md:max-h-[60vh]">
+              {configs.filter(c => c.widthMeters && c.heightMeters).map(cfg => {
+                const count = draftElements.filter(el => el.type === cfg.type).length;
+                const max = maxCounts[cfg.type];
+                const blocked = max !== undefined && count >= max;
+                return (
+                  <div
+                    key={cfg.type}
+                    draggable={!blocked}
+                    onDragStart={e => handleSidebarDragStart(e, cfg.type)}
+                    className={`flex items-center gap-2 p-1.5 border rounded-lg bg-card select-none transition flex-shrink-0 min-w-[9rem] md:min-w-0 ${
+                      blocked ? 'opacity-40 cursor-not-allowed' : 'cursor-grab hover:bg-muted/50 active:cursor-grabbing'
+                    }`}
+                  >
+                    <div className="w-7 h-7 flex-shrink-0">
+                      {cfg.iconUrl
+                        ? <img src={cfg.iconUrl} alt={cfg.type} className="w-full h-full object-contain" />
+                        : (ELEMENT_ICONS[cfg.type] ?? <div className="w-full h-full bg-muted rounded" />)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs leading-tight truncate">{cfg.label}</p>
+                      {max !== undefined && <p className="text-[10px] text-muted-foreground">{count}/{max}</p>}
+                    </div>
+                  </div>
+                );
+              })}
+              <div
+                ref={trashRef}
+                className={`flex items-center justify-center gap-1 py-2 rounded-lg border-2 border-dashed flex-shrink-0 transition-all ${
+                  overTrash ? 'border-destructive bg-destructive/10 text-destructive' : 'border-muted-foreground/20 text-muted-foreground/30'
+                }`}
               >
-                <line x1="2" y1="96" x2="98" y2="96" stroke="#ef4444" strokeWidth="0.4" strokeDasharray="1.5,0.8" />
-                <line x1="2" y1="93.5" x2="2" y2="98.5" stroke="#ef4444" strokeWidth="0.4" />
-                <line x1="98" y1="93.5" x2="98" y2="98.5" stroke="#ef4444" strokeWidth="0.4" />
-                <text x="50" y="100" textAnchor="middle" fontSize="2.8" fill="#ef4444" fontFamily="sans-serif" fontWeight="600">{floorPlanW}m</text>
-                <line x1="97" y1="2" x2="97" y2="95" stroke="#3b82f6" strokeWidth="0.4" strokeDasharray="1.5,0.8" />
-                <line x1="94.5" y1="2" x2="99.5" y2="2" stroke="#3b82f6" strokeWidth="0.4" />
-                <line x1="94.5" y1="95" x2="99.5" y2="95" stroke="#3b82f6" strokeWidth="0.4" />
-                <text x="100" y="50" textAnchor="middle" fontSize="2.8" fill="#3b82f6" fontFamily="sans-serif" fontWeight="600" transform="rotate(90, 100, 50)">{floorPlanH}m</text>
-              </svg>
-            )}
-
-            {/* Placed elements */}
-            {(active?.elements ?? []).map(el => {
-              const cfg = configs.find(c => c.type === el.type);
-              return (
-                <div key={el.id} style={elementStyle(el)}>
-                  {cfg?.iconUrl
-                    ? <img src={cfg.iconUrl} alt={el.type} className="w-full h-full object-contain drop-shadow" draggable={false} />
-                    : <div className="w-full h-full drop-shadow">{ELEMENT_ICONS[el.type]}</div>
-                  }
+                <Trash2 className="size-4" />
+                <span className="text-[10px]">Arraste aqui</span>
+              </div>
+              {selectedId && (
+                <div className="flex gap-1.5 flex-shrink-0">
+                  <button onClick={rotateSelected} className="flex-1 p-1.5 border rounded-lg text-xs hover:bg-muted transition">Girar</button>
+                  <button onClick={removeSelected} className="flex-1 p-1.5 border rounded-lg text-xs text-destructive hover:bg-destructive/10 transition">Remover</button>
                 </div>
-              );
-            })}
+              )}
+            </div>
+          )}
+
+          <div className="flex-1 flex items-center justify-center">
+            <div
+              ref={canvasRef}
+              className="relative select-none"
+              onDragOver={e => isEditing && e.preventDefault()}
+              onDrop={handleCanvasDrop}
+              onClick={() => isEditing && setSelectedId(null)}
+              style={{
+                width: '100%',
+                aspectRatio: imgAspect
+                  ? `${imgAspect}`
+                  : (floorPlanW && floorPlanH ? `${floorPlanW}/${floorPlanH}` : undefined),
+                maxHeight: '70vh',
+              }}
+            >
+              <img
+                src={floorPlanUrl}
+                alt="Planta baixa"
+                className="absolute inset-0 w-full h-full"
+                style={{ objectFit: 'fill', pointerEvents: 'none' }}
+                draggable={false}
+                onLoad={e => {
+                  const img = e.target as HTMLImageElement;
+                  setImgAspect(img.naturalWidth / img.naturalHeight);
+                }}
+              />
+
+              {/* Scale lines */}
+              {floorPlanW && floorPlanH && (
+                <svg
+                  style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 30 }}
+                  viewBox="0 0 100 100"
+                  preserveAspectRatio="none"
+                >
+                  <line x1="2" y1="96" x2="98" y2="96" stroke="#ef4444" strokeWidth="0.4" strokeDasharray="1.5,0.8" />
+                  <line x1="2" y1="93.5" x2="2" y2="98.5" stroke="#ef4444" strokeWidth="0.4" />
+                  <line x1="98" y1="93.5" x2="98" y2="98.5" stroke="#ef4444" strokeWidth="0.4" />
+                  <text x="50" y="100" textAnchor="middle" fontSize="2.8" fill="#ef4444" fontFamily="sans-serif" fontWeight="600">{floorPlanW}m</text>
+                  <line x1="97" y1="2" x2="97" y2="95" stroke="#3b82f6" strokeWidth="0.4" strokeDasharray="1.5,0.8" />
+                  <line x1="94.5" y1="2" x2="99.5" y2="2" stroke="#3b82f6" strokeWidth="0.4" />
+                  <line x1="94.5" y1="95" x2="99.5" y2="95" stroke="#3b82f6" strokeWidth="0.4" />
+                  <text x="100" y="50" textAnchor="middle" fontSize="2.8" fill="#3b82f6" fontFamily="sans-serif" fontWeight="600" transform="rotate(90, 100, 50)">{floorPlanH}m</text>
+                </svg>
+              )}
+
+              {/* Placed elements */}
+              {displayElements.map(el => (
+                <div
+                  key={el.id}
+                  style={elementStyle(el, isEditing)}
+                  onMouseDown={e => handleElementMouseDown(e, el.id)}
+                  onClick={e => isEditing && e.stopPropagation()}
+                  className={isEditing && selectedId === el.id ? 'ring-2 ring-primary ring-offset-1 rounded' : ''}
+                >
+                  {(() => {
+                    const cfg = configs.find(c => c.type === el.type);
+                    return cfg?.iconUrl
+                      ? <img src={cfg.iconUrl} alt={el.type} className="w-full h-full object-contain drop-shadow" draggable={false} />
+                      : <div className="w-full h-full drop-shadow">{ELEMENT_ICONS[el.type]}</div>;
+                  })()}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
 
-      {active && (
+      {/* Legend — what each icon represents and how many are placed */}
+      {legendItems.length > 0 && (
+        <div className="border rounded-xl bg-card p-3">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Legenda</p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+            {legendItems.map(({ type, count, cfg }) => (
+              <div key={type} className="flex items-center gap-2 p-1.5 rounded-lg bg-muted/30">
+                <div className="w-7 h-7 flex-shrink-0">
+                  {cfg?.iconUrl
+                    ? <img src={cfg.iconUrl} alt={type} className="w-full h-full object-contain" />
+                    : (ELEMENT_ICONS[type] ?? <div className="w-full h-full bg-muted rounded" />)}
+                </div>
+                <span className="text-xs truncate flex-1">{cfg?.label ?? type}</span>
+                <span className="text-xs font-semibold text-primary flex-shrink-0">×{count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {active && !isEditing && (
         <p className="text-xs text-muted-foreground text-center">
           Layout: <span className="font-medium">{active.name}</span> · Visualização apenas
         </p>
@@ -1827,7 +2178,7 @@ export default function ClientPortalPage() {
         {activeTab === 'ab' && <FoodTab token={token} jwt={jwt} approvals={approvals} onToggle={toggleApproval} locked={locked} />}
         {activeTab === 'plan' && <PlanTab token={token} jwt={jwt} approvals={approvals} onToggle={toggleApproval} locked={locked} />}
         {activeTab === 'schedule' && <ScheduleTab token={token} jwt={jwt} approvals={approvals} onToggle={toggleApproval} locked={locked} />}
-        {activeTab === 'layout' && <LayoutTab eventId={event.id} />}
+        {activeTab === 'layout' && <LayoutTab token={token} jwt={jwt} />}
         {activeTab === 'media' && <MediaTab token={token} jwt={jwt} />}
         {activeTab === 'spotify' && <SpotifyTab token={token} jwt={jwt} />}
       </div>
