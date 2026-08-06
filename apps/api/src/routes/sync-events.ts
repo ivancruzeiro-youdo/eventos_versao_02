@@ -166,44 +166,73 @@ function groupContracts(contracts: any[]): Map<string, any[]> {
   return map;
 }
 
-// Build items snapshot from experience contracts — keeps duplicates separate (one entry per occurrence)
-// Fields: id, prodct-id, name, qtde, details.category, details.unity
+// Build items snapshot from experience contracts — Userp composes a contract family
+// additively (main + every secondary each contribute their own headcount/quantity for the
+// SAME product; the true total is the SUM across all of them — e.g. main has 5 Garçom, a
+// secondary adds 2 more → 7 total, never a replacement of one by the other). Aggregates by
+// resolved product identity across the whole family; a genuine duplicate LINE within the
+// SAME single contract still stays as a separate occurrence (rare, but some contracts do
+// list the same product twice on purpose — that's what the "agrupar duplicados" toggle is
+// for, via collapseItemsSnapshot).
+// Fields: product_id, name, qtde, details.category, details.unity
 function buildItemsSnapshot(contracts: any[]): { name: string; qty: number; unit: string; externalProductCode: string | null; categoryName: string | null; occurrenceIndex: number; sourceContractExternalId: string | null }[] {
-  const list: { name: string; qty: number; unit: string; externalProductCode: string | null; categoryName: string | null; occurrenceIndex: number; sourceContractExternalId: string | null }[] = [];
-  const counts: Record<string, number> = {};
+  type Item = { name: string; qty: number; unit: string; externalProductCode: string | null; categoryName: string | null; occurrenceIndex: number; sourceContractExternalId: string | null };
+  const primary = new Map<string, Item>();
+  const extras: Item[] = [];
+  const extraCounts: Record<string, number> = {};
+
   for (const c of contracts) {
     const mainContractId = String(c.codlocacontrato || '') || null;
     const produtos: any[] = c.produtos || [];
     const secondary: any[] = c._secondary || [];
-    // Tag each product with the actual contract (main or secondary) it came from — used as
-    // EventItem.sourceContractId. Products used to be tagged with the *primary* contract of
-    // the whole sync batch regardless of which one they really came from, which made it
-    // impossible to tell (or later verify against Userp) where an item actually originated.
-    const allProdutos = [
-      ...produtos.map((p: any) => ({ p, sourceContractExternalId: mainContractId })),
-      ...secondary.flatMap((s: any) => {
-        const secId = String(s.codlocacontrato || '') || mainContractId;
-        return (s.produtos || []).map((p: any) => ({ p, sourceContractExternalId: secId }));
-      }),
+    const groups: { items: any[]; contractId: string | null }[] = [
+      { items: produtos, contractId: mainContractId },
+      ...secondary.map((s: any) => ({ items: (s.produtos || []) as any[], contractId: String(s.codlocacontrato || '') || mainContractId })),
     ];
-    for (const { p, sourceContractExternalId } of allProdutos) {
-      const extId = String(p['prodct-id'] || p.id || '');
-      const key = extId || p.name || '';
-      if (!key) continue;
-      const occ = counts[key] ?? 0;
-      counts[key] = occ + 1;
-      list.push({
-        name: p.name || p.details?.description || key,
-        qty: Number(p.qtde || 1),
-        unit: p.details?.unity || '',
-        externalProductCode: extId || null,
-        categoryName: p.details?.category || null,
-        occurrenceIndex: occ,
-        sourceContractExternalId,
-      });
+
+    for (const { items, contractId } of groups) {
+      const seenInThisContract = new Set<string>();
+      for (const p of items) {
+        // product_id is the real, stable catalog id (matches Product.externalId) — the old
+        // "prodct-id" key never existed in the payload (typo), which silently fell through to
+        // p.id — a per-contract-LINE id, unique even for the same product on different
+        // contracts. That made every cross-contract occurrence of e.g. "Garçom" look like a
+        // brand new, never-seen product, so main's and a secondary's lines collided at
+        // occurrence 0 and the later one just overwrote the former's quantity instead of the
+        // two being recognized as the same product and summed.
+        const extId = String(p.product_id ?? p['prodct-id'] ?? '');
+        const key = extId || String(p.name || p.details?.description || '');
+        if (!key) continue;
+        const qty = Number(p.qtde || 1);
+        const base: Item = {
+          name: p.name || p.details?.description || key,
+          qty,
+          unit: p.details?.unity || '',
+          externalProductCode: extId || null,
+          categoryName: p.details?.category || null,
+          occurrenceIndex: 0,
+          sourceContractExternalId: contractId,
+        };
+
+        if (seenInThisContract.has(key)) {
+          const occ = (extraCounts[key] ?? 0) + 1;
+          extraCounts[key] = occ;
+          extras.push({ ...base, occurrenceIndex: occ });
+          continue;
+        }
+        seenInThisContract.add(key);
+
+        const existing = primary.get(key);
+        if (existing) {
+          existing.qty += qty; // additive across contracts — main + secondary compose, never replace
+        } else {
+          primary.set(key, base);
+        }
+      }
     }
   }
-  return list;
+
+  return [...primary.values(), ...extras];
 }
 
 // Collapse duplicate products by summing quantities (used when operator chooses to group)
