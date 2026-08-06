@@ -7,7 +7,7 @@ import {
   Upload, Trash2, Plus, Search, CheckCircle, AlertCircle,
   FileImage, FileVideo, User, ChevronDown, ChevronRight, X,
   Utensils, Circle, LayoutGrid, Lock, MonitorPlay, Video, Music,
-  Image as ImageIcon, Pencil, Check,
+  Image as ImageIcon, Pencil, Check, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import { ELEMENT_ICONS } from '@/components/layout-element-icons';
 
@@ -1490,6 +1490,10 @@ interface ClientVenueInfo {
 
 function layoutUid() { return Math.random().toString(36).slice(2) + Date.now().toString(36); }
 
+const LAYOUT_ZOOM_MIN = 0.5;
+const LAYOUT_ZOOM_MAX = 3;
+const LAYOUT_ZOOM_STEP = 0.25;
+
 function LayoutTab({ token, jwt }: { token: string; jwt: string }) {
   const [venues,       setVenues]         = useState<ClientVenueInfo[]>([]);
   const [activeVenueId, setActiveVenueId] = useState<string | null>(null);
@@ -1513,6 +1517,7 @@ function LayoutTab({ token, jwt }: { token: string; jwt: string }) {
   const [dragOffset, setDragOffset] = useState({ ox: 0, oy: 0 });
   const [overTrash,  setOverTrash]  = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [zoom,       setZoom]       = useState(1);
 
   const apiClient = useCallback(async (path: string, opts: RequestInit = {}) => {
     const res = await fetch(`/api/v2/client/${token}${path}`, {
@@ -1905,7 +1910,32 @@ function LayoutTab({ token, jwt }: { token: string; jwt: string }) {
       )}
 
       {/* Floor plan */}
-      <div className="border rounded-xl overflow-hidden bg-muted/20">
+      <div className="relative border rounded-xl overflow-hidden bg-muted/20">
+        <div className="absolute bottom-2 right-2 z-50 flex items-center gap-1 bg-card border rounded-lg shadow-lg px-1.5 py-1">
+          <button
+            onClick={() => setZoom(z => Math.max(LAYOUT_ZOOM_MIN, Math.round((z - LAYOUT_ZOOM_STEP) * 100) / 100))}
+            disabled={zoom <= LAYOUT_ZOOM_MIN}
+            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition disabled:opacity-30"
+            title="Diminuir zoom"
+          >
+            <ZoomOut className="size-3.5" />
+          </button>
+          <button
+            onClick={() => setZoom(1)}
+            className="text-xs text-muted-foreground hover:text-foreground transition w-10 text-center"
+            title="Redefinir zoom"
+          >
+            {Math.round(zoom * 100)}%
+          </button>
+          <button
+            onClick={() => setZoom(z => Math.min(LAYOUT_ZOOM_MAX, Math.round((z + LAYOUT_ZOOM_STEP) * 100) / 100))}
+            disabled={zoom >= LAYOUT_ZOOM_MAX}
+            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition disabled:opacity-30"
+            title="Aumentar zoom"
+          >
+            <ZoomIn className="size-3.5" />
+          </button>
+        </div>
         <div className="flex flex-col md:flex-row gap-2 p-2">
           {isEditing && (
             <div className="md:w-40 flex-shrink-0 flex md:flex-col gap-1.5 overflow-x-auto md:overflow-y-auto md:max-h-[60vh]">
@@ -1952,10 +1982,10 @@ function LayoutTab({ token, jwt }: { token: string; jwt: string }) {
             </div>
           )}
 
-          <div className="flex-1 flex items-center justify-center">
+          <div className="flex-1 flex items-center justify-center overflow-auto">
             <div
               ref={canvasRef}
-              className="relative select-none"
+              className="relative select-none flex-shrink-0"
               onDragOver={e => isEditing && e.preventDefault()}
               onDrop={handleCanvasDrop}
               onClick={() => isEditing && setSelectedId(null)}
@@ -1965,6 +1995,7 @@ function LayoutTab({ token, jwt }: { token: string; jwt: string }) {
                   ? `${imgAspect}`
                   : (floorPlanW && floorPlanH ? `${floorPlanW}/${floorPlanH}` : undefined),
                 maxHeight: '70vh',
+                transform: `scale(${zoom})`,
               }}
             >
               <img

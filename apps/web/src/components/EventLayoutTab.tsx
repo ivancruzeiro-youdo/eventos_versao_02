@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { RotateCw, X, Save, Loader2, AlertCircle, Lock, Unlock, Plus, Trash2, LayoutGrid } from 'lucide-react';
+import { RotateCw, X, Save, Loader2, AlertCircle, Lock, Unlock, Plus, Trash2, LayoutGrid, ZoomIn, ZoomOut } from 'lucide-react';
 import { ELEMENT_ICONS } from './layout-element-icons';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
@@ -201,6 +201,10 @@ async function api(url: string, opts: RequestInit = {}) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
+const ZOOM_MIN = 0.5;
+const ZOOM_MAX = 3;
+const ZOOM_STEP = 0.25;
+
 export default function EventLayoutTab({ eventId }: { eventId: string }) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const trashRef  = useRef<HTMLDivElement>(null);
@@ -209,6 +213,7 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
   const [venues,          setVenues]          = useState<EventVenueInfo[]>([]);
   const [activeVenueId,   setActiveVenueId]   = useState<string | null>(null);
   const [imgAspect,       setImgAspect]       = useState<number | null>(null);
+  const [zoom,            setZoom]            = useState(1);
 
   const activeVenue = venues.find(v => v.venueId === activeVenueId) ?? null;
   const floorPlanUrl = activeVenue?.floorPlanUrl ?? null;
@@ -320,6 +325,7 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
     setElements(l.elements ?? []);
     setSelectedIds(new Set());
     setEditingName(false);
+    setZoom(1);
   }
 
   async function createLayout(fromElements: PlacedElement[] = [], fromName?: string) {
@@ -926,7 +932,34 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
         </div>
 
         {/* Canvas area */}
-        <div className="flex-1 border rounded-xl overflow-hidden bg-muted/30 min-h-0">
+        <div className="relative flex-1 border rounded-xl overflow-hidden bg-muted/30 min-h-0">
+          {floorPlanUrl && layouts.length > 0 && (
+            <div className="absolute bottom-2 right-2 z-50 flex items-center gap-1 bg-card border rounded-lg shadow-lg px-1.5 py-1">
+              <button
+                onClick={() => setZoom(z => Math.max(ZOOM_MIN, Math.round((z - ZOOM_STEP) * 100) / 100))}
+                disabled={zoom <= ZOOM_MIN}
+                className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition disabled:opacity-30"
+                title="Diminuir zoom"
+              >
+                <ZoomOut className="size-3.5" />
+              </button>
+              <button
+                onClick={() => setZoom(1)}
+                className="text-xs text-muted-foreground hover:text-foreground transition w-10 text-center"
+                title="Redefinir zoom"
+              >
+                {Math.round(zoom * 100)}%
+              </button>
+              <button
+                onClick={() => setZoom(z => Math.min(ZOOM_MAX, Math.round((z + ZOOM_STEP) * 100) / 100))}
+                disabled={zoom >= ZOOM_MAX}
+                className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition disabled:opacity-30"
+                title="Aumentar zoom"
+              >
+                <ZoomIn className="size-3.5" />
+              </button>
+            </div>
+          )}
           {!floorPlanUrl ? (
             <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
               <AlertCircle className="size-12" />
@@ -955,10 +988,10 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
                   Configure as dimensões do espaço em <strong className="mx-1">Espaços → [nome]</strong> para ver a escala real dos elementos.
                 </div>
               )}
-              <div className="flex-1 flex items-center justify-center overflow-hidden min-h-0 p-1">
+              <div className="flex-1 flex items-center justify-center overflow-auto min-h-0 p-1">
                 <div
                   ref={canvasRef}
-                  className="relative select-none"
+                  className="relative select-none flex-shrink-0"
                   onDragOver={e => e.preventDefault()}
                   onDrop={handleCanvasDrop}
                   onMouseDown={handleCanvasMouseDown}
@@ -970,6 +1003,7 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
                     aspectRatio: imgAspect
                       ? `${imgAspect}`
                       : (hasScale ? `${floorPlanW}/${floorPlanH}` : '4/3'),
+                    transform: `scale(${zoom})`,
                   }}
                 >
                   <img
