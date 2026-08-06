@@ -129,6 +129,10 @@ export default function EventDetailPage() {
     items: { id: string; name: string; category: string; quantity: number }[];
   }[]>([]);
   const [confirmingRemovalId, setConfirmingRemovalId] = useState<string | null>(null);
+  const [pendingItemRemovals, setPendingItemRemovals] = useState<{
+    itemId: string; name: string; category: string; quantity: number; contractExternalId: string;
+  }[]>([]);
+  const [confirmingItemRemovalId, setConfirmingItemRemovalId] = useState<string | null>(null);
 
   // Inline date editing
   const [editingDates, setEditingDates] = useState(false);
@@ -246,6 +250,7 @@ export default function EventDetailPage() {
       for (const h of data.contractHealth ?? []) map[h.id] = { missing: h.missing, unlinkedInUerp: h.unlinkedInUerp };
       setContractHealth(map);
       setPendingRemovals(data.pendingRemovals ?? []);
+      setPendingItemRemovals(data.pendingItemRemovals ?? []);
     } catch { /* silent */ }
   }
 
@@ -265,6 +270,25 @@ export default function EventDetailPage() {
       alert('Erro ao remover o contrato.');
     } finally {
       setConfirmingRemovalId(null);
+    }
+  }
+
+  async function confirmItemRemoval(itemId: string) {
+    setConfirmingItemRemovalId(itemId);
+    try {
+      const r = await fetch(`/api/v2/events/${eventId}/items/${itemId}/confirm-removal`, {
+        method: 'POST', credentials: 'include',
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        alert(err.error || 'Erro ao remover o item.');
+        return;
+      }
+      await Promise.all([loadEvent(), loadContractHealth()]);
+    } catch {
+      alert('Erro ao remover o item.');
+    } finally {
+      setConfirmingItemRemovalId(null);
     }
   }
 
@@ -911,6 +935,34 @@ export default function EventDetailPage() {
                     className="mt-2 flex items-center gap-1 px-3 py-1.5 text-xs rounded bg-amber-600 text-white hover:bg-amber-700 transition disabled:opacity-50"
                   >
                     {confirmingRemovalId === pr.contractId ? 'Removendo...' : 'Confirmar remoção'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Individual item removal proposals — product dropped from a contract that's still valid */}
+      {pendingItemRemovals.length > 0 && (
+        <div className="mb-4 space-y-2">
+          {pendingItemRemovals.map(pr => (
+            <div key={pr.itemId} className="border border-amber-300 bg-amber-50 rounded-xl px-4 py-3">
+              <div className="flex items-start gap-2">
+                <AlertTriangle size={16} className="text-amber-600 mt-0.5 shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-amber-900">
+                    "{pr.name}" não foi mais encontrado no contrato {pr.contractExternalId} do UERP.
+                  </p>
+                  <p className="text-xs text-amber-800 mt-1">
+                    {pr.category} — qtd. {pr.quantity}. O contrato ainda existe, mas esse produto não está mais nele.
+                  </p>
+                  <button
+                    onClick={() => confirmItemRemoval(pr.itemId)}
+                    disabled={confirmingItemRemovalId === pr.itemId}
+                    className="mt-2 flex items-center gap-1 px-3 py-1.5 text-xs rounded bg-amber-600 text-white hover:bg-amber-700 transition disabled:opacity-50"
+                  >
+                    {confirmingItemRemovalId === pr.itemId ? 'Removendo...' : 'Confirmar remoção'}
                   </button>
                 </div>
               </div>
