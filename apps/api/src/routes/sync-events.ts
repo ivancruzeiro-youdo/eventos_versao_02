@@ -953,6 +953,115 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       });
     }
 
+    // Live product list (by name, lowercased) for every contract that's still linked and
+    // valid (main + secondaries not flagged missing/unlinked) — built once, reused below by
+    // both the reconciliation (add-missing) and removal-detection (drop-orphaned) passes.
+    const liveNamesByContract = new Map<string, Set<string>>();
+    for (let i = 0; i < contractHealth.length; i++) {
+      const h = contractHealth[i];
+      if (h.missing || h.unlinkedInUerp) continue; // gone entirely — handled by pendingRemovals above
+      const liveProducts: any[] | undefined = i === 0
+        ? detailByExternalId.get(h.externalId)?.main?.produtos
+        : (mainDetail?.secondary ?? []).find((s: any) => String(s.codlocacontrato || '') === String(h.externalId))?.produtos;
+      if (!liveProducts) continue; // couldn't verify this contract's current product list — inconclusive
+      liveNamesByContract.set(
+        h.externalId,
+        new Set(liveProducts.map((p: any) => String(p.name || p.details?.description || '').trim().toLowerCase()))
+      );
+    }
+    // Union across all valid contracts — checking removal-eligibility against this instead of
+    // only the item's own recorded sourceContractId avoids false positives when that field is
+    // stale/wrong (e.g. items imported before per-item contract tracking existed): a product
+    // that's live under a DIFFERENT valid contract than the one it happens to be tagged with
+    // must never be proposed for removal.
+    const allLiveNames = new Set<string>();
+    for (const set of liveNamesByContract.values()) for (const n of set) allLiveNames.add(n);
+    const validExternalIds = [...liveNamesByContract.keys()];
+
+    // Reconciliation: a live product in a still-valid contract with no matching EventItem
+    // anywhere in the event (by name) is imported right now — purely additive, so unlike
+    // removal this needs no confirmation step, same as a normal periodic sync would do.
+    const reimportedNames: string[] = [];
+    if (validExternalIds.length > 0) {
+      const existingItems = await (prisma as any).eventItem.findMany({ where: { eventId }, select: { name: true } });
+      const existingNames = new Set(existingItems.map((it: any) => it.name.trim().toLowerCase()));
+
+      const [allProducts, eventRecord] = await Promise.all([
+        (prisma as any).product.findMany({ include: { services: { include: { service: true } } } }),
+        (prisma as any).event.findUnique({ where: { id: eventId }, select: { startAt: true, teardownAt: true } }),
+      ]);
+      const productByName = new Map<string, any>();
+      for (const p of allProducts) productByName.set(p.name.trim().toLowerCase(), p);
+
+      for (let i = 0; i < contractHealth.length; i++) {
+        const h = contractHealth[i];
+        const liveNames = liveNamesByContract.get(h.externalId);
+        if (!liveNames) continue;
+        const liveProducts: any[] = i === 0
+          ? detailByExternalId.get(h.externalId)?.main?.produtos ?? []
+          : (mainDetail?.secondary ?? []).find((s: any) => String(s.codlocacontrato || '') === String(h.externalId))?.produtos ?? [];
+
+        for (const p of liveProducts) {
+          const pname = String(p.name || p.details?.description || '').trim();
+          if (!pname || existingNames.has(pname.toLowerCase())) continue;
+
+          const product = productByName.get(pname.toLowerCase());
+          if (!product) continue; // not in our catalog — nothing we can safely auto-create
+
+          const category = mapCategory(product.categoryName) || 'other';
+          const qty = Number(p.qtde || 1);
+          await (prisma as any).eventItem.create({
+            data: {
+              eventId, productId: product.id, sourceContractId: h.externalId,
+              category, name: pname, quantity: qty, unit: p.details?.unity || null,
+            },
+          });
+          existingNames.add(pname.toLowerCase());
+          reimportedNames.push(pname);
+
+          // Staff: upsert EventService slots (never delete/duplicate — existingSvc short-circuits)
+          if (category === 'staff') {
+            const staffServices: { id: string; name: string }[] = (product.services || []).map((l: any) => ({
+              id: l.service?.id || l.serviceId, name: l.service?.name || '',
+            }));
+            const eventStartAt: Date = eventRecord?.startAt ?? new Date(`${startDate}T12:00:00`);
+            const eventEndBase: Date = eventRecord?.teardownAt ?? eventStartAt;
+            for (const svc of staffServices) {
+              const allocations = await resolveStaffAllocations(svc, qty);
+              for (const alloc of allocations) {
+                const existingSvc = await (prisma as any).eventService.findFirst({ where: { eventId, serviceId: alloc.serviceId } });
+                if (existingSvc) {
+                  await (prisma as any).eventService.update({ where: { id: existingSvc.id }, data: { maxSlots: alloc.maxSlots } });
+                } else {
+                  const svcData = await (prisma as any).freelancerService.findUnique({ where: { id: alloc.serviceId } });
+                  const startOffset: number = svcData?.startOffsetMinutes ?? -60;
+                  const endOffset: number = svcData?.endOffsetMinutes ?? 60;
+                  await (prisma as any).eventService.create({
+                    data: {
+                      eventId, serviceId: alloc.serviceId, productName: pname, maxSlots: alloc.maxSlots,
+                      valuePerHour: svcData?.hourlyRate ?? 0,
+                      startAt: new Date(eventStartAt.getTime() + startOffset * 60_000),
+                      endAt: new Date(eventEndBase.getTime() + endOffset * 60_000),
+                      status: 'active',
+                    },
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+
+      if (reimportedNames.length > 0) {
+        await (prisma as any).eventComment.create({
+          data: {
+            eventId, userId: null, isSystem: true,
+            content: `Reconciliação automática com o Userp: item(ns) ausente(s) no sistema foram reimportados — ${reimportedNames.join(', ')}.`,
+          },
+        });
+      }
+    }
+
     // Individual products dropped from a contract that's still linked and valid (different
     // from the whole-contract case above) — e.g. the contract still exists, but this one
     // product line was removed/replaced in Userp. Same detect-only, confirm-to-delete pattern
@@ -960,28 +1069,16 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     const pendingItemRemovals: {
       itemId: string; name: string; category: string; quantity: number; contractExternalId: string;
     }[] = [];
-    for (let i = 0; i < contractHealth.length; i++) {
-      const h = contractHealth[i];
-      if (h.missing || h.unlinkedInUerp) continue; // already covered by pendingRemovals above
-
-      const liveProducts: any[] | undefined = i === 0
-        ? detailByExternalId.get(h.externalId)?.main?.produtos
-        : (mainDetail?.secondary ?? []).find((s: any) => String(s.codlocacontrato || '') === String(h.externalId))?.produtos;
-      if (!liveProducts) continue; // couldn't verify this contract's current product list — inconclusive, never propose removal
-
-      const liveNames = new Set(
-        liveProducts.map((p: any) => String(p.name || p.details?.description || '').trim().toLowerCase())
-      );
-
-      const itemsFromThisContract = await (prisma as any).eventItem.findMany({
-        where: { eventId, sourceContractId: h.externalId },
-        select: { id: true, name: true, category: true, quantity: true },
+    if (validExternalIds.length > 0) {
+      const itemsFromValidContracts = await (prisma as any).eventItem.findMany({
+        where: { eventId, sourceContractId: { in: validExternalIds } },
+        select: { id: true, name: true, category: true, quantity: true, sourceContractId: true },
       });
-      for (const it of itemsFromThisContract) {
-        if (!liveNames.has(it.name.trim().toLowerCase())) {
+      for (const it of itemsFromValidContracts) {
+        if (!allLiveNames.has(it.name.trim().toLowerCase())) {
           pendingItemRemovals.push({
             itemId: it.id, name: it.name, category: it.category, quantity: it.quantity,
-            contractExternalId: h.externalId,
+            contractExternalId: it.sourceContractId,
           });
         }
       }
@@ -1164,23 +1261,30 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: e.message });
     }
 
-    // Re-check right before deleting — the item's contract might be a secondary, which only
-    // resolves via its parent main contract's own details (never standalone).
+    // Re-check right before deleting against the UNION of every still-valid contract linked to
+    // this event (not just item.sourceContractId's own one) — that field can be stale/wrong for
+    // items imported before per-item contract tracking existed, and trusting it alone here would
+    // risk deleting a product that's actually still live under a different valid contract.
     const eventContracts = await (prisma as any).eventContract.findMany({ where: { eventId }, orderBy: { createdAt: 'asc' } });
     const mainExternalId = eventContracts[0]?.externalId;
     const mainDetail = mainExternalId ? await fetchContratoDetails(token, baseUrl, Number(mainExternalId)) : null;
     if (!mainDetail) {
       return reply.status(409).send({ error: 'Não foi possível confirmar o estado atual no Userp — remoção cancelada.' });
     }
-    const liveProducts: any[] | undefined = String(item.sourceContractId) === String(mainExternalId)
-      ? mainDetail.main?.produtos
-      : (mainDetail.secondary ?? []).find((s: any) => String(s.codlocacontrato || '') === String(item.sourceContractId))?.produtos;
-    if (!liveProducts) {
-      return reply.status(409).send({ error: 'Não foi possível confirmar o estado atual desse contrato no Userp — remoção cancelada.' });
+    const mainSecondaryIds = new Set((mainDetail.secondary ?? []).map((s: any) => String(s.codlocacontrato || '')));
+    const allLiveNames = new Set<string>();
+    for (const p of mainDetail.main?.produtos ?? []) {
+      allLiveNames.add(String(p.name || p.details?.description || '').trim().toLowerCase());
     }
-    const liveNames = new Set(liveProducts.map((p: any) => String(p.name || p.details?.description || '').trim().toLowerCase()));
-    if (liveNames.has(item.name.trim().toLowerCase())) {
-      return reply.status(409).send({ error: 'Este produto voltou a existir no contrato do Userp — remoção cancelada.' });
+    for (const ec of eventContracts.slice(1)) {
+      if (!mainSecondaryIds.has(String(ec.externalId))) continue; // unlinked — not part of the valid union
+      const secProducts = (mainDetail.secondary ?? []).find((s: any) => String(s.codlocacontrato || '') === String(ec.externalId))?.produtos ?? [];
+      for (const p of secProducts) {
+        allLiveNames.add(String(p.name || p.details?.description || '').trim().toLowerCase());
+      }
+    }
+    if (allLiveNames.has(item.name.trim().toLowerCase())) {
+      return reply.status(409).send({ error: 'Este produto voltou a existir num contrato válido do Userp — remoção cancelada.' });
     }
 
     // KitchenEventMenu.eventItemId has no cascade rule — null it out before deleting the item.
