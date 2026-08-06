@@ -343,9 +343,16 @@ export async function freelancerRoutes(app: FastifyInstance) {
   // Apply for a job slot (jobId = EventService ID)
   app.post('/freelancer/jobs/:jobId/apply', { preHandler: requireAuth }, async (request, reply) => {
     const user = (request as any).user;
-    
+
     if (user.role !== 'freelancer') {
       return reply.status(403).send({ error: 'Freelancer access only' });
+    }
+
+    // requireAuth já bloqueia login/sessão de freelancer suspenso, mas essa checagem fica
+    // duplicada aqui de propósito — se o middleware um dia mudar, a candidatura continua
+    // protegida sem depender dele.
+    if (user.status === 'suspended') {
+      return reply.status(403).send({ error: 'Sua conta está suspensa e não pode se candidatar a vagas.' });
     }
 
     const { jobId } = request.params as { jobId: string };
