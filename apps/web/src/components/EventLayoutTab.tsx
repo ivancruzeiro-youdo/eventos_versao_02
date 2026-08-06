@@ -248,12 +248,16 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
   const [templates,        setTemplates]        = useState<{id:string;name:string;elements:PlacedElement[]}[]>([]);
   const [showTplPicker,    setShowTplPicker]    = useState(false);
 
-  // Drag
+  // Drag — dragAnchor.startPositions holds every selected element's position at mousedown, so
+  // dragging any one of a multi-selection moves the whole group by the same delta.
   const [draggingId,  setDraggingId]  = useState<string | null>(null);
-  const [dragOffset,  setDragOffset]  = useState({ ox: 0, oy: 0 });
+  const [dragAnchor,  setDragAnchor]  = useState<{ mouseX: number; mouseY: number; startPositions: Record<string, { x: number; y: number }> } | null>(null);
   const [overTrash,   setOverTrash]   = useState(false);
-  const [selectedId,  setSelectedId]  = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [hoverId,     setHoverId]     = useState<string | null>(null);
+  // Rubber-band selection — dragging on empty canvas draws this box; released, it selects
+  // every element whose center falls inside it (a plain click with no drag just clears selection).
+  const [marquee,     setMarquee]     = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
 
   const activeLayout = layouts.find(l => l.id === activeLayoutId) ?? null;
 
@@ -289,7 +293,7 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
   // When the active venue changes, select its first layout and load its templates
   useEffect(() => {
     if (!activeVenueId) return;
-    setSelectedId(null);
+    setSelectedIds(new Set());
     setEditingName(false);
     setShowTplPicker(false);
     if (layouts.length > 0) {
@@ -313,7 +317,7 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
     if (!l) return;
     setActiveLayoutId(id);
     setElements(l.elements ?? []);
-    setSelectedId(null);
+    setSelectedIds(new Set());
     setEditingName(false);
   }
 
@@ -330,7 +334,7 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
       setAllLayouts(prev => [...prev, l]);
       setActiveLayoutId(l.id);
       setElements(fromElements);
-      setSelectedId(null);
+      setSelectedIds(new Set());
     } catch { /* ignore */ } finally {
       setCreatingLayout(false);
     }
@@ -450,7 +454,7 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
     if (!placed) return;
     setElements(prev => [...prev, ...placed]);
     flashRecentlyAdded(placed.map(p => p.id));
-    setSelectedId(null);
+    setSelectedIds(new Set());
   }
 
   function handleCanvasDrop(e: React.DragEvent) {
@@ -478,32 +482,66 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
     const max = maxCounts[type];
     if (max !== undefined && count >= max) return;
     setElements(prev => [...prev, { id: uid(), type, x, y, rotation: 0 }]);
-    setSelectedId(null);
+    setSelectedIds(new Set());
   }
 
   function handleElementMouseDown(e: React.MouseEvent, id: string) {
     e.stopPropagation();
-    setSelectedId(id);
     if (!canvasRef.current) return;
+
+    if (e.shiftKey) {
+      // Shift-click only toggles membership — never starts a drag, so an accidental small
+      // move right after doesn't drag the element the click landed on.
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id); else next.add(id);
+        return next;
+      });
+      return;
+    }
+
+    // Clicking an element that's already part of a multi-selection keeps the whole group
+    // selected (so dragging it moves everyone); clicking any other element replaces the
+    // selection with just that one.
+    const effectiveSelection = selectedIds.has(id) && selectedIds.size > 1 ? selectedIds : new Set([id]);
+    setSelectedIds(effectiveSelection);
+
     const rect = canvasRef.current.getBoundingClientRect();
-    const el = elements.find(x => x.id === id)!;
-    setDragOffset({
-      ox: (e.clientX - rect.left) / rect.width - el.x,
-      oy: (e.clientY - rect.top) / rect.height - el.y,
-    });
+    const mouseX = (e.clientX - rect.left) / rect.width;
+    const mouseY = (e.clientY - rect.top) / rect.height;
+    const startPositions: Record<string, { x: number; y: number }> = {};
+    for (const elId of effectiveSelection) {
+      const el = elements.find(x => x.id === elId);
+      if (el) startPositions[elId] = { x: el.x, y: el.y };
+    }
+    setDragAnchor({ mouseX, mouseY, startPositions });
     setDraggingId(id);
   }
 
-  // Window-level drag: tracks mouse across entire page, handles trash
+  // Window-level drag: tracks mouse across entire page, moves every selected element by the
+  // same delta (so a multi-selection drags as one rigid group), handles trash.
   useEffect(() => {
-    if (!draggingId) return;
+    if (!draggingId || !dragAnchor) return;
+    const ids = Object.keys(dragAnchor.startPositions);
 
     const onMove = (e: MouseEvent) => {
       if (!canvasRef.current) return;
       const rect = canvasRef.current.getBoundingClientRect();
-      const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width - dragOffset.ox));
-      const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height - dragOffset.oy));
-      setElements(prev => prev.map(el => el.id === draggingId ? { ...el, x, y } : el));
+      const mouseX = (e.clientX - rect.left) / rect.width;
+      const mouseY = (e.clientY - rect.top) / rect.height;
+      let dx = mouseX - dragAnchor.mouseX;
+      let dy = mouseY - dragAnchor.mouseY;
+      // Clamp to the intersection of every selected element's valid range, so the whole
+      // group stops together at the canvas edge instead of individual pieces clamping apart.
+      for (const id of ids) {
+        const p = dragAnchor.startPositions[id];
+        dx = Math.max(-p.x, Math.min(1 - p.x, dx));
+        dy = Math.max(-p.y, Math.min(1 - p.y, dy));
+      }
+      setElements(prev => prev.map(el => {
+        const start = dragAnchor.startPositions[el.id];
+        return start ? { ...el, x: start.x + dx, y: start.y + dy } : el;
+      }));
       if (trashRef.current) {
         const tr = trashRef.current.getBoundingClientRect();
         setOverTrash(e.clientX >= tr.left && e.clientX <= tr.right && e.clientY >= tr.top && e.clientY <= tr.bottom);
@@ -514,18 +552,62 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
       if (trashRef.current) {
         const tr = trashRef.current.getBoundingClientRect();
         if (e.clientX >= tr.left && e.clientX <= tr.right && e.clientY >= tr.top && e.clientY <= tr.bottom) {
-          setElements(prev => prev.filter(el => el.id !== draggingId));
-          if (selectedId === draggingId) setSelectedId(null);
+          const idSet = new Set(ids);
+          setElements(prev => prev.filter(el => !idSet.has(el.id)));
+          setSelectedIds(new Set());
         }
       }
       setDraggingId(null);
+      setDragAnchor(null);
       setOverTrash(false);
     };
 
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
     return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-  }, [draggingId, dragOffset, selectedId]);
+  }, [draggingId, dragAnchor]);
+
+  // Rubber-band selection: mousedown on empty canvas starts it; a drag past a small
+  // threshold selects everything inside the box on release, a plain click clears selection.
+  function handleCanvasMouseDown(e: React.MouseEvent) {
+    if (!canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
+    setMarquee({ x0: x, y0: y, x1: x, y1: y });
+  }
+
+  useEffect(() => {
+    if (!marquee) return;
+
+    const onMove = (e: MouseEvent) => {
+      if (!canvasRef.current) return;
+      const rect = canvasRef.current.getBoundingClientRect();
+      const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+      setMarquee(m => m ? { ...m, x1: x, y1: y } : m);
+    };
+
+    const onUp = () => {
+      setMarquee(m => {
+        if (!m) return null;
+        const dragDist = Math.hypot(m.x1 - m.x0, m.y1 - m.y0);
+        if (dragDist < 0.01) {
+          setSelectedIds(new Set());
+        } else {
+          const minX = Math.min(m.x0, m.x1), maxX = Math.max(m.x0, m.x1);
+          const minY = Math.min(m.y0, m.y1), maxY = Math.max(m.y0, m.y1);
+          const hits = elements.filter(el => el.x >= minX && el.x <= maxX && el.y >= minY && el.y <= maxY).map(el => el.id);
+          setSelectedIds(new Set(hits));
+        }
+        return null;
+      });
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+  }, [marquee, elements]);
 
   // ── Element actions ────────────────────────────────────────────────────────
 
@@ -535,14 +617,28 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
 
   function removeElement(id: string) {
     setElements(prev => prev.filter(el => el.id !== id));
-    if (selectedId === id) setSelectedId(null);
+    setSelectedIds(prev => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }
+
+  function rotateSelected() {
+    setElements(prev => prev.map(el => selectedIds.has(el.id) ? { ...el, rotation: (el.rotation + 45) % 360 } : el));
+  }
+
+  function removeSelected() {
+    setElements(prev => prev.filter(el => !selectedIds.has(el.id)));
+    setSelectedIds(new Set());
   }
 
   // ── CSS for placed elements ────────────────────────────────────────────────
 
   function getElementCss(el: PlacedElement): React.CSSProperties {
     const cfg = configs.find(c => c.type === el.type);
-    const isActive = selectedId === el.id || hoverId === el.id;
+    const isActive = (selectedIds.size <= 1 && selectedIds.has(el.id)) || hoverId === el.id;
     if (floorPlanW && floorPlanH && cfg?.widthMeters && cfg?.heightMeters) {
       return {
         position: 'absolute',
@@ -861,7 +957,7 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
                   className="relative select-none"
                   onDragOver={e => e.preventDefault()}
                   onDrop={handleCanvasDrop}
-                  onClick={() => setSelectedId(null)}
+                  onMouseDown={handleCanvasMouseDown}
                   style={{
                     cursor: draggingId ? 'grabbing' : 'default',
                     height: '100%',
@@ -902,10 +998,57 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
                     </svg>
                   )}
 
+                  {/* Rubber-band selection box */}
+                  {marquee && (
+                    <div
+                      className="absolute border-2 border-primary bg-primary/10 pointer-events-none z-40"
+                      style={{
+                        left: `${Math.min(marquee.x0, marquee.x1) * 100}%`,
+                        top: `${Math.min(marquee.y0, marquee.y1) * 100}%`,
+                        width: `${Math.abs(marquee.x1 - marquee.x0) * 100}%`,
+                        height: `${Math.abs(marquee.y1 - marquee.y0) * 100}%`,
+                      }}
+                    />
+                  )}
+
+                  {/* Group action bar — shown while more than one element is selected */}
+                  {selectedIds.size > 1 && (
+                    <div
+                      className="absolute top-2 left-1/2 z-40 flex items-center gap-2 bg-card border rounded-lg shadow-lg px-3 py-1.5 text-xs"
+                      style={{ transform: 'translateX(-50%)' }}
+                      onMouseDown={e => e.stopPropagation()}
+                    >
+                      <span className="font-medium text-muted-foreground">{selectedIds.size} selecionados</span>
+                      <button
+                        onClick={rotateSelected}
+                        className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition"
+                        title="Girar todos 45°"
+                      >
+                        <RotateCw className="size-3.5" />
+                      </button>
+                      <button
+                        onClick={removeSelected}
+                        className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition"
+                        title="Remover todos"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                      <button
+                        onClick={() => setSelectedIds(new Set())}
+                        className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition"
+                        title="Limpar seleção"
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    </div>
+                  )}
+
                   {/* Placed elements */}
                   {elements.map(el => {
-                    const isSelected = selectedId === el.id;
-                    const isActive = isSelected || hoverId === el.id;
+                    const isSelected = selectedIds.has(el.id);
+                    // Suppress the per-element toolbar during a multi-selection — the group
+                    // toolbar below handles bulk rotate/remove instead of N overlapping mini-bars.
+                    const isActive = (selectedIds.size <= 1 && isSelected) || hoverId === el.id;
                     return (
                       <div
                         key={el.id}
