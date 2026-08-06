@@ -19,27 +19,52 @@ interface ElementConfig {
   photoS3Key?: string;
 }
 
+// Combo/"kit": a core table (1 or more, joined in a row) + surrounding chairs. Expands into
+// real, independent elements when dragged into an event's layout — see EventLayoutTab.tsx's
+// computeComboPlacement. Never has its own widthMeters/heightMeters of its own; its footprint
+// is derived from the referenced core/satellite element types at drop time.
+interface ComboConfig {
+  type: string;
+  label: string;
+  core: { elementType: string; qty: number; arrangement: 'single' | 'row' };
+  satellite: { elementType: string; qty: number; variable?: boolean; shape: 'round' | 'rect' };
+  iconUrl?: string;
+  iconS3Key?: string;
+  active: boolean;
+}
+
 async function fetchWithCreds(url: string, opts: RequestInit = {}) {
   const res = await fetch(url, { credentials: 'include', ...opts });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 
+const emptyCombo = (): ComboConfig => ({
+  type: '', label: '',
+  core: { elementType: '', qty: 1, arrangement: 'single' },
+  satellite: { elementType: '', qty: 6, variable: true, shape: 'round' },
+  active: true,
+});
+
 export default function AdminLayoutElementsPage() {
   const [elements, setElements] = useState<ElementConfig[]>([]);
+  const [combos, setCombos] = useState<ComboConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [addingNew, setAddingNew] = useState(false);
   const [newEl, setNewEl] = useState({ type: '', label: '', widthMeters: 1.0, heightMeters: 1.0 });
+  const [addingCombo, setAddingCombo] = useState<ComboConfig | null>(null);
   const [uploadingIcon, setUploadingIcon] = useState<string | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState<string | null>(null);
+  const [uploadingComboIcon, setUploadingComboIcon] = useState<string | null>(null);
   const iconRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const photoRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const comboIconRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   useEffect(() => {
     fetchWithCreds(`${API_URL}/api/v2/admin/layout-config`)
-      .then(res => setElements(res.elements ?? []))
+      .then(res => { setElements(res.elements ?? []); setCombos(res.combos ?? []); })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
@@ -116,7 +141,7 @@ export default function AdminLayoutElementsPage() {
       await fetchWithCreds(`${API_URL}/api/v2/admin/layout-config`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ elements }),
+        body: JSON.stringify({ elements, combos }),
       });
       setMsg({ ok: true, text: 'Configuração salva!' });
     } catch {
@@ -124,6 +149,45 @@ export default function AdminLayoutElementsPage() {
     } finally {
       setSaving(false);
       setTimeout(() => setMsg(null), 3000);
+    }
+  }
+
+  // ── Combos ──────────────────────────────────────────────────────────────
+
+  function updateCombo(type: string, updater: (c: ComboConfig) => ComboConfig) {
+    setCombos(prev => prev.map(c => c.type === type ? updater(c) : c));
+  }
+
+  function deleteCombo(type: string) {
+    setCombos(prev => prev.filter(c => c.type !== type));
+  }
+
+  function confirmAddCombo() {
+    if (!addingCombo) return;
+    const slug = addingCombo.label.toLowerCase().trim().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+    if (!slug || !addingCombo.core.elementType || !addingCombo.satellite.elementType || combos.find(c => c.type === slug)) return;
+    setCombos(prev => [...prev, { ...addingCombo, type: `combo_${slug}` }]);
+    setAddingCombo(null);
+  }
+
+  async function uploadComboIcon(comboType: string, file: File) {
+    setUploadingComboIcon(comboType);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch(`${API_URL}/api/v2/admin/layout-element-icon/${comboType}`, {
+        method: 'POST', credentials: 'include', body: form,
+      });
+      const data = await res.json();
+      if (data.iconUrl) {
+        setCombos(prev => prev.map(c =>
+          c.type === comboType ? { ...c, iconUrl: data.iconUrl, iconS3Key: data.iconS3Key } : c
+        ));
+      }
+    } catch (e: any) {
+      alert('Erro ao enviar ícone: ' + (e.message ?? ''));
+    } finally {
+      setUploadingComboIcon(null);
     }
   }
 
@@ -362,6 +426,203 @@ export default function AdminLayoutElementsPage() {
       <p className="mt-4 text-xs text-muted-foreground">
         Clique no ícone de cada elemento para carregar uma imagem personalizada (PNG, JPG, SVG). O ícone é salvo imediatamente ao ser enviado.
       </p>
+
+      {/* ── Combos ("kits" mesa + cadeiras) ──────────────────────────────────── */}
+      <div className="mt-10 mb-8 flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <h2 className="text-xl font-semibold tracking-tight text-foreground mb-1">Combos</h2>
+          <p className="text-muted-foreground text-sm">
+            "Kits" de mesa(s) + cadeiras. Ao serem arrastados no editor de layout, expandem em elementos
+            reais e independentes — o estoque de cada peça é descontado normalmente, cada uma pode ser
+            movida/removida depois.
+          </p>
+        </div>
+        <button
+          onClick={() => setAddingCombo(emptyCombo())}
+          className="flex items-center gap-2 px-4 py-2 border border-input rounded-lg hover:bg-muted transition text-sm font-medium"
+        >
+          <Plus className="size-4" />
+          Adicionar Combo
+        </button>
+      </div>
+
+      {addingCombo && (
+        <div className="mb-4 bg-card border rounded-xl p-4 space-y-4">
+          <p className="text-sm font-medium">Novo combo</p>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Label</label>
+            <input
+              type="text"
+              placeholder="ex: Mesa redonda + Cadeiras"
+              value={addingCombo.label}
+              onChange={e => setAddingCombo(c => c && { ...c, label: e.target.value })}
+              className="w-72 text-sm border border-input rounded px-2 py-1.5 bg-background focus:ring-1 focus:ring-ring"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Núcleo (mesa)</p>
+              <select
+                value={addingCombo.core.elementType}
+                onChange={e => setAddingCombo(c => c && { ...c, core: { ...c.core, elementType: e.target.value } })}
+                className="w-full text-sm border border-input rounded px-2 py-1.5 bg-background focus:ring-1 focus:ring-ring"
+              >
+                <option value="">Selecione o tipo...</option>
+                {elements.map(el => <option key={el.type} value={el.type}>{el.label}</option>)}
+              </select>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-muted-foreground">Quantidade</label>
+                <input
+                  type="number" min={1} max={10}
+                  value={addingCombo.core.qty}
+                  onChange={e => setAddingCombo(c => c && { ...c, core: { ...c.core, qty: Math.max(1, parseInt(e.target.value) || 1) } })}
+                  className="w-16 text-sm border border-input rounded px-2 py-1 bg-background focus:ring-1 focus:ring-ring text-right"
+                />
+              </div>
+              {addingCombo.core.qty > 1 && (
+                <select
+                  value={addingCombo.core.arrangement}
+                  onChange={e => setAddingCombo(c => c && { ...c, core: { ...c.core, arrangement: e.target.value as 'single' | 'row' } })}
+                  className="w-full text-sm border border-input rounded px-2 py-1.5 bg-background focus:ring-1 focus:ring-ring"
+                >
+                  <option value="row">Coladas em fileira</option>
+                  <option value="single">Isoladas (sobrepostas — não recomendado)</option>
+                </select>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Satélite (cadeiras)</p>
+              <select
+                value={addingCombo.satellite.elementType}
+                onChange={e => setAddingCombo(c => c && { ...c, satellite: { ...c.satellite, elementType: e.target.value } })}
+                className="w-full text-sm border border-input rounded px-2 py-1.5 bg-background focus:ring-1 focus:ring-ring"
+              >
+                <option value="">Selecione o tipo...</option>
+                {elements.map(el => <option key={el.type} value={el.type}>{el.label}</option>)}
+              </select>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-muted-foreground">Qtd. default</label>
+                <input
+                  type="number" min={0} max={40}
+                  value={addingCombo.satellite.qty}
+                  onChange={e => setAddingCombo(c => c && { ...c, satellite: { ...c.satellite, qty: Math.max(0, parseInt(e.target.value) || 0) } })}
+                  className="w-16 text-sm border border-input rounded px-2 py-1 bg-background focus:ring-1 focus:ring-ring text-right"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={!!addingCombo.satellite.variable}
+                  onChange={e => setAddingCombo(c => c && { ...c, satellite: { ...c.satellite, variable: e.target.checked } })}
+                  className="size-4"
+                />
+                Operador escolhe a quantidade ao arrastar
+              </label>
+              <select
+                value={addingCombo.satellite.shape}
+                onChange={e => setAddingCombo(c => c && { ...c, satellite: { ...c.satellite, shape: e.target.value as 'round' | 'rect' } })}
+                className="w-full text-sm border border-input rounded px-2 py-1.5 bg-background focus:ring-1 focus:ring-ring"
+              >
+                <option value="round">Círculo ao redor (mesa redonda/quadrada isolada)</option>
+                <option value="rect">Contorno retangular (mesa retangular ou fileira de mesas)</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="flex gap-2 justify-end pt-2 border-t">
+            <button
+              onClick={() => setAddingCombo(null)}
+              className="px-3 py-1.5 border rounded-lg text-sm hover:bg-muted transition text-muted-foreground"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={confirmAddCombo}
+              disabled={!addingCombo.label.trim() || !addingCombo.core.elementType || !addingCombo.satellite.elementType}
+              className="px-4 py-1.5 bg-primary text-primary-foreground rounded-lg text-sm disabled:opacity-50 hover:bg-primary/90 transition"
+            >
+              Adicionar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {combos.length > 0 && (
+        <div className="space-y-3">
+          {combos.map(combo => {
+            const coreCfg = elements.find(el => el.type === combo.core.elementType);
+            const satCfg = elements.find(el => el.type === combo.satellite.elementType);
+            return (
+              <div key={combo.type} className={`bg-card border rounded-xl p-4 flex items-start gap-4 ${!combo.active ? 'opacity-50' : ''}`}>
+                <button
+                  onClick={() => comboIconRefs.current[combo.type]?.click()}
+                  className="relative w-11 h-11 border-2 border-dashed border-input rounded-lg flex items-center justify-center hover:border-primary/60 hover:bg-muted/50 transition group overflow-hidden flex-shrink-0"
+                  title="Clique para alterar ícone"
+                >
+                  {uploadingComboIcon === combo.type ? (
+                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                  ) : combo.iconUrl ? (
+                    <img src={combo.iconUrl} alt={combo.label} className="w-full h-full object-contain p-1" />
+                  ) : (
+                    <ImageIcon className="size-4 text-muted-foreground/50 group-hover:text-primary/70 transition" />
+                  )}
+                </button>
+                <input
+                  type="file"
+                  accept="image/*"
+                  ref={r => { comboIconRefs.current[combo.type] = r; }}
+                  className="hidden"
+                  onChange={e => {
+                    const f = e.target.files?.[0];
+                    if (f) uploadComboIcon(combo.type, f);
+                    e.target.value = '';
+                  }}
+                />
+
+                <div className="flex-1 min-w-0 space-y-1">
+                  <input
+                    type="text"
+                    value={combo.label}
+                    onChange={e => updateCombo(combo.type, c => ({ ...c, label: e.target.value }))}
+                    className="w-full max-w-sm text-sm font-medium border border-input rounded px-2 py-1 bg-background focus:ring-1 focus:ring-ring"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Núcleo: {combo.core.qty}× {coreCfg?.label ?? combo.core.elementType}
+                    {combo.core.qty > 1 && ` (${combo.core.arrangement === 'row' ? 'em fileira' : 'isoladas'})`}
+                    {' · '}
+                    Satélite: {combo.satellite.qty} {satCfg?.label ?? combo.satellite.elementType}
+                    {combo.satellite.variable && ' (variável)'}
+                    {' · '}
+                    Formato: {combo.satellite.shape === 'round' ? 'círculo' : 'contorno retangular'}
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => updateCombo(combo.type, c => ({ ...c, active: !c.active }))}
+                  className="text-muted-foreground hover:text-primary transition flex-shrink-0"
+                  title={combo.active ? 'Desativar' : 'Ativar'}
+                >
+                  {combo.active ? <ToggleRight className="size-6 text-primary" /> : <ToggleLeft className="size-6" />}
+                </button>
+                <button
+                  onClick={() => { if (confirm(`Remover o combo "${combo.label}"?`)) deleteCombo(combo.type); }}
+                  className="p-1.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition flex-shrink-0"
+                  title="Remover combo"
+                >
+                  <Trash2 className="size-4" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {combos.length === 0 && !addingCombo && (
+        <div className="text-center py-8 text-muted-foreground text-sm bg-card border rounded-xl">
+          Nenhum combo cadastrado. Clique em "Adicionar Combo" para criar o primeiro.
+        </div>
+      )}
     </Layout>
   );
 }

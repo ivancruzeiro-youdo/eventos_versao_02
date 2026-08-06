@@ -228,29 +228,40 @@ export async function layoutRoutes(app: FastifyInstance) {
     return { success: true };
   });
 
-  // GET /admin/layout-config — get element type configuration
+  // GET /admin/layout-config — get element type configuration (elements + combos/kits, e.g.
+  // "mesa + N cadeiras" — combos expand into real, independent elements when placed, they
+  // aren't a type of their own; see EventLayoutTab.tsx's computeComboPlacement)
   app.get('/admin/layout-config', { preHandler: requireAuth }, async (request, reply) => {
     const row = await (prisma as any).eventLayoutConfig.findUnique({ where: { id: 'default' } });
     const rawElements = row?.config?.elements?.length ? row.config.elements : DEFAULT_ELEMENTS;
-    const elements = await Promise.all(rawElements.map(async (el: any) => {
-      const enriched = { ...el };
-      if (el.iconS3Key) enriched.iconUrl = await getFloorPlanUrl(el.iconS3Key);
-      if (el.photoS3Key) enriched.photoUrl = await getFloorPlanUrl(el.photoS3Key);
-      return enriched;
-    }));
-    return { success: true, elements };
+    const rawCombos = row?.config?.combos ?? [];
+    const [elements, combos] = await Promise.all([
+      Promise.all(rawElements.map(async (el: any) => {
+        const enriched = { ...el };
+        if (el.iconS3Key) enriched.iconUrl = await getFloorPlanUrl(el.iconS3Key);
+        if (el.photoS3Key) enriched.photoUrl = await getFloorPlanUrl(el.photoS3Key);
+        return enriched;
+      })),
+      Promise.all(rawCombos.map(async (c: any) => {
+        const enriched = { ...c };
+        if (c.iconS3Key) enriched.iconUrl = await getFloorPlanUrl(c.iconS3Key);
+        return enriched;
+      })),
+    ]);
+    return { success: true, elements, combos };
   });
 
-  // PUT /admin/layout-config — update element type configuration (admin only)
+  // PUT /admin/layout-config — update element type + combo configuration (admin only)
   app.put('/admin/layout-config', { preHandler: [requireAuth, requireRole(['admin'])] }, async (request, reply) => {
-    const { elements } = request.body as { elements: any[] };
-    const toSave = elements.map(({ iconUrl, photoUrl, ...rest }: any) => rest);
+    const { elements, combos = [] } = request.body as { elements: any[]; combos?: any[] };
+    const toSaveElements = elements.map(({ iconUrl, photoUrl, ...rest }: any) => rest);
+    const toSaveCombos = combos.map(({ iconUrl, ...rest }: any) => rest);
     await (prisma as any).eventLayoutConfig.upsert({
       where: { id: 'default' },
-      create: { id: 'default', config: { elements: toSave }, updatedAt: new Date() },
-      update: { config: { elements: toSave }, updatedAt: new Date() },
+      create: { id: 'default', config: { elements: toSaveElements, combos: toSaveCombos }, updatedAt: new Date() },
+      update: { config: { elements: toSaveElements, combos: toSaveCombos }, updatedAt: new Date() },
     });
-    return { success: true, elements };
+    return { success: true, elements, combos };
   });
 
   // POST /admin/layout-element-photo/:type — upload real photo for an element type
