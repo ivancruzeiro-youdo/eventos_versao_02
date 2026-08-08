@@ -79,7 +79,17 @@ app.setErrorHandler((error, request, reply) => {
       message: 'Rate limit exceeded',
     });
   }
-  
+
+  // Prisma error names/messages (e.g. "PrismaClientKnownRequestError") are internal
+  // implementation detail, not something a client should ever see raw — the full error is
+  // already logged above for debugging. Everything else (zod validation errors, etc.) keeps
+  // its existing shape, since some routes rely on that message reaching the client.
+  if (error.name?.startsWith('Prisma')) {
+    return reply.status(error.statusCode || 500).send({
+      error: 'Erro interno. Tente novamente em alguns instantes.',
+    });
+  }
+
   reply.status(error.statusCode || 500).send({
     error: error.name,
     message: error.message,

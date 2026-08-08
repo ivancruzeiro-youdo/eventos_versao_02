@@ -672,7 +672,10 @@ export default function ReceptionistDashboard() {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(data.error || 'Erro ao fazer check-in');
+        // Guard against raw internal error class names (e.g. "PrismaClientKnownRequestError")
+        // ever leaking through as user-facing text, even if the backend's own message changes.
+        const msg = data.error;
+        setError(msg && !/^[A-Z][A-Za-z]*Error$/.test(msg) ? msg : 'Erro ao fazer check-in');
         return;
       }
       const data = await res.json();
