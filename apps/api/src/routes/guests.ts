@@ -218,7 +218,11 @@ export async function guestRoutes(app: FastifyInstance) {
       data: {
         status: 'checked_in',
         checkedInAt: new Date(),
-        checkedInByUserId: user.id,
+        // checkedInByUserId has a real FK to User — user.id is only a User.id for
+        // admin/operator/event_owner sessions. Freelancer-derived sessions (receptionist,
+        // checkin_staff) have no employerId and their id is actually a Freelancer.id, which
+        // would violate the FK (P2003) and 500 on every single check-in from that flow.
+        checkedInByUserId: user.employerId !== undefined ? user.id : null,
       },
     });
 
@@ -251,7 +255,8 @@ export async function guestRoutes(app: FastifyInstance) {
       data: {
         status: 'checked_in',
         checkedInAt: new Date(),
-        checkedInByUserId: user.id,
+        // See the other /guests/:id/checkin handler above for why this is guarded.
+        checkedInByUserId: user.employerId !== undefined ? user.id : null,
       },
     });
 

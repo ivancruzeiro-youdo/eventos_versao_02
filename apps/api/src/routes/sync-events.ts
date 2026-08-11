@@ -166,36 +166,77 @@ function groupContracts(contracts: any[]): Map<string, any[]> {
   return map;
 }
 
-// Build items snapshot from experience contracts — keeps duplicates separate (one entry per occurrence)
-// Fields: id, prodct-id, name, qtde, details.category, details.unity
-function buildItemsSnapshot(contracts: any[]): { name: string; qty: number; unit: string; externalProductCode: string | null; categoryName: string | null; occurrenceIndex: number }[] {
-  const list: { name: string; qty: number; unit: string; externalProductCode: string | null; categoryName: string | null; occurrenceIndex: number }[] = [];
-  const counts: Record<string, number> = {};
+// Build items snapshot from experience contracts — Userp composes a contract family
+// additively (main + every secondary each contribute their own headcount/quantity for the
+// SAME product; the true total is the SUM across all of them — e.g. main has 5 Garçom, a
+// secondary adds 2 more → 7 total, never a replacement of one by the other). Aggregates by
+// resolved product identity across the whole family; a genuine duplicate LINE within the
+// SAME single contract still stays as a separate occurrence (rare, but some contracts do
+// list the same product twice on purpose — that's what the "agrupar duplicados" toggle is
+// for, via collapseItemsSnapshot).
+// Fields: product_id, name, qtde, details.category, details.unity
+function buildItemsSnapshot(contracts: any[]): { name: string; qty: number; unit: string; externalProductCode: string | null; categoryName: string | null; occurrenceIndex: number; sourceContractExternalId: string | null }[] {
+  type Item = { name: string; qty: number; unit: string; externalProductCode: string | null; categoryName: string | null; occurrenceIndex: number; sourceContractExternalId: string | null };
+  const primary = new Map<string, Item>();
+  const extras: Item[] = [];
+  const extraCounts: Record<string, number> = {};
+
   for (const c of contracts) {
+    const mainContractId = String(c.codlocacontrato || '') || null;
     const produtos: any[] = c.produtos || [];
     const secondary: any[] = c._secondary || [];
-    const allProdutos = [...produtos, ...secondary.flatMap((s: any) => s.produtos || [])];
-    for (const p of allProdutos) {
-      const extId = String(p['prodct-id'] || p.id || '');
-      const key = extId || p.name || '';
-      if (!key) continue;
-      const occ = counts[key] ?? 0;
-      counts[key] = occ + 1;
-      list.push({
-        name: p.name || p.details?.description || key,
-        qty: Number(p.qtde || 1),
-        unit: p.details?.unity || '',
-        externalProductCode: extId || null,
-        categoryName: p.details?.category || null,
-        occurrenceIndex: occ,
-      });
+    const groups: { items: any[]; contractId: string | null }[] = [
+      { items: produtos, contractId: mainContractId },
+      ...secondary.map((s: any) => ({ items: (s.produtos || []) as any[], contractId: String(s.codlocacontrato || '') || mainContractId })),
+    ];
+
+    for (const { items, contractId } of groups) {
+      const seenInThisContract = new Set<string>();
+      for (const p of items) {
+        // product_id is the real, stable catalog id (matches Product.externalId) — the old
+        // "prodct-id" key never existed in the payload (typo), which silently fell through to
+        // p.id — a per-contract-LINE id, unique even for the same product on different
+        // contracts. That made every cross-contract occurrence of e.g. "Garçom" look like a
+        // brand new, never-seen product, so main's and a secondary's lines collided at
+        // occurrence 0 and the later one just overwrote the former's quantity instead of the
+        // two being recognized as the same product and summed.
+        const extId = String(p.product_id ?? p['prodct-id'] ?? '');
+        const key = extId || String(p.name || p.details?.description || '');
+        if (!key) continue;
+        const qty = Number(p.qtde || 1);
+        const base: Item = {
+          name: p.name || p.details?.description || key,
+          qty,
+          unit: p.details?.unity || '',
+          externalProductCode: extId || null,
+          categoryName: p.details?.category || null,
+          occurrenceIndex: 0,
+          sourceContractExternalId: contractId,
+        };
+
+        if (seenInThisContract.has(key)) {
+          const occ = (extraCounts[key] ?? 0) + 1;
+          extraCounts[key] = occ;
+          extras.push({ ...base, occurrenceIndex: occ });
+          continue;
+        }
+        seenInThisContract.add(key);
+
+        const existing = primary.get(key);
+        if (existing) {
+          existing.qty += qty; // additive across contracts — main + secondary compose, never replace
+        } else {
+          primary.set(key, base);
+        }
+      }
     }
   }
-  return list;
+
+  return [...primary.values(), ...extras];
 }
 
 // Collapse duplicate products by summing quantities (used when operator chooses to group)
-function collapseItemsSnapshot(items: { name: string; qty: number; unit: string; externalProductCode: string | null; categoryName: string | null; occurrenceIndex: number }[]) {
+function collapseItemsSnapshot(items: { name: string; qty: number; unit: string; externalProductCode: string | null; categoryName: string | null; occurrenceIndex: number; sourceContractExternalId: string | null }[]) {
   const map: Record<string, typeof items[0]> = {};
   for (const item of items) {
     const key = item.externalProductCode || item.name;
@@ -226,6 +267,7 @@ interface PreviewEventItem {
   staffServices: { id: string; name: string }[];
   missing: boolean;
   missingReason: string;
+  sourceContractExternalId: string | null;
 }
 
 interface PreviewEvent {
@@ -397,6 +439,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
             venueId: venueMatch.id, venueName: venueMatch.name,
             subitems: [], staffServices: [],
             missing: false, missingReason: '',
+            sourceContractExternalId: ri.sourceContractExternalId,
           });
           continue;
         }
@@ -433,6 +476,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
           venueId: null, venueName: null,
           subitems, staffServices,
           missing, missingReason,
+          sourceContractExternalId: ri.sourceContractExternalId,
         });
       }
 
@@ -623,12 +667,16 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       const syncAddedItems: string[] = [];
       const syncUpdatedQty: { name: string; oldQty: number; newQty: number }[] = [];
 
-      // Use primary contract as sourceContractId for items in this sync batch
+      // Fallback only — every item should carry its own sourceContractExternalId now
+      // (tagged per-product in buildItemsSnapshot), pointing at the exact main/secondary
+      // contract it came from instead of always the batch's primary contract.
       const primaryContractId = contractIds[0] || null;
 
       const resolvedItems = groupDuplicates ? (collapseItemsSnapshot(items as any) as unknown as PreviewEventItem[]) : items;
 
       for (const item of resolvedItems) {
+        const itemContractId = item.sourceContractExternalId || primaryContractId;
+
         if (item.category === 'venue' && item.venueId) {
           // Upsert EventVenue link
           const exists = await (prisma as any).eventVenue.findFirst({ where: { eventId, venueId: item.venueId } });
@@ -642,7 +690,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
               data: {
                 eventId,
                 venueId: item.venueId,
-                sourceContractId: primaryContractId,
+                sourceContractId: itemContractId,
                 category: 'venue',
                 name: item.name,
                 quantity: item.qty,
@@ -674,8 +722,8 @@ export async function syncEventsRoutes(app: FastifyInstance) {
               quantity: newQty,
               name: item.name,
               unit: item.unit || existing.unit || null,
-              ...(existing.sourceContractId == null && primaryContractId
-                ? { sourceContractId: primaryContractId }
+              ...(existing.sourceContractId == null && itemContractId
+                ? { sourceContractId: itemContractId }
                 : {}),
             },
           });
@@ -689,7 +737,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
             data: {
               eventId,
               productId: item.productId,
-              sourceContractId: primaryContractId,
+              sourceContractId: itemContractId,
               category: item.category === 'unknown' ? 'other' : item.category,
               name: item.name,
               quantity: item.qty,
@@ -833,7 +881,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     });
 
     if (eventContracts.length === 0) {
-      return { success: true, status: 'no_contracts', pendingRemovals: [] };
+      return { success: true, status: 'no_contracts', pendingRemovals: [], pendingItemRemovals: [] };
     }
 
     const { clientCode, startDate } = eventContracts[0];
@@ -934,8 +982,139 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       });
     }
 
+    // Live product list (by name, lowercased) for every contract that's still linked and
+    // valid (main + secondaries not flagged missing/unlinked) — built once, reused below by
+    // both the reconciliation (add-missing) and removal-detection (drop-orphaned) passes.
+    const liveNamesByContract = new Map<string, Set<string>>();
+    for (let i = 0; i < contractHealth.length; i++) {
+      const h = contractHealth[i];
+      if (h.missing || h.unlinkedInUerp) continue; // gone entirely — handled by pendingRemovals above
+      const liveProducts: any[] | undefined = i === 0
+        ? detailByExternalId.get(h.externalId)?.main?.produtos
+        : (mainDetail?.secondary ?? []).find((s: any) => String(s.codlocacontrato || '') === String(h.externalId))?.produtos;
+      if (!liveProducts) continue; // couldn't verify this contract's current product list — inconclusive
+      liveNamesByContract.set(
+        h.externalId,
+        new Set(liveProducts.map((p: any) => String(p.name || p.details?.description || '').trim().toLowerCase()))
+      );
+    }
+    // Union across all valid contracts — checking removal-eligibility against this instead of
+    // only the item's own recorded sourceContractId avoids false positives when that field is
+    // stale/wrong (e.g. items imported before per-item contract tracking existed): a product
+    // that's live under a DIFFERENT valid contract than the one it happens to be tagged with
+    // must never be proposed for removal.
+    const allLiveNames = new Set<string>();
+    for (const set of liveNamesByContract.values()) for (const n of set) allLiveNames.add(n);
+    const validExternalIds = [...liveNamesByContract.keys()];
+
+    // Reconciliation: a live product in a still-valid contract with no matching EventItem
+    // anywhere in the event (by name) is imported right now — purely additive, so unlike
+    // removal this needs no confirmation step, same as a normal periodic sync would do.
+    const reimportedNames: string[] = [];
+    if (validExternalIds.length > 0) {
+      const existingItems = await (prisma as any).eventItem.findMany({ where: { eventId }, select: { name: true } });
+      const existingNames = new Set(existingItems.map((it: any) => it.name.trim().toLowerCase()));
+
+      const [allProducts, eventRecord] = await Promise.all([
+        (prisma as any).product.findMany({ include: { services: { include: { service: true } } } }),
+        (prisma as any).event.findUnique({ where: { id: eventId }, select: { startAt: true, teardownAt: true } }),
+      ]);
+      const productByName = new Map<string, any>();
+      for (const p of allProducts) productByName.set(p.name.trim().toLowerCase(), p);
+
+      for (let i = 0; i < contractHealth.length; i++) {
+        const h = contractHealth[i];
+        const liveNames = liveNamesByContract.get(h.externalId);
+        if (!liveNames) continue;
+        const liveProducts: any[] = i === 0
+          ? detailByExternalId.get(h.externalId)?.main?.produtos ?? []
+          : (mainDetail?.secondary ?? []).find((s: any) => String(s.codlocacontrato || '') === String(h.externalId))?.produtos ?? [];
+
+        for (const p of liveProducts) {
+          const pname = String(p.name || p.details?.description || '').trim();
+          if (!pname || existingNames.has(pname.toLowerCase())) continue;
+
+          const product = productByName.get(pname.toLowerCase());
+          if (!product) continue; // not in our catalog — nothing we can safely auto-create
+
+          const category = mapCategory(product.categoryName) || 'other';
+          const qty = Number(p.qtde || 1);
+          await (prisma as any).eventItem.create({
+            data: {
+              eventId, productId: product.id, sourceContractId: h.externalId,
+              category, name: pname, quantity: qty, unit: p.details?.unity || null,
+            },
+          });
+          existingNames.add(pname.toLowerCase());
+          reimportedNames.push(pname);
+
+          // Staff: upsert EventService slots (never delete/duplicate — existingSvc short-circuits)
+          if (category === 'staff') {
+            const staffServices: { id: string; name: string }[] = (product.services || []).map((l: any) => ({
+              id: l.service?.id || l.serviceId, name: l.service?.name || '',
+            }));
+            const eventStartAt: Date = eventRecord?.startAt ?? new Date(`${startDate}T12:00:00`);
+            const eventEndBase: Date = eventRecord?.teardownAt ?? eventStartAt;
+            for (const svc of staffServices) {
+              const allocations = await resolveStaffAllocations(svc, qty);
+              for (const alloc of allocations) {
+                const existingSvc = await (prisma as any).eventService.findFirst({ where: { eventId, serviceId: alloc.serviceId } });
+                if (existingSvc) {
+                  await (prisma as any).eventService.update({ where: { id: existingSvc.id }, data: { maxSlots: alloc.maxSlots } });
+                } else {
+                  const svcData = await (prisma as any).freelancerService.findUnique({ where: { id: alloc.serviceId } });
+                  const startOffset: number = svcData?.startOffsetMinutes ?? -60;
+                  const endOffset: number = svcData?.endOffsetMinutes ?? 60;
+                  await (prisma as any).eventService.create({
+                    data: {
+                      eventId, serviceId: alloc.serviceId, productName: pname, maxSlots: alloc.maxSlots,
+                      valuePerHour: svcData?.hourlyRate ?? 0,
+                      startAt: new Date(eventStartAt.getTime() + startOffset * 60_000),
+                      endAt: new Date(eventEndBase.getTime() + endOffset * 60_000),
+                      status: 'active',
+                    },
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+
+      if (reimportedNames.length > 0) {
+        await (prisma as any).eventComment.create({
+          data: {
+            eventId, userId: null, isSystem: true,
+            content: `Reconciliação automática com o Userp: item(ns) ausente(s) no sistema foram reimportados — ${reimportedNames.join(', ')}.`,
+          },
+        });
+      }
+    }
+
+    // Individual products dropped from a contract that's still linked and valid (different
+    // from the whole-contract case above) — e.g. the contract still exists, but this one
+    // product line was removed/replaced in Userp. Same detect-only, confirm-to-delete pattern
+    // via POST /events/:id/items/:itemId/confirm-removal.
+    const pendingItemRemovals: {
+      itemId: string; name: string; category: string; quantity: number; contractExternalId: string;
+    }[] = [];
+    if (validExternalIds.length > 0) {
+      const itemsFromValidContracts = await (prisma as any).eventItem.findMany({
+        where: { eventId, sourceContractId: { in: validExternalIds } },
+        select: { id: true, name: true, category: true, quantity: true, sourceContractId: true },
+      });
+      for (const it of itemsFromValidContracts) {
+        if (!allLiveNames.has(it.name.trim().toLowerCase())) {
+          pendingItemRemovals.push({
+            itemId: it.id, name: it.name, category: it.category, quantity: it.quantity,
+            contractExternalId: it.sourceContractId,
+          });
+        }
+      }
+    }
+
     if (unknownIds.length === 0 && secondaryPending.length === 0) {
-      return { success: true, status: 'up_to_date', contractHealth, pendingRemovals };
+      return { success: true, status: 'up_to_date', contractHealth, pendingRemovals, pendingItemRemovals };
     }
 
     // 5. Fetch details for unknown IDs in batches of 10, filter by this event's clientCode+startDate
@@ -965,7 +1144,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     }
 
     if (pendingContracts.length === 0) {
-      return { success: true, status: 'up_to_date', contractHealth, pendingRemovals };
+      return { success: true, status: 'up_to_date', contractHealth, pendingRemovals, pendingItemRemovals };
     }
 
     // 6. Build preview (same structure as sync-preview) so frontend can pass to sync-import
@@ -1006,6 +1185,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
           venueId: venueMatch.id, venueName: venueMatch.name,
           subitems: [], staffServices: [],
           missing: false, missingReason: '',
+          sourceContractExternalId: ri.sourceContractExternalId,
         });
         continue;
       }
@@ -1040,6 +1220,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
         venueId: null, venueName: null,
         subitems, staffServices,
         missing, missingReason,
+        sourceContractExternalId: ri.sourceContractExternalId,
       });
     }
 
@@ -1087,7 +1268,67 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       preview,
       contractHealth,
       pendingRemovals,
+      pendingItemRemovals,
     };
+  });
+
+  // POST /events/:id/items/:itemId/confirm-removal — operator-confirmed removal of a single
+  // item whose product dropped off a contract that's still linked and otherwise valid
+  // (contrast with confirm-removal below, which removes an entire contract).
+  app.post('/events/:id/items/:itemId/confirm-removal', { preHandler: requireAuth }, async (request, reply) => {
+    const { id: eventId, itemId } = request.params as { id: string; itemId: string };
+    const user = (request as any).user;
+
+    const item = await (prisma as any).eventItem.findFirst({ where: { id: itemId, eventId } });
+    if (!item) return reply.status(404).send({ error: 'Item não encontrado neste evento.' });
+    if (!item.sourceContractId) return reply.status(400).send({ error: 'Este item não tem contrato de origem registrado.' });
+
+    let token: string, baseUrl: string;
+    try {
+      ({ token, baseUrl } = await getUserpToken());
+    } catch (e: any) {
+      return reply.status(400).send({ error: e.message });
+    }
+
+    // Re-check right before deleting against the UNION of every still-valid contract linked to
+    // this event (not just item.sourceContractId's own one) — that field can be stale/wrong for
+    // items imported before per-item contract tracking existed, and trusting it alone here would
+    // risk deleting a product that's actually still live under a different valid contract.
+    const eventContracts = await (prisma as any).eventContract.findMany({ where: { eventId }, orderBy: { createdAt: 'asc' } });
+    const mainExternalId = eventContracts[0]?.externalId;
+    const mainDetail = mainExternalId ? await fetchContratoDetails(token, baseUrl, Number(mainExternalId)) : null;
+    if (!mainDetail) {
+      return reply.status(409).send({ error: 'Não foi possível confirmar o estado atual no Userp — remoção cancelada.' });
+    }
+    const mainSecondaryIds = new Set((mainDetail.secondary ?? []).map((s: any) => String(s.codlocacontrato || '')));
+    const allLiveNames = new Set<string>();
+    for (const p of mainDetail.main?.produtos ?? []) {
+      allLiveNames.add(String(p.name || p.details?.description || '').trim().toLowerCase());
+    }
+    for (const ec of eventContracts.slice(1)) {
+      if (!mainSecondaryIds.has(String(ec.externalId))) continue; // unlinked — not part of the valid union
+      const secProducts = (mainDetail.secondary ?? []).find((s: any) => String(s.codlocacontrato || '') === String(ec.externalId))?.produtos ?? [];
+      for (const p of secProducts) {
+        allLiveNames.add(String(p.name || p.details?.description || '').trim().toLowerCase());
+      }
+    }
+    if (allLiveNames.has(item.name.trim().toLowerCase())) {
+      return reply.status(409).send({ error: 'Este produto voltou a existir num contrato válido do Userp — remoção cancelada.' });
+    }
+
+    // KitchenEventMenu.eventItemId has no cascade rule — null it out before deleting the item.
+    await (prisma as any).kitchenEventMenu.updateMany({ where: { eventItemId: item.id }, data: { eventItemId: null } });
+    await (prisma as any).eventItem.delete({ where: { id: item.id } });
+
+    const categoryLabel: Record<string, string> = { ab: 'A&B', infra: 'Infraestrutura', staff: 'Mão de Obra', venue: 'Local' };
+    await (prisma as any).eventComment.create({
+      data: {
+        eventId, userId: user.id || null, isSystem: true,
+        content: `Item "${item.name}" (${categoryLabel[item.category] || item.category}, qtd. ${item.quantity}) não foi mais encontrado no contrato ${item.sourceContractId} do Userp e foi removido por ${user.name || user.email}.`,
+      },
+    });
+
+    return { success: true };
   });
 
   // POST /events/:id/contracts/:contractId/confirm-removal — operator-confirmed removal of a

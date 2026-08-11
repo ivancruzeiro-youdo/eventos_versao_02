@@ -4,6 +4,7 @@ import { createDownloadPresignedUrl, createUploadPresignedUrl, deleteS3Object, s
 import { mediaTypeFromMime, MAX_SIZE_BYTES, formatMb } from './event-media.js';
 import { getValidAccessToken } from './spotify.js';
 import { getPlaylist, parsePlaylistId } from '../lib/spotify.js';
+import { getFloorPlanUrl } from './layout.js';
 
 async function getClientSession(app: FastifyInstance, request: any, reply: any) {
   const auth = request.headers['x-client-auth'] as string | undefined;
@@ -618,6 +619,121 @@ export async function clientRoutes(app: FastifyInstance) {
     if (!existing) return reply.status(404).send({ error: 'Playlist não encontrada' });
 
     await (prisma as any).eventVenueSpotifyPlaylist.delete({ where: { id: playlistId } });
+    return { success: true };
+  });
+
+  // ── Layout — client-facing ───────────────────────────────────────────────
+  // Mirrors the staff endpoints in routes/layout.ts, but authed via the client JWT (not the
+  // staff `token` cookie) — the client portal has no staff session, so it can't call those
+  // directly. A client may only create layouts of their own and edit/delete their own
+  // (createdByClient: true) — staff-authored layouts are always read-only to the client.
+
+  app.get('/client/:token/layout-venues', async (request, reply) => {
+    const session = await getClientSession(app, request, reply);
+    if (!session) return;
+
+    const eventVenues = await prisma.eventVenue.findMany({
+      where: { eventId: session.eventId },
+      include: { venue: { select: { id: true, name: true, floorPlanS3Key: true, floorPlanWidthMeters: true, floorPlanHeightMeters: true, layoutStock: true } as any } },
+      orderBy: { id: 'asc' },
+    });
+
+    const venues = await Promise.all(eventVenues.map(async (ev: any) => {
+      const v = ev.venue;
+      const floorPlanUrl = v?.floorPlanS3Key ? await getFloorPlanUrl(v.floorPlanS3Key) : null;
+      return {
+        venueId: ev.venueId,
+        venueName: v?.name ?? '',
+        floorPlanUrl,
+        floorPlanWidthMeters: v?.floorPlanWidthMeters ?? null,
+        floorPlanHeightMeters: v?.floorPlanHeightMeters ?? null,
+        layoutStock: v?.layoutStock ?? null,
+      };
+    }));
+
+    return { success: true, venues };
+  });
+
+  // Element/combo type definitions — read-only, no admin role needed (the client just needs
+  // labels/icons to render the floor plan and its legend).
+  app.get('/client/:token/layout-config', async (request, reply) => {
+    const session = await getClientSession(app, request, reply);
+    if (!session) return;
+
+    const row = await (prisma as any).eventLayoutConfig.findUnique({ where: { id: 'default' } });
+    const rawElements = row?.config?.elements ?? [];
+    const elements = await Promise.all(rawElements.map(async (el: any) => {
+      const enriched = { ...el };
+      if (el.iconS3Key) enriched.iconUrl = await getFloorPlanUrl(el.iconS3Key);
+      return enriched;
+    }));
+    return { success: true, elements };
+  });
+
+  app.get('/client/:token/layouts', async (request, reply) => {
+    const session = await getClientSession(app, request, reply);
+    if (!session) return;
+
+    const layouts = await (prisma as any).eventLayout.findMany({
+      where: { eventId: session.eventId },
+      orderBy: { createdAt: 'asc' },
+    });
+    return { success: true, layouts };
+  });
+
+  // Create a layout as the client — optionally starting from a copy of any existing layout's
+  // elements (staff or another client layout) passed in `elements`, but the new row is always
+  // its own independent copy, owned by the client (createdByClient: true).
+  app.post('/client/:token/layouts', async (request, reply) => {
+    const session = await getClientSession(app, request, reply);
+    if (!session) return;
+    const { name = 'Meu Layout', elements = [], venueId } = request.body as any;
+
+    if (venueId) {
+      const link = await prisma.eventVenue.findFirst({ where: { eventId: session.eventId, venueId } });
+      if (!link) return reply.status(400).send({ error: 'Espaço não vinculado a este evento' });
+    }
+
+    const layout = await (prisma as any).eventLayout.create({
+      data: { eventId: session.eventId, venueId: venueId || null, name, elements, createdByClient: true },
+    });
+    return reply.status(201).send({ success: true, layout });
+  });
+
+  app.put('/client/:token/layouts/:layoutId', async (request, reply) => {
+    const session = await getClientSession(app, request, reply);
+    if (!session) return;
+    const { layoutId } = request.params as { layoutId: string };
+    const { name, elements } = request.body as any;
+
+    const existing = await (prisma as any).eventLayout.findFirst({ where: { id: layoutId, eventId: session.eventId } });
+    if (!existing) return reply.status(404).send({ error: 'Layout não encontrado' });
+    if (!existing.createdByClient) {
+      return reply.status(403).send({ error: 'Este layout foi criado pela equipe — você só pode editar layouts criados por você. Copie-o para começar o seu.' });
+    }
+
+    const layout = await (prisma as any).eventLayout.update({
+      where: { id: layoutId },
+      data: {
+        ...(name !== undefined ? { name } : {}),
+        ...(elements !== undefined ? { elements } : {}),
+      },
+    });
+    return { success: true, layout };
+  });
+
+  app.delete('/client/:token/layouts/:layoutId', async (request, reply) => {
+    const session = await getClientSession(app, request, reply);
+    if (!session) return;
+    const { layoutId } = request.params as { layoutId: string };
+
+    const existing = await (prisma as any).eventLayout.findFirst({ where: { id: layoutId, eventId: session.eventId } });
+    if (!existing) return reply.status(404).send({ error: 'Layout não encontrado' });
+    if (!existing.createdByClient) {
+      return reply.status(403).send({ error: 'Este layout foi criado pela equipe e não pode ser removido por aqui.' });
+    }
+
+    await (prisma as any).eventLayout.delete({ where: { id: layoutId } });
     return { success: true };
   });
 }

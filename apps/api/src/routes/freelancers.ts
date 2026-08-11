@@ -326,16 +326,26 @@ export async function freelancerRoutes(app: FastifyInstance) {
     }) : [];
     const approvedMap = new Map((approvedCounts as any[]).map(c => [`${c.eventId}::${c.role}`, c._count.id]));
 
-    // Enrich each slot with filledSlots and myStatus
-    const enriched = (events as any[]).map(event => ({
-      ...event,
-      services: event.services.map((slot: any) => ({
-        ...slot,
-        filledSlots: approvedMap.get(`${event.id}::${slot.service.name}`) ?? 0,
-        myStatus: myAppMap.get(`${event.id}::${slot.service.name}`)?.status ?? null,
-        myApplicationId: myAppMap.get(`${event.id}::${slot.service.name}`)?.id ?? null,
-      })),
-    }));
+    // Enrich each slot with filledSlots and myStatus, then hide slots that are already
+    // full — unless the freelancer already has an application on it (approved/pending),
+    // otherwise they'd lose visibility of their own confirmed slot once it fills up.
+    const enriched = (events as any[])
+      .map(event => {
+        const services = event.services
+          .map((slot: any) => {
+            const filledSlots = approvedMap.get(`${event.id}::${slot.service.name}`) ?? 0;
+            const myStatus = myAppMap.get(`${event.id}::${slot.service.name}`)?.status ?? null;
+            return {
+              ...slot,
+              filledSlots,
+              myStatus,
+              myApplicationId: myAppMap.get(`${event.id}::${slot.service.name}`)?.id ?? null,
+            };
+          })
+          .filter((slot: any) => slot.filledSlots < slot.maxSlots || slot.myStatus !== null);
+        return { ...event, services };
+      })
+      .filter(event => event.services.length > 0);
 
     return { success: true, jobs: enriched };
   });
@@ -343,9 +353,16 @@ export async function freelancerRoutes(app: FastifyInstance) {
   // Apply for a job slot (jobId = EventService ID)
   app.post('/freelancer/jobs/:jobId/apply', { preHandler: requireAuth }, async (request, reply) => {
     const user = (request as any).user;
-    
+
     if (user.role !== 'freelancer') {
       return reply.status(403).send({ error: 'Freelancer access only' });
+    }
+
+    // requireAuth já bloqueia login/sessão de freelancer suspenso, mas essa checagem fica
+    // duplicada aqui de propósito — se o middleware um dia mudar, a candidatura continua
+    // protegida sem depender dele.
+    if (user.status === 'suspended') {
+      return reply.status(403).send({ error: 'Sua conta está suspensa e não pode se candidatar a vagas.' });
     }
 
     const { jobId } = request.params as { jobId: string };
@@ -406,14 +423,34 @@ export async function freelancerRoutes(app: FastifyInstance) {
       }
     }
 
-    const application = existing
-      ? await prisma.freelancerApplication.update({
-          where: { id: existing.id },
-          data: { status: 'approved', appliedAt: new Date() },
-        })
-      : await prisma.freelancerApplication.create({
-          data: { freelancerId: user.id, eventId: slot.eventId, role: slot.service.name, status: 'approved' },
+    // Conta aprovados e cria/atualiza a candidatura na mesma transação, pra reduzir (não
+    // elimina 100%, o Postgres roda em Read Committed aqui) a janela de corrida entre duas
+    // candidaturas simultâneas disputando a última vaga.
+    let application;
+    try {
+      application = await prisma.$transaction(async (tx) => {
+        const approvedCount = await tx.freelancerApplication.count({
+          where: { eventId: slot.eventId, role: slot.service.name, status: 'approved' },
         });
+        if (approvedCount >= slot.maxSlots) {
+          throw new Error('SLOT_FULL');
+        }
+
+        return existing
+          ? tx.freelancerApplication.update({
+              where: { id: existing.id },
+              data: { status: 'approved', appliedAt: new Date() },
+            })
+          : tx.freelancerApplication.create({
+              data: { freelancerId: user.id, eventId: slot.eventId, role: slot.service.name, status: 'approved' },
+            });
+      });
+    } catch (err: any) {
+      if (err.message === 'SLOT_FULL') {
+        return reply.status(409).send({ error: 'Esta vaga acabou de ser preenchida por outro freelancer.' });
+      }
+      throw err;
+    }
 
     // Concede acesso físico assim que aprovado (fire-and-forget)
     handleAcessoGrant(application.id).catch(err => console.error(`[freelancers] Falha ao conceder acesso pra candidatura ${application.id}:`, err.message));

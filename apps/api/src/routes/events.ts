@@ -324,6 +324,12 @@ export async function eventRoutes(app: FastifyInstance) {
     const { freelancerId, role } = request.body as any;
     if (!freelancerId || !role) return reply.status(400).send({ error: 'freelancerId e role obrigatórios' });
 
+    const freelancer = await prisma.freelancer.findUnique({ where: { id: freelancerId }, select: { status: true } });
+    if (!freelancer) return reply.status(404).send({ error: 'Freelancer não encontrado' });
+    if (freelancer.status === 'suspended') {
+      return reply.status(400).send({ error: 'Este freelancer está suspenso e não pode ser atribuído a vagas.' });
+    }
+
     const existing = await (prisma as any).freelancerApplication.findFirst({
       where: { freelancerId, eventId, role },
     });
