@@ -11,7 +11,7 @@ import { CalendarDays, UtensilsCrossed, Maximize2, RefreshCw, Settings2, ChefHat
 import VenuePicker from './VenuePicker';
 import WeekPanel, { type WeekDay } from './WeekPanel';
 import ServicePanel, { type ServiceData } from './ServicePanel';
-import { fmtTime, useNow, usePoll, LS_KEY } from './lib';
+import { fmtTime, fmtDate, fmtWeekday, useNow, usePoll, LS_KEY } from './lib';
 
 interface Venue { id: string; name: string }
 type Mode = 'semana' | 'dia';
@@ -23,7 +23,7 @@ interface VenueWeek { venue: Venue; days: WeekDay[] }
 // hook é necessário; o wrapper resolve.
 export default function TelaCozinhaPage() {
   return (
-    <Suspense fallback={<div className="flex h-screen items-center justify-center bg-neutral-950 text-white/40">Carregando…</div>}>
+    <Suspense fallback={<div className="flex h-screen items-center justify-center bg-slate-50 text-slate-400">Carregando…</div>}>
       <TelaCozinha />
     </Suspense>
   );
@@ -183,17 +183,17 @@ function TelaCozinha() {
   const refreshNow = () => { void (mode === 'semana' ? loadWeek() : loadService()); };
 
   return (
-    <div className="flex h-screen flex-col bg-neutral-950 text-white">
+    <div className="flex h-screen flex-col bg-slate-50 text-slate-900">
       {/* Barra de topo */}
-      <header className="flex shrink-0 items-center gap-3 border-b border-white/10 px-4 py-2">
-        <ChefHat className="size-5 text-emerald-400" />
+      <header className="flex shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4 py-2 shadow-sm">
+        <ChefHat className="size-5 text-emerald-600" />
         <span className="font-bold tracking-wide">TELA COZINHA</span>
 
-        <div className="ml-2 flex rounded-lg bg-white/5 p-0.5">
+        <div className="ml-2 flex rounded-lg bg-slate-100 p-0.5">
           <button
             onClick={() => setMode('semana')}
             className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition ${
-              mode === 'semana' ? 'bg-emerald-500 text-black' : 'text-white/60 hover:text-white'
+              mode === 'semana' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-900'
             }`}
           >
             <CalendarDays className="size-4" /> Eventos da semana
@@ -201,7 +201,7 @@ function TelaCozinha() {
           <button
             onClick={() => setMode('dia')}
             className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition ${
-              mode === 'dia' ? 'bg-emerald-500 text-black' : 'text-white/60 hover:text-white'
+              mode === 'dia' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-900'
             }`}
           >
             <UtensilsCrossed className="size-4" /> Evento do dia
@@ -211,19 +211,19 @@ function TelaCozinha() {
         <div className="ml-auto flex items-center gap-2">
           <span className="text-2xl font-bold tabular-nums">{fmtTime(now)}</span>
           {lastSync && (
-            <span className="hidden text-[11px] text-white/35 sm:inline">
+            <span className="hidden text-[11px] text-slate-400 sm:inline">
               atualizado {fmtTime(lastSync)}
             </span>
           )}
-          <button onClick={refreshNow} className="rounded bg-white/10 p-2 text-white/70 hover:bg-white/20" title="Atualizar agora">
+          <button onClick={refreshNow} className="rounded border border-slate-200 bg-white p-2 text-slate-500 shadow-sm hover:bg-slate-50" title="Atualizar agora">
             <RefreshCw className="size-4" />
           </button>
-          <button onClick={() => setShowConfig(v => !v)} className="rounded bg-white/10 p-2 text-white/70 hover:bg-white/20" title="Escolher espaços">
+          <button onClick={() => setShowConfig(v => !v)} className="rounded border border-slate-200 bg-white p-2 text-slate-500 shadow-sm hover:bg-slate-50" title="Escolher espaços">
             <Settings2 className="size-4" />
           </button>
           <button
             onClick={() => document.documentElement.requestFullscreen?.()}
-            className="rounded bg-white/10 p-2 text-white/70 hover:bg-white/20"
+            className="rounded border border-slate-200 bg-white p-2 text-slate-500 shadow-sm hover:bg-slate-50"
             title="Tela cheia"
           >
             <Maximize2 className="size-4" />
@@ -233,14 +233,14 @@ function TelaCozinha() {
 
       {/* Seletor de espaços */}
       {showConfig && (
-        <div className="shrink-0 border-b border-white/10 bg-white/[0.02] px-4 py-3">
-          <p className="mb-2 text-xs uppercase tracking-wide text-white/40">
+        <div className="shrink-0 border-b border-slate-200 bg-white px-4 py-3">
+          <p className="mb-2 text-xs uppercase tracking-wide text-slate-400">
             Espaços exibidos {selected.length > 1 && `· tela dividida em ${selected.length}`}
           </p>
           <VenuePicker venues={venues} selected={selected} onToggle={toggleVenue} loading={loadingVenues} />
           <a
             href="/dashboard"
-            className="mt-3 inline-flex items-center gap-1 text-xs text-white/40 hover:text-white/70"
+            className="mt-3 inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-700"
           >
             <ExternalLink className="size-3" /> voltar ao sistema
           </a>
@@ -249,7 +249,7 @@ function TelaCozinha() {
 
       {/* Colunas por espaço */}
       {selected.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center text-white/40">
+        <div className="flex flex-1 items-center justify-center text-slate-400">
           Escolha ao menos um espaço para começar.
         </div>
       ) : (
@@ -264,34 +264,45 @@ function TelaCozinha() {
               const otherVenues = svc?.event.venues.filter(v => v.id !== venueId) ?? [];
 
               return (
-                <section key={venueId} className="flex h-full min-w-0 flex-col overflow-y-auto border-r border-white/10 last:border-r-0">
-                  <div className="sticky top-0 z-10 border-b border-white/10 bg-neutral-950/95 px-3 py-2 backdrop-blur">
-                    <p className="font-bold text-emerald-400">{venue?.name ?? '—'}</p>
+                <section key={venueId} className="flex h-full min-w-0 flex-col overflow-y-auto border-r border-slate-200 last:border-r-0">
+                  <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur">
+                    <p className="font-bold text-emerald-700">{venue?.name ?? '—'}</p>
 
                     {mode === 'dia' && (
                       <>
-                        {/* Nunca escolhe silenciosamente: os candidatos ficam sempre visíveis */}
+                        {/* Nunca escolhe silenciosamente: os candidatos ficam sempre visíveis.
+                            Mostram data e dia da semana, não só hora — os candidatos abrangem
+                            ±30 dias, então só o horário era ambíguo. */}
                         <div className="mt-1 flex flex-wrap gap-1">
                           {(candidates[venueId] ?? []).length === 0 ? (
-                            <span className="text-[11px] text-white/30">Nenhum evento próximo.</span>
+                            <span className="text-[11px] text-slate-400">Nenhum evento próximo.</span>
                           ) : (
-                            (candidates[venueId] ?? []).slice(0, 8).map(ev => (
-                              <button
-                                key={ev.id}
-                                onClick={() => setEventByVenue(prev => ({ ...prev, [venueId]: ev.id }))}
-                                className={`rounded px-2 py-0.5 text-[11px] ${
-                                  eventByVenue[venueId] === ev.id
-                                    ? 'bg-emerald-500 text-black font-semibold'
-                                    : 'bg-white/10 text-white/60 hover:bg-white/20'
-                                }`}
-                              >
-                                {fmtTime(ev.startAt ?? ev.setupAt)} {ev.clientName || ev.name}
-                              </button>
-                            ))
+                            (candidates[venueId] ?? []).slice(0, 8).map(ev => {
+                              const ref = ev.startAt ?? ev.setupAt;
+                              const on = eventByVenue[venueId] === ev.id;
+                              return (
+                                <button
+                                  key={ev.id}
+                                  onClick={() => setEventByVenue(prev => ({ ...prev, [venueId]: ev.id }))}
+                                  className={`rounded border px-2 py-1 text-left text-[11px] leading-tight ${
+                                    on
+                                      ? 'border-emerald-600 bg-emerald-600 font-semibold text-white'
+                                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  <span className="block font-semibold">
+                                    {fmtWeekday(ref)} {fmtDate(ref)} · {fmtTime(ref)}
+                                  </span>
+                                  <span className={on ? 'text-white/90' : 'text-slate-500'}>
+                                    {ev.clientName || ev.name}
+                                  </span>
+                                </button>
+                              );
+                            })
                           )}
                         </div>
                         {otherVenues.length > 0 && (
-                          <p className="mt-1 text-[11px] text-amber-400/80">
+                          <p className="mt-1 text-[11px] text-amber-700">
                             este evento também está em: {otherVenues.map(v => v.name).join(', ')} — a sequência é compartilhada
                           </p>
                         )}
@@ -309,7 +320,7 @@ function TelaCozinha() {
                         onBusyChange={setBusy}
                       />
                     ) : (
-                      <p className="py-8 text-center text-sm text-white/30">
+                      <p className="py-8 text-center text-sm text-slate-400">
                         {eventByVenue[venueId] ? 'Carregando…' : 'Escolha um evento acima.'}
                       </p>
                     )}

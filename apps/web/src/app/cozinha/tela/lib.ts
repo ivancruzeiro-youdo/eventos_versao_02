@@ -13,6 +13,23 @@ export function fmtTime(iso: string | Date | null | undefined): string {
   return new Intl.DateTimeFormat('pt-BR', { timeZone: TZ, hour: '2-digit', minute: '2-digit' }).format(d);
 }
 
+/** "11/08" — data curta de um instante. */
+export function fmtDate(iso: string | Date | null | undefined): string {
+  if (!iso) return '--/--';
+  const d = typeof iso === 'string' ? new Date(iso) : iso;
+  if (isNaN(d.getTime())) return '--/--';
+  return new Intl.DateTimeFormat('pt-BR', { timeZone: TZ, day: '2-digit', month: '2-digit' }).format(d);
+}
+
+/** "SEG" — dia da semana curto e em caixa alta. */
+export function fmtWeekday(iso: string | Date | null | undefined): string {
+  if (!iso) return '';
+  const d = typeof iso === 'string' ? new Date(iso) : iso;
+  if (isNaN(d.getTime())) return '';
+  return new Intl.DateTimeFormat('pt-BR', { timeZone: TZ, weekday: 'short' })
+    .format(d).replace('.', '').toUpperCase();
+}
+
 export function fmtDayLabel(dateKey: string): string {
   // dateKey é "YYYY-MM-DD" já no dia BRT (calculado no servidor). Constrói ao meio-dia UTC
   // pra não escorregar de dia na formatação.

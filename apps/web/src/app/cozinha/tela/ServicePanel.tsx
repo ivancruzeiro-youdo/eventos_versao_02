@@ -123,29 +123,29 @@ export default function ServicePanel({ data, onMutate, onBusyChange }: Props) {
   const allComments = packages.flatMap(p => p.comments.map(c => ({ ...c, pkgName: p.name })));
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* Cabeçalho: pessoas */}
-      <div className="rounded-lg bg-white/[0.04] border border-white/10 p-3">
+      <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
         <div className="flex items-end justify-between gap-3">
           <div>
-            <p className="text-5xl font-bold leading-none text-white tabular-nums">{headcount.effective}</p>
-            <p className="text-xs uppercase tracking-wide text-white/50 mt-1 flex items-center gap-1">
+            <p className="text-5xl font-bold leading-none tabular-nums text-slate-900">{headcount.effective}</p>
+            <p className="mt-1 flex items-center gap-1 text-xs uppercase tracking-wide text-slate-500">
               <Users className="size-3.5" />
               {headcount.isEstimate ? 'pessoas (contratado)' : 'presentes — acumulado'}
             </p>
           </div>
           {headcount.isEstimate ? (
-            <span className="rounded bg-amber-500/20 px-2 py-1 text-[11px] font-bold text-amber-300 text-right leading-tight">
+            <span className="rounded bg-amber-100 px-2 py-1 text-right text-[11px] font-bold leading-tight text-amber-700">
               ESTIMADO<br />sem check-in
             </span>
           ) : (
-            <span className="text-right text-[11px] text-white/40 leading-tight">
+            <span className="text-right text-[11px] leading-tight text-slate-400">
               contratado: {headcount.contracted}
             </span>
           )}
         </div>
         {!headcount.isEstimate && (
-          <p className="mt-2 text-[11px] text-white/35 leading-snug">
+          <p className="mt-2 text-[11px] leading-snug text-slate-400">
             Não há registro de saída de convidado — o número só cresce ao longo da noite.
           </p>
         )}
@@ -153,15 +153,15 @@ export default function ServicePanel({ data, onMutate, onBusyChange }: Props) {
 
       {/* Sequência de serviço */}
       <div>
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-bold text-white/80 flex items-center gap-1.5">
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="flex items-center gap-1.5 text-sm font-bold text-slate-700">
             <UtensilsCrossed className="size-4" /> Sequência de serviço
           </h3>
           <div className="flex gap-1.5">
             <button
               onClick={generateSuggested}
               disabled={working}
-              className="flex items-center gap-1 rounded bg-white/10 px-2 py-1.5 text-xs text-white/80 hover:bg-white/20 disabled:opacity-40"
+              className="flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 disabled:opacity-40"
               title={`Adiciona os itens escolhidos espaçados de ${plan.intervalMinutes} em ${plan.intervalMinutes} min`}
             >
               <Wand2 className="size-3.5" /> gerar {plan.intervalMinutes}min
@@ -169,7 +169,7 @@ export default function ServicePanel({ data, onMutate, onBusyChange }: Props) {
             <button
               onClick={() => setShowAdd(v => !v)}
               disabled={working}
-              className="flex items-center gap-1 rounded bg-emerald-500/20 px-2 py-1.5 text-xs text-emerald-300 hover:bg-emerald-500/30 disabled:opacity-40"
+              className="flex items-center gap-1 rounded bg-emerald-600 px-2 py-1.5 text-xs font-medium text-white shadow-sm hover:bg-emerald-700 disabled:opacity-40"
             >
               <Plus className="size-3.5" /> item
             </button>
@@ -178,9 +178,9 @@ export default function ServicePanel({ data, onMutate, onBusyChange }: Props) {
 
         {/* Escolher item pra entrar na sequência */}
         {showAdd && (
-          <div className="mb-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-2">
+          <div className="mb-2 rounded-lg border border-emerald-300 bg-emerald-50 p-2">
             {available.length === 0 ? (
-              <p className="text-xs text-white/40">Todos os itens escolhidos já estão na sequência.</p>
+              <p className="text-xs text-slate-500">Todos os itens escolhidos já estão na sequência.</p>
             ) : (
               <div className="flex flex-wrap gap-1.5">
                 {available.map(c => (
@@ -190,7 +190,7 @@ export default function ServicePanel({ data, onMutate, onBusyChange }: Props) {
                       call(`/api/v2/kitchen/display/events/${eventId}/plan/entries`,
                         json({ eventItemId: c.pkg.eventItemId, sourceLabel: c.sourceLabel, itemName: c.itemName }))
                     }
-                    className="rounded bg-white/10 px-2 py-1 text-xs text-white/80 hover:bg-emerald-500/30"
+                    className="rounded border border-emerald-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-emerald-100"
                   >
                     + {c.itemName}
                   </button>
@@ -201,7 +201,7 @@ export default function ServicePanel({ data, onMutate, onBusyChange }: Props) {
         )}
 
         {entries.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-white/15 p-4 text-center text-xs text-white/40">
+          <p className="rounded-lg border border-dashed border-slate-300 p-4 text-center text-xs text-slate-400">
             Nenhuma saída montada. Use "gerar {plan.intervalMinutes}min" ou adicione item por item.
           </p>
         ) : (
@@ -221,57 +221,57 @@ export default function ServicePanel({ data, onMutate, onBusyChange }: Props) {
                   setDragId(null);
                   reorder(ids);
                 }}
-                className={`rounded-lg border p-2 ${
+                className={`rounded-lg border p-2 shadow-sm ${
                   e.status === 'served'
-                    ? 'border-white/5 bg-white/[0.02] opacity-50'
+                    ? 'border-slate-200 bg-slate-50 opacity-60'
                     : e.orphan || e.packageMissing
-                      ? 'border-red-500/40 bg-red-500/5'
-                      : 'border-white/10 bg-white/[0.05]'
+                      ? 'border-red-300 bg-red-50'
+                      : 'border-slate-200 bg-white'
                 }`}
               >
                 <div className="flex items-center gap-2">
-                  <GripVertical className="size-4 shrink-0 text-white/20 cursor-grab" />
+                  <GripVertical className="size-4 shrink-0 cursor-grab text-slate-300" />
 
-                  <span className="w-14 shrink-0 text-lg font-bold tabular-nums text-emerald-400">
+                  <span className="w-14 shrink-0 text-lg font-bold tabular-nums text-emerald-600">
                     {fmtTime(e.serveAt)}
                   </span>
 
                   <div className="min-w-0 flex-1">
-                    <p className={`font-medium leading-tight ${e.orphan ? 'line-through text-white/50' : 'text-white'}`}>
+                    <p className={`font-medium leading-tight ${e.orphan ? 'text-slate-400 line-through' : 'text-slate-900'}`}>
                       {e.itemName}
                       {e.round > 1 && (
-                        <span className="ml-1.5 rounded bg-white/15 px-1.5 py-0.5 text-[10px] align-middle text-white/70">
+                        <span className="ml-1.5 rounded bg-slate-200 px-1.5 py-0.5 align-middle text-[10px] text-slate-600">
                           {e.round}ª vez
                         </span>
                       )}
                     </p>
                     {e.orphan && (
-                      <p className="text-[11px] text-red-400 flex items-center gap-1">
+                      <p className="flex items-center gap-1 text-[11px] text-red-600">
                         <AlertTriangle className="size-3" /> não está mais no cardápio
                       </p>
                     )}
                     {!e.orphan && e.packageMissing && (
-                      <p className="text-[11px] text-red-400">pacote de origem removido</p>
+                      <p className="text-[11px] text-red-600">pacote de origem removido</p>
                     )}
                     {e.sourceLabel && !e.orphan && (
-                      <p className="truncate text-[11px] text-white/35">{e.sourceLabel}</p>
+                      <p className="truncate text-[11px] text-slate-400">{e.sourceLabel}</p>
                     )}
                   </div>
 
                   <div className="shrink-0 text-right">
-                    <p className="text-xl font-bold leading-none tabular-nums text-white">{e.demand.quantity}</p>
-                    <p className="text-[10px] uppercase text-white/35">
+                    <p className="text-xl font-bold leading-none tabular-nums text-slate-900">{e.demand.quantity}</p>
+                    <p className="text-[10px] uppercase text-slate-400">
                       {e.demand.basis === 'manual' ? 'manual' : 'porções'}
                     </p>
                   </div>
 
                   <div className="flex shrink-0 flex-col gap-0.5">
                     <button onClick={() => move(i, -1)} disabled={i === 0 || working}
-                      className="rounded bg-white/10 p-1 text-white/70 hover:bg-white/20 disabled:opacity-25" title="Subir">
+                      className="rounded border border-slate-200 bg-white p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-25" title="Subir">
                       <ChevronUp className="size-3.5" />
                     </button>
                     <button onClick={() => move(i, 1)} disabled={i === entries.length - 1 || working}
-                      className="rounded bg-white/10 p-1 text-white/70 hover:bg-white/20 disabled:opacity-25" title="Descer">
+                      className="rounded border border-slate-200 bg-white p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-25" title="Descer">
                       <ChevronDown className="size-3.5" />
                     </button>
                   </div>
@@ -284,7 +284,11 @@ export default function ServicePanel({ data, onMutate, onBusyChange }: Props) {
                         body: JSON.stringify({ status: e.status === 'served' ? 'pending' : 'served' }),
                       })}
                       disabled={working}
-                      className={`rounded p-1 ${e.status === 'served' ? 'bg-emerald-500/30 text-emerald-300' : 'bg-white/10 text-white/70 hover:bg-emerald-500/30'}`}
+                      className={`rounded border p-1 ${
+                        e.status === 'served'
+                          ? 'border-emerald-500 bg-emerald-500 text-white'
+                          : 'border-slate-200 bg-white text-slate-500 hover:bg-emerald-50 hover:text-emerald-600'
+                      }`}
                       title={e.status === 'served' ? 'Desmarcar' : 'Marcar como servido'}
                     >
                       <Check className="size-3.5" />
@@ -292,7 +296,7 @@ export default function ServicePanel({ data, onMutate, onBusyChange }: Props) {
                     <button
                       onClick={() => call(`/api/v2/kitchen/display/plan/entries/${e.id}/duplicate`, json({}))}
                       disabled={working}
-                      className="rounded bg-white/10 p-1 text-white/70 hover:bg-white/20"
+                      className="rounded border border-slate-200 bg-white p-1 text-slate-500 hover:bg-slate-100"
                       title="Servir de novo mais tarde"
                     >
                       <Copy className="size-3.5" />
@@ -300,7 +304,7 @@ export default function ServicePanel({ data, onMutate, onBusyChange }: Props) {
                     <button
                       onClick={() => call(`/api/v2/kitchen/display/plan/entries/${e.id}`, { method: 'DELETE' })}
                       disabled={working}
-                      className="rounded bg-white/10 p-1 text-white/50 hover:bg-red-500/30 hover:text-red-300"
+                      className="rounded border border-slate-200 bg-white p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
                       title="Remover"
                     >
                       <Trash2 className="size-3.5" />
@@ -316,15 +320,15 @@ export default function ServicePanel({ data, onMutate, onBusyChange }: Props) {
       {/* Observações de A&B */}
       {allComments.length > 0 && (
         <div>
-          <h3 className="mb-2 text-sm font-bold text-white/80 flex items-center gap-1.5">
+          <h3 className="mb-2 flex items-center gap-1.5 text-sm font-bold text-slate-700">
             <MessageSquare className="size-4" /> Observações de A&amp;B
           </h3>
           <div className="space-y-1.5">
             {allComments.map(c => (
-              <div key={c.id} className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2">
-                <p className="text-[11px] font-semibold text-amber-300">{c.pkgName}</p>
-                <p className="text-sm text-white/90 whitespace-pre-wrap leading-snug">{c.content}</p>
-                {c.user && <p className="text-[10px] text-white/35 mt-0.5">{c.user.name}</p>}
+              <div key={c.id} className="rounded-lg border border-amber-300 bg-amber-50 p-2">
+                <p className="text-[11px] font-semibold text-amber-700">{c.pkgName}</p>
+                <p className="whitespace-pre-wrap text-sm leading-snug text-slate-800">{c.content}</p>
+                {c.user && <p className="mt-0.5 text-[10px] text-slate-400">{c.user.name}</p>}
               </div>
             ))}
           </div>
@@ -333,11 +337,11 @@ export default function ServicePanel({ data, onMutate, onBusyChange }: Props) {
 
       {/* Cronograma — Cozinha com destaque forte */}
       <div>
-        <h3 className="mb-2 text-sm font-bold text-white/80 flex items-center gap-1.5">
+        <h3 className="mb-2 flex items-center gap-1.5 text-sm font-bold text-slate-700">
           <CalendarClock className="size-4" /> Cronograma
         </h3>
         {schedule.activities.length === 0 ? (
-          <p className="text-xs text-white/30">Nenhuma atividade no cronograma.</p>
+          <p className="text-xs text-slate-400">Nenhuma atividade no cronograma.</p>
         ) : (
           <div className="space-y-1.5">
             {schedule.activities.map(a => (
@@ -345,27 +349,27 @@ export default function ServicePanel({ data, onMutate, onBusyChange }: Props) {
                 key={a.id}
                 className={
                   a.isKitchen
-                    ? 'rounded-lg border-2 border-emerald-400 bg-emerald-500/20 p-3'
-                    : 'rounded-lg border border-white/10 bg-white/[0.03] p-2 opacity-70'
+                    ? 'rounded-lg border-2 border-emerald-500 bg-emerald-50 p-3 shadow-sm'
+                    : 'rounded-lg border border-slate-200 bg-white p-2'
                 }
               >
-                <div className="flex items-baseline gap-2 flex-wrap">
-                  <span className={`tabular-nums font-bold ${a.isKitchen ? 'text-xl text-emerald-300' : 'text-sm text-white/60'}`}>
+                <div className="flex flex-wrap items-baseline gap-2">
+                  <span className={`font-bold tabular-nums ${a.isKitchen ? 'text-xl text-emerald-700' : 'text-sm text-slate-500'}`}>
                     {fmtTime(a.startAt)}–{fmtTime(a.endAt)}
                   </span>
-                  <span className={a.isKitchen ? 'text-lg font-bold text-white' : 'text-sm text-white/70'}>
+                  <span className={a.isKitchen ? 'text-lg font-bold text-slate-900' : 'text-sm text-slate-600'}>
                     {a.name}
                   </span>
                   {a.team && (
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                      a.isKitchen ? 'bg-emerald-400 text-black' : 'bg-white/10 text-white/50'
+                      a.isKitchen ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-500'
                     }`}>
                       {a.team.name}
                     </span>
                   )}
                 </div>
                 {a.description && (
-                  <p className={`mt-1 whitespace-pre-wrap leading-snug ${a.isKitchen ? 'text-sm text-white/90' : 'text-xs text-white/40'}`}>
+                  <p className={`mt-1 whitespace-pre-wrap leading-snug ${a.isKitchen ? 'text-sm text-slate-700' : 'text-xs text-slate-400'}`}>
                     {a.description}
                   </p>
                 )}
