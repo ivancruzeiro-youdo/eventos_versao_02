@@ -44,6 +44,37 @@ function venueWhere(user: any) {
   return user.role === 'admin' || user.employerId === undefined ? {} : { employerId: user.employerId };
 }
 
+// ── Classificação do pacote de A&B ───────────────────────────────────────────
+// Feita por NOME porque no cadastro todos os produtos de A&B compartilham a mesma
+// categoryName ("Fornecimento de Alimentos e Bebidas") — não há campo que distinga.
+//
+// A ORDEM importa e o default é "comida" de propósito: esconder comida da cozinha é muito
+// pior que mostrar uma bebida. Dois casos reais que justificam cada regra:
+//   - "Prato Feito + Bebida STAFF" → é refeição da equipe. Se a regra de bebida viesse antes
+//     da de comida, sumiria da tela.
+//   - "Pacote de bebdias - adicional - Negroni" → typo de "bebidas" no cadastro; por isso o
+//     padrão de bebida cobre a grafia errada também.
+export type PackageKind = 'estacao' | 'bebida' | 'comida';
+
+const RE_ESTACAO = /(carrinho|esta[cç][aã]o|buffet|coffee)/i;
+const RE_COMIDA  = /(prato\s*feito|comida|lanche|finger|sobremesa|churrasco|pizza|petit\s*four|biscoito|massas?|refei[cç][aã]o|jantar|almo[cç]o|ceia)/i;
+const RE_BEBIDA  = /(bebida|bebdia|bebidas|chopp|drink|suco|refrigerante|open\s*bar|soft|caipir|negroni|espumante|vinho|cerveja|whisky|vodka|gin)/i;
+
+export function classifyPackage(name: string): PackageKind {
+  const n = name || '';
+  if (RE_ESTACAO.test(n)) return 'estacao';
+  if (RE_COMIDA.test(n)) return 'comida';
+  if (RE_BEBIDA.test(n)) return 'bebida';
+  return 'comida';
+}
+
+/** Rótulos das 3 saídas de um pacote de estação, na ordem em que a cozinha executa. */
+const ESTACAO_STEPS = [
+  { kind: 'montagem', label: 'Montagem' },
+  { kind: 'reposicao', label: 'Reposição' },
+  { kind: 'desmontagem', label: 'Desmontagem' },
+] as const;
+
 // ── Itens escolhidos pelo cliente ────────────────────────────────────────────
 // As escolhas vivem em DUAS estruturas paralelas, ambas em uso em produção:
 //   a) EventItemChoice.chosen (String[]) — usado em Pacote de Bebidas, Coffee Break, Churrasco
@@ -115,6 +146,33 @@ async function computeHeadcount(eventId: string, at: Date) {
   };
 }
 
+/** Horário curto em BRT, pra descrição legível no log de auditoria. */
+function fmtBrtLog(d: Date): string {
+  return d.toLocaleString('pt-BR', {
+    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+    timeZone: 'America/Sao_Paulo',
+  });
+}
+
+// ── Auditoria ────────────────────────────────────────────────────────────────
+// Toda alteração da sequência registra quem fez e quando. Nunca lança: falha ao gravar o log
+// não pode impedir a operação em si (a cozinha está no meio do evento).
+async function logPlan(planId: string, action: string, detail: string, user: any) {
+  try {
+    await prisma.kitchenServicePlanLog.create({
+      data: {
+        planId,
+        action,
+        detail,
+        userId: user?.id ?? null,
+        userName: user?.name || user?.email || null,
+      },
+    });
+  } catch (err) {
+    console.error('[kitchen-display] falha ao gravar log do plano:', err);
+  }
+}
+
 function demandFor(entry: { manualQuantity: number | null; portionsPerPerson: number }, effective: number) {
   if (entry.manualQuantity != null) {
     return { quantity: entry.manualQuantity, basis: 'manual' as const };
@@ -182,6 +240,21 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
       headcounts.set(id, await computeHeadcount(id, new Date()));
     }));
 
+    // Checks de "já produzido" — o pessoal da cozinha marca na visão da semana o que adiantou.
+    const prepRows = await prisma.kitchenPrepCheck.findMany({
+      where: { eventId: { in: uniqueEventIds } },
+      select: { eventId: true, itemName: true, checkedAt: true, checkedByName: true },
+    });
+    const prepByEvent = new Map<string, Set<string>>();
+    const prepChecksByEvent = new Map<string, typeof prepRows>();
+    for (const p of prepRows) {
+      if (!prepByEvent.has(p.eventId)) prepByEvent.set(p.eventId, new Set());
+      prepByEvent.get(p.eventId)!.add(p.itemName.toLowerCase());
+      const list = prepChecksByEvent.get(p.eventId) ?? [];
+      list.push(p);
+      prepChecksByEvent.set(p.eventId, list);
+    }
+
     let undatedCount = 0;
     const byVenue = new Map<string, any[]>();
     for (const v of venues) byVenue.set(v.id, []);
@@ -216,14 +289,26 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
               setupAt: ev.setupAt,
               teardownAt: ev.teardownAt,
               headcount: headcounts.get(ev.id),
-              packages: ev.items.map((item: any) => ({
-                eventItemId: item.id,
-                name: item.name,
-                quantity: item.quantity,
-                unit: item.unit,
-                serviceStartAt: item.serviceStartAt,
-                serviceEndAt: item.serviceEndAt,
-                chosenItems: buildChosenItems(item),
+              // Bebidas ficam fora da tela da cozinha, mas os nomes voltam em hiddenDrinks
+              // pra ninguém descobrir tarde que um item sumiu por classificação errada.
+              packages: ev.items
+                .filter((item: any) => classifyPackage(item.name) !== 'bebida')
+                .map((item: any) => ({
+                  eventItemId: item.id,
+                  name: item.name,
+                  quantity: item.quantity,
+                  unit: item.unit,
+                  kind: classifyPackage(item.name),
+                  serviceStartAt: item.serviceStartAt,
+                  serviceEndAt: item.serviceEndAt,
+                  chosenItems: buildChosenItems(item),
+                  prepChecked: prepByEvent.get(ev.id)?.has(item.name.toLowerCase()) ?? false,
+                })),
+              hiddenDrinks: ev.items
+                .filter((item: any) => classifyPackage(item.name) === 'bebida')
+                .map((item: any) => item.name),
+              prepChecks: (prepChecksByEvent.get(ev.id) ?? []).map(p => ({
+                itemName: p.itemName, checkedAt: p.checkedAt, checkedByName: p.checkedByName,
               })),
             })),
         })),
@@ -305,7 +390,11 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
       }),
       prisma.kitchenServicePlan.findUnique({
         where: { eventId },
-        include: { entries: { orderBy: [{ order: 'asc' }, { serveAt: 'asc' }] } },
+        include: {
+          entries: { orderBy: [{ order: 'asc' }, { serveAt: 'asc' }] },
+          // Últimas alterações da sequência, pra tela mostrar quem mexeu e quando.
+          logs: { orderBy: { createdAt: 'desc' }, take: 30 },
+        },
       }),
       prisma.eventSchedule.findMany({
         where: { eventId },
@@ -328,11 +417,17 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
       commentsByItem.set(c.eventItemId!, list);
     }
 
-    const packages = items.map(item => ({
+    // Bebidas não entram na tela da cozinha. Os nomes voltam em hiddenDrinks pra uma
+    // classificação errada ser visível em vez de sumir com um item calado.
+    const kitchenItems = items.filter(i => classifyPackage(i.name) !== 'bebida');
+    const hiddenDrinks = items.filter(i => classifyPackage(i.name) === 'bebida').map(i => i.name);
+
+    const packages = kitchenItems.map(item => ({
       eventItemId: item.id,
       name: item.name,
       quantity: item.quantity,
       unit: item.unit,
+      kind: classifyPackage(item.name),
       serviceStartAt: item.serviceStartAt,
       serviceEndAt: item.serviceEndAt,
       chosenItems: buildChosenItems(item),
@@ -343,13 +438,22 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
     // escolhas depois de a sequência já estar montada — e itemName é um snapshot).
     const validNames = new Set<string>();
     for (const p of packages) for (const c of p.chosenItems) validNames.add(c.itemName.toLowerCase());
+    // Saídas de estação guardam o nome do PACOTE, não de um item escolhido — sem isso elas
+    // apareceriam todas como órfãs.
+    const validPackages = new Set(packages.map(p => p.name.toLowerCase()));
 
-    const entries = (plan?.entries ?? []).map(e => ({
-      ...e,
-      demand: demandFor(e, headcount.effective),
-      orphan: !validNames.has(e.itemName.toLowerCase()),
-      packageMissing: e.eventItemId === null,
-    }));
+    const entries = (plan?.entries ?? []).map(e => {
+      const isStation = e.entryKind !== 'item';
+      const known = isStation
+        ? validPackages.has(e.itemName.toLowerCase())
+        : validNames.has(e.itemName.toLowerCase());
+      return {
+        ...e,
+        demand: demandFor(e, headcount.effective),
+        orphan: !known,
+        packageMissing: e.eventItemId === null,
+      };
+    });
 
     return {
       success: true,
@@ -357,17 +461,35 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
       event: { ...event, venues: event.venues.map(v => v.venue) },
       headcount,
       packages,
+      hiddenDrinks,
       plan: plan
-        ? { id: plan.id, intervalMinutes: plan.intervalMinutes, anchorAt: plan.anchorAt, notes: plan.notes, updatedAt: plan.updatedAt, entries }
-        : { id: null, intervalMinutes: 15, anchorAt: null, notes: null, updatedAt: null, entries: [] },
+        ? {
+            id: plan.id, intervalMinutes: plan.intervalMinutes, anchorAt: plan.anchorAt,
+            notes: plan.notes, updatedAt: plan.updatedAt, entries,
+            logs: plan.logs.map(l => ({
+              id: l.id, action: l.action, detail: l.detail,
+              userName: l.userName, createdAt: l.createdAt,
+            })),
+          }
+        : { id: null, intervalMinutes: 15, anchorAt: null, notes: null, updatedAt: null, entries: [], logs: [] },
       schedule: {
         activities: activities.map(a => ({
           ...a,
           isKitchen: !!kitchenTeam && a.team?.id === kitchenTeam.id,
         })),
+        // Aqui vão TODOS os itens de A&B com horário, bebidas incluídas — é o mesmo conteúdo
+        // do cronograma normal do evento, e saber que o bar abre às 20h é contexto útil pra
+        // cozinha. O filtro de bebida vale pra lista de produção/sequência, não pro cronograma.
         abServiceEntries: items
           .filter(i => i.serviceStartAt)
-          .map(i => ({ eventItemId: i.id, name: i.name, startAt: i.serviceStartAt, endAt: i.serviceEndAt, virtual: true as const }))
+          .map(i => ({
+            eventItemId: i.id,
+            name: i.name,
+            kind: classifyPackage(i.name),
+            startAt: i.serviceStartAt,
+            endAt: i.serviceEndAt,
+            virtual: true as const,
+          }))
           .sort((a, b) => a.startAt!.getTime() - b.startAt!.getTime()),
       },
     };
@@ -494,6 +616,7 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
         portionsPerPerson: portionsPerPerson ?? 1,
       },
     });
+    await logPlan(plan.id, 'add', `Adicionou "${entry.itemName}" às ${fmtBrtLog(entry.serveAt)}`, user);
     return { success: true, entry };
   });
 
@@ -504,11 +627,16 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
     const { eventId } = request.params as { eventId: string };
     if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
 
-    const { items, anchorAt, intervalMinutes } = request.body as {
+    const { items, stations, anchorAt, intervalMinutes } = request.body as {
       items?: { eventItemId?: string | null; sourceLabel?: string | null; itemName: string; portionsPerPerson?: number }[];
+      // Pacotes de estação (carrinho, buffet, coffee break, estação de massas): em vez de uma
+      // linha por item a cada 15 min, cada um gera montagem / reposição / desmontagem.
+      stations?: { eventItemId?: string | null; itemName: string; startAt?: string | null; endAt?: string | null }[];
       anchorAt?: string | null; intervalMinutes?: number;
     };
-    if (!Array.isArray(items) || items.length === 0) {
+    const itemList = Array.isArray(items) ? items : [];
+    const stationList = Array.isArray(stations) ? stations : [];
+    if (itemList.length === 0 && stationList.length === 0) {
       return reply.status(400).send({ error: 'Envie ao menos um item.' });
     }
 
@@ -516,28 +644,77 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
     const plan = await ensurePlan(eventId, { intervalMinutes, anchorAt: anchor });
 
     const existing = await prisma.kitchenServicePlanEntry.findMany({
-      where: { planId: plan.id }, select: { itemName: true, order: true },
+      where: { planId: plan.id }, select: { itemName: true, order: true, entryKind: true },
     });
-    const already = new Set(existing.map(e => e.itemName.toLowerCase()));
-    const startOrder = existing.reduce((m, e) => Math.max(m, e.order), -1) + 1;
-
-    const fresh = items.filter(i => i.itemName?.trim() && !already.has(i.itemName.trim().toLowerCase()));
-    if (fresh.length === 0) return { success: true, created: 0, skipped: items.length };
+    // Chave inclui o tipo: "Buffet 01 / montagem" não colide com "Buffet 01 / desmontagem".
+    const already = new Set(existing.map(e => `${e.itemName.toLowerCase()}|${e.entryKind}`));
+    let order = existing.reduce((m, e) => Math.max(m, e.order), -1) + 1;
 
     const step = plan.intervalMinutes * 60_000;
-    await prisma.kitchenServicePlanEntry.createMany({
-      data: fresh.map((i, idx) => ({
+    const rows: any[] = [];
+    let skipped = 0;
+
+    // Itens de comida: um por saída, espaçados pelo intervalo.
+    for (const i of itemList) {
+      const name = i.itemName?.trim();
+      if (!name) { skipped++; continue; }
+      if (already.has(`${name.toLowerCase()}|item`)) { skipped++; continue; }
+      rows.push({
         planId: plan.id,
         eventItemId: i.eventItemId ?? null,
         sourceLabel: i.sourceLabel ?? null,
-        itemName: i.itemName.trim(),
-        serveAt: new Date(anchor.getTime() + (startOrder + idx) * step),
-        order: startOrder + idx,
+        itemName: name,
+        entryKind: 'item',
+        serveAt: new Date(anchor.getTime() + order * step),
+        order: order++,
         portionsPerPerson: i.portionsPerPerson ?? 1,
-      })),
-    });
+      });
+    }
 
-    return { success: true, created: fresh.length, skipped: items.length - fresh.length };
+    // Estações: 3 linhas por pacote. Se o item tem horário de serviço definido em A&B, montagem
+    // fica 30 min antes do início, reposição no meio e desmontagem no fim — assim a sequência
+    // reflete o horário contratado em vez de um intervalo genérico.
+    for (const s of stationList) {
+      const name = s.itemName?.trim();
+      if (!name) { skipped++; continue; }
+      const start = s.startAt && !isNaN(new Date(s.startAt).getTime()) ? new Date(s.startAt) : null;
+      const end = s.endAt && !isNaN(new Date(s.endAt).getTime()) ? new Date(s.endAt) : null;
+
+      for (const step3 of ESTACAO_STEPS) {
+        if (already.has(`${name.toLowerCase()}|${step3.kind}`)) { skipped++; continue; }
+        let when: Date;
+        if (start && end) {
+          when = step3.kind === 'montagem' ? new Date(start.getTime() - 30 * 60_000)
+               : step3.kind === 'reposicao' ? new Date((start.getTime() + end.getTime()) / 2)
+               : end;
+        } else if (start) {
+          when = step3.kind === 'montagem' ? new Date(start.getTime() - 30 * 60_000)
+               : step3.kind === 'reposicao' ? new Date(start.getTime() + 60 * 60_000)
+               : new Date(start.getTime() + 120 * 60_000);
+        } else {
+          when = new Date(anchor.getTime() + order * step);
+        }
+        rows.push({
+          planId: plan.id,
+          eventItemId: s.eventItemId ?? null,
+          sourceLabel: step3.label,
+          itemName: name,
+          entryKind: step3.kind,
+          serveAt: when,
+          order: order++,
+          portionsPerPerson: 1,
+        });
+      }
+    }
+
+    if (rows.length === 0) return { success: true, created: 0, skipped };
+
+    await prisma.kitchenServicePlanEntry.createMany({ data: rows });
+    await logPlan(plan.id, 'bulk_add',
+      `Gerou ${rows.length} saída(s): ${rows.map(r => r.entryKind === 'item' ? r.itemName : `${r.itemName} (${r.sourceLabel})`).join(', ')}`,
+      user);
+
+    return { success: true, created: rows.length, skipped };
   });
 
   // Helper de acesso por entrada (a entrada não conhece o eventId direto).
@@ -567,6 +744,8 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Horário inválido.' });
     }
 
+    const before = await prisma.kitchenServicePlanEntry.findUnique({ where: { id: entryId } });
+
     const entry = await prisma.kitchenServicePlanEntry.update({
       where: { id: entryId },
       data: {
@@ -577,6 +756,25 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
         ...(status ? { status, servedAt: status === 'served' ? new Date() : null, servedById: status === 'served' ? (user?.id ?? null) : null } : {}),
       },
     });
+
+    // Descreve só o que mudou de fato, pro log ser útil de ler.
+    const changes: string[] = [];
+    if (serveAt && before && before.serveAt.getTime() !== entry.serveAt.getTime()) {
+      changes.push(`horário ${fmtBrtLog(before.serveAt)} → ${fmtBrtLog(entry.serveAt)}`);
+    }
+    if (status && before?.status !== entry.status) {
+      changes.push(entry.status === 'served' ? 'marcou como servido' : `status → ${entry.status}`);
+    }
+    if (manualQuantity !== undefined && before?.manualQuantity !== entry.manualQuantity) {
+      changes.push(`quantidade manual → ${entry.manualQuantity ?? 'automática'}`);
+    }
+    if (portionsPerPerson != null && before?.portionsPerPerson !== entry.portionsPerPerson) {
+      changes.push(`porções por pessoa → ${entry.portionsPerPerson}`);
+    }
+    if (changes.length > 0) {
+      await logPlan(entry.planId, status ? 'served' : 'update', `"${entry.itemName}": ${changes.join('; ')}`, user);
+    }
+
     return { success: true, entry };
   });
 
@@ -610,6 +808,7 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
         eventItemId: original.eventItemId,
         sourceLabel: original.sourceLabel,
         itemName: original.itemName,
+        entryKind: original.entryKind,
         serveAt: when,
         order: (maxOrder._max.order ?? -1) + 1,
         round: (maxRound._max.round ?? 1) + 1,
@@ -617,6 +816,8 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
         manualQuantity: original.manualQuantity,
       },
     });
+    await logPlan(original.planId, 'duplicate',
+      `Duplicou "${entry.itemName}" para ${fmtBrtLog(entry.serveAt)} (${entry.round}ª vez)`, user);
     return { success: true, entry };
   });
 
@@ -643,6 +844,12 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
     const anchor = plan.anchorAt ?? await resolveAnchor(eventId);
     const step = plan.intervalMinutes * 60_000;
 
+    // Nomes na ordem nova, pro log dizer o que a sequência virou.
+    const named = await prisma.kitchenServicePlanEntry.findMany({
+      where: { id: { in: ordered } }, select: { id: true, itemName: true },
+    });
+    const nameById = new Map(named.map(n => [n.id, n.itemName]));
+
     await prisma.$transaction(
       ordered.map((id, i) =>
         prisma.kitchenServicePlanEntry.update({
@@ -655,6 +862,10 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
       )
     );
 
+    await logPlan(plan.id, 'reorder',
+      `Reordenou a sequência${reflow ? ' (recalculando horários)' : ''}: ${ordered.map(id => nameById.get(id) ?? '?').join(' → ')}`,
+      user);
+
     return { success: true, reordered: ordered.length };
   });
 
@@ -665,7 +876,55 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
     if (!eventId) return reply.status(404).send({ error: 'Saída não encontrada.' });
     if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
 
+    const entry = await prisma.kitchenServicePlanEntry.findUnique({ where: { id: entryId } });
     await prisma.kitchenServicePlanEntry.delete({ where: { id: entryId } });
+    if (entry) {
+      await logPlan(entry.planId, 'remove',
+        `Removeu "${entry.itemName}"${entry.entryKind !== 'item' ? ` (${entry.sourceLabel || entry.entryKind})` : ''} que estava às ${fmtBrtLog(entry.serveAt)}`,
+        user);
+    }
     return { success: true };
+  });
+
+  // ── Check de "já produzido" (visão da semana) ─────────────────────────────
+  // Toggle idempotente: marcar duas vezes não duplica (unique em eventId+itemName), e
+  // desmarcar apaga. Quem marcou e quando ficam gravados no próprio registro.
+  app.post('/kitchen/display/events/:eventId/prep-check', { preHandler: [requireAuth, requireRole(WRITE_ROLES)] }, async (request, reply) => {
+    const user = (request as any).user;
+    const { eventId } = request.params as { eventId: string };
+    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
+
+    const { itemName, eventItemId, checked } = request.body as {
+      itemName?: string; eventItemId?: string | null; checked?: boolean;
+    };
+    if (!itemName?.trim()) return reply.status(400).send({ error: 'itemName é obrigatório.' });
+    const name = itemName.trim();
+
+    if (checked === false) {
+      await prisma.kitchenPrepCheck.deleteMany({ where: { eventId, itemName: name } });
+      return { success: true, checked: false };
+    }
+
+    const row = await prisma.kitchenPrepCheck.upsert({
+      where: { eventId_itemName: { eventId, itemName: name } },
+      create: {
+        eventId,
+        eventItemId: eventItemId ?? null,
+        itemName: name,
+        checkedById: user?.id ?? null,
+        checkedByName: user?.name || user?.email || null,
+      },
+      update: {
+        checkedAt: new Date(),
+        checkedById: user?.id ?? null,
+        checkedByName: user?.name || user?.email || null,
+      },
+    });
+
+    return {
+      success: true,
+      checked: true,
+      check: { itemName: row.itemName, checkedAt: row.checkedAt, checkedByName: row.checkedByName },
+    };
   });
 }

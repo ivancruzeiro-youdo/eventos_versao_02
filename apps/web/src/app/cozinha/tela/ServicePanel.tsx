@@ -4,14 +4,16 @@ import { useState } from 'react';
 import {
   Users, ChevronUp, ChevronDown, Copy, Trash2, Check, Plus, Wand2,
   MessageSquare, AlertTriangle, UtensilsCrossed, CalendarClock, GripVertical,
+  Wine, History, LayoutGrid,
 } from 'lucide-react';
-import { fmtTime } from './lib';
+import { fmtTime, fmtDateTimeShort } from './lib';
 
 export interface ServiceEntry {
   id: string;
   eventItemId: string | null;
   sourceLabel: string | null;
   itemName: string;
+  entryKind: 'item' | 'montagem' | 'reposicao' | 'desmontagem';
   serveAt: string;
   order: number;
   round: number;
@@ -29,6 +31,7 @@ export interface ServicePackage {
   name: string;
   quantity: number;
   unit: string | null;
+  kind: 'comida' | 'estacao' | 'bebida';
   serviceStartAt: string | null;
   serviceEndAt: string | null;
   chosenItems: { itemName: string; sourceLabel: string | null }[];
@@ -39,12 +42,22 @@ export interface ServiceData {
   event: { id: string; name: string; clientName: string; startAt: string | null; venues: { id: string; name: string }[] };
   headcount: { effective: number; checkedIn: number; contracted: number; isEstimate: boolean };
   packages: ServicePackage[];
-  plan: { id: string | null; intervalMinutes: number; anchorAt: string | null; entries: ServiceEntry[] };
+  hiddenDrinks: string[];
+  plan: {
+    id: string | null; intervalMinutes: number; anchorAt: string | null; entries: ServiceEntry[];
+    logs: { id: string; action: string; detail: string; userName: string | null; createdAt: string }[];
+  };
   schedule: {
     activities: { id: string; name: string; description: string | null; startAt: string; endAt: string; team: { id: string; name: string } | null; isKitchen: boolean }[];
-    abServiceEntries: { eventItemId: string; name: string; startAt: string; endAt: string | null }[];
+    abServiceEntries: { eventItemId: string; name: string; kind: string; startAt: string; endAt: string | null }[];
   };
 }
+
+const KIND_LABEL: Record<string, string> = {
+  montagem: 'Montagem',
+  reposicao: 'Reposição',
+  desmontagem: 'Desmontagem',
+};
 
 interface Props {
   data: ServiceData;
@@ -54,6 +67,7 @@ interface Props {
 
 export default function ServicePanel({ data, onMutate, onBusyChange }: Props) {
   const [showAdd, setShowAdd] = useState(false);
+  const [showLog, setShowLog] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
 
@@ -102,28 +116,81 @@ export default function ServicePanel({ data, onMutate, onBusyChange }: Props) {
   }
 
   function generateSuggested() {
-    // Todos os itens escolhidos que ainda não estão na sequência, espaçados pelo intervalo.
-    const already = new Set(entries.map(e => e.itemName.toLowerCase()));
-    const items = packages.flatMap(pkg =>
-      pkg.chosenItems
-        .filter(c => !already.has(c.itemName.toLowerCase()))
-        .map(c => ({ eventItemId: pkg.eventItemId, sourceLabel: c.sourceLabel, itemName: c.itemName }))
-    );
-    if (items.length === 0) { alert('Todos os itens escolhidos já estão na sequência.'); return; }
-    call(`/api/v2/kitchen/display/events/${eventId}/plan/entries/bulk`, json({ items }));
+    // Comida: uma saída por item escolhido, espaçadas pelo intervalo.
+    // Estação (carrinho, buffet, coffee break): 3 linhas do PACOTE — montagem, reposição
+    // e desmontagem — em vez de uma linha por item a cada 15 min.
+    const already = new Set(entries.map(e => `${e.itemName.toLowerCase()}|${e.entryKind}`));
+
+    const items = packages
+      .filter(p => p.kind !== 'estacao')
+      .flatMap(pkg =>
+        pkg.chosenItems
+          .filter(c => !already.has(`${c.itemName.toLowerCase()}|item`))
+          .map(c => ({ eventItemId: pkg.eventItemId, sourceLabel: c.sourceLabel, itemName: c.itemName }))
+      );
+
+    const stations = packages
+      .filter(p => p.kind === 'estacao')
+      .filter(p => !['montagem', 'reposicao', 'desmontagem'].every(k => already.has(`${p.name.toLowerCase()}|${k}`)))
+      .map(p => ({
+        eventItemId: p.eventItemId,
+        itemName: p.name,
+        startAt: p.serviceStartAt,
+        endAt: p.serviceEndAt,
+      }));
+
+    if (items.length === 0 && stations.length === 0) {
+      alert('Tudo que havia para gerar já está na sequência.');
+      return;
+    }
+    call(`/api/v2/kitchen/display/events/${eventId}/plan/entries/bulk`, json({ items, stations }));
   }
 
   // Itens escolhidos que ainda não entraram na sequência — a marcação é manual, então esta
-  // lista é a fonte pro operador escolher o que serve.
-  const inSequence = new Set(entries.map(e => e.itemName.toLowerCase()));
-  const available = packages.flatMap(pkg =>
-    pkg.chosenItems.map(c => ({ ...c, pkg })).filter(c => !inSequence.has(c.itemName.toLowerCase()))
-  );
+  // lista é a fonte pro operador escolher o que serve. Estações aparecem como o pacote.
+  const inSequence = new Set(entries.map(e => `${e.itemName.toLowerCase()}|${e.entryKind}`));
+  const available = packages
+    .filter(p => p.kind !== 'estacao')
+    .flatMap(pkg =>
+      pkg.chosenItems.map(c => ({ ...c, pkg })).filter(c => !inSequence.has(`${c.itemName.toLowerCase()}|item`))
+    );
+  const availableStations = packages
+    .filter(p => p.kind === 'estacao')
+    .filter(p => !['montagem', 'reposicao', 'desmontagem'].every(k => inSequence.has(`${p.name.toLowerCase()}|${k}`)));
 
   const allComments = packages.flatMap(p => p.comments.map(c => ({ ...c, pkgName: p.name })));
 
+  // Cronograma + itens de A&B com horário, na mesma linha do tempo (igual ao cronograma do
+  // evento). Item 7 do pedido: a tela mostra também os itens que já aparecem lá.
+  type TL =
+    | { kind: 'act'; at: number; act: ServiceData['schedule']['activities'][number] }
+    | { kind: 'ab'; at: number; ab: ServiceData['schedule']['abServiceEntries'][number] };
+  const timeline: TL[] = [
+    ...schedule.activities.map((act): TL => ({ kind: 'act', at: new Date(act.startAt).getTime(), act })),
+    ...schedule.abServiceEntries.map((ab): TL => ({ kind: 'ab', at: new Date(ab.startAt).getTime(), ab })),
+  ].sort((a, b) => a.at - b.at);
+
   return (
     <div className="space-y-3">
+      {/* Observações de A&B — no topo: é a informação que muda a operação ("servir só depois
+          do jantar", "cliente pediu sem lactose") e não pode ficar embaixo da lista. */}
+      {allComments.length > 0 && (
+        <div className="rounded-lg border-2 border-amber-400 bg-amber-50 p-2.5">
+          <h3 className="mb-1.5 flex items-center gap-1.5 text-sm font-bold text-amber-800">
+            <MessageSquare className="size-4" /> Observações de A&amp;B
+          </h3>
+          <div className="space-y-1.5">
+            {allComments.map(c => (
+              <div key={c.id} className="rounded border border-amber-200 bg-white p-2">
+                <p className="text-[11px] font-semibold text-amber-700">{c.pkgName}</p>
+                <p className="whitespace-pre-wrap text-sm leading-snug text-slate-800">{c.content}</p>
+                {c.user && <p className="mt-0.5 text-[10px] text-slate-400">{c.user.name}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Cabeçalho: pessoas */}
       <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
         <div className="flex items-end justify-between gap-3">
@@ -179,23 +246,47 @@ export default function ServicePanel({ data, onMutate, onBusyChange }: Props) {
         {/* Escolher item pra entrar na sequência */}
         {showAdd && (
           <div className="mb-2 rounded-lg border border-emerald-300 bg-emerald-50 p-2">
-            {available.length === 0 ? (
-              <p className="text-xs text-slate-500">Todos os itens escolhidos já estão na sequência.</p>
+            {available.length === 0 && availableStations.length === 0 ? (
+              <p className="text-xs text-slate-500">Tudo que havia para adicionar já está na sequência.</p>
             ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {available.map(c => (
-                  <button
-                    key={`${c.pkg.eventItemId}-${c.itemName}`}
-                    onClick={() =>
-                      call(`/api/v2/kitchen/display/events/${eventId}/plan/entries`,
-                        json({ eventItemId: c.pkg.eventItemId, sourceLabel: c.sourceLabel, itemName: c.itemName }))
-                    }
-                    className="rounded border border-emerald-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-emerald-100"
-                  >
-                    + {c.itemName}
-                  </button>
-                ))}
-              </div>
+              <>
+                {available.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {available.map(c => (
+                      <button
+                        key={`${c.pkg.eventItemId}-${c.itemName}`}
+                        onClick={() =>
+                          call(`/api/v2/kitchen/display/events/${eventId}/plan/entries`,
+                            json({ eventItemId: c.pkg.eventItemId, sourceLabel: c.sourceLabel, itemName: c.itemName }))
+                        }
+                        className="rounded border border-emerald-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-emerald-100"
+                      >
+                        + {c.itemName}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {/* Estação entra como pacote e gera montagem + reposição + desmontagem */}
+                {availableStations.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1.5 border-t border-emerald-200 pt-1.5">
+                    {availableStations.map(p => (
+                      <button
+                        key={p.eventItemId}
+                        onClick={() =>
+                          call(`/api/v2/kitchen/display/events/${eventId}/plan/entries/bulk`,
+                            json({ stations: [{ eventItemId: p.eventItemId, itemName: p.name, startAt: p.serviceStartAt, endAt: p.serviceEndAt }] }))
+                        }
+                        title="Cria montagem, reposição e desmontagem"
+                        className="inline-flex items-center gap-1 rounded border border-sky-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-sky-100"
+                      >
+                        <LayoutGrid className="size-3 text-sky-600" />
+                        + {p.name}
+                        <span className="text-[10px] text-slate-400">(3 etapas)</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
@@ -238,6 +329,12 @@ export default function ServicePanel({ data, onMutate, onBusyChange }: Props) {
 
                   <div className="min-w-0 flex-1">
                     <p className={`font-medium leading-tight ${e.orphan ? 'text-slate-400 line-through' : 'text-slate-900'}`}>
+                      {/* Estação: o que a cozinha executa é a etapa, então ela vem primeiro */}
+                      {e.entryKind !== 'item' && (
+                        <span className="mr-1.5 rounded bg-sky-100 px-1.5 py-0.5 align-middle text-[10px] font-bold uppercase text-sky-700">
+                          {KIND_LABEL[e.entryKind] ?? e.entryKind}
+                        </span>
+                      )}
                       {e.itemName}
                       {e.round > 1 && (
                         <span className="ml-1.5 rounded bg-slate-200 px-1.5 py-0.5 align-middle text-[10px] text-slate-600">
@@ -317,60 +414,61 @@ export default function ServicePanel({ data, onMutate, onBusyChange }: Props) {
         )}
       </div>
 
-      {/* Observações de A&B */}
-      {allComments.length > 0 && (
-        <div>
-          <h3 className="mb-2 flex items-center gap-1.5 text-sm font-bold text-slate-700">
-            <MessageSquare className="size-4" /> Observações de A&amp;B
-          </h3>
-          <div className="space-y-1.5">
-            {allComments.map(c => (
-              <div key={c.id} className="rounded-lg border border-amber-300 bg-amber-50 p-2">
-                <p className="text-[11px] font-semibold text-amber-700">{c.pkgName}</p>
-                <p className="whitespace-pre-wrap text-sm leading-snug text-slate-800">{c.content}</p>
-                {c.user && <p className="mt-0.5 text-[10px] text-slate-400">{c.user.name}</p>}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Cronograma — Cozinha com destaque forte */}
+      {/* Cronograma — atividades + itens de A&B com horário, na mesma linha do tempo, igual
+          ao cronograma do evento. Cozinha com destaque forte. */}
       <div>
         <h3 className="mb-2 flex items-center gap-1.5 text-sm font-bold text-slate-700">
           <CalendarClock className="size-4" /> Cronograma
         </h3>
-        {schedule.activities.length === 0 ? (
+        {timeline.length === 0 ? (
           <p className="text-xs text-slate-400">Nenhuma atividade no cronograma.</p>
         ) : (
           <div className="space-y-1.5">
-            {schedule.activities.map(a => (
+            {timeline.map(t => t.kind === 'ab' ? (
               <div
-                key={a.id}
+                key={`ab-${t.ab.eventItemId}`}
+                className="rounded-lg border border-dashed border-amber-400 bg-amber-50/50 p-2"
+              >
+                <div className="flex flex-wrap items-baseline gap-2">
+                  <span className="text-sm font-bold tabular-nums text-amber-700">
+                    {fmtTime(t.ab.startAt)}{t.ab.endAt && `–${fmtTime(t.ab.endAt)}`}
+                  </span>
+                  <span className="text-sm font-medium text-slate-700">{t.ab.name}</span>
+                  <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-200 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                    <UtensilsCrossed className="size-2.5" /> A&amp;B
+                  </span>
+                  {t.ab.kind === 'bebida' && (
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">bar</span>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div
+                key={t.act.id}
                 className={
-                  a.isKitchen
+                  t.act.isKitchen
                     ? 'rounded-lg border-2 border-emerald-500 bg-emerald-50 p-3 shadow-sm'
                     : 'rounded-lg border border-slate-200 bg-white p-2'
                 }
               >
                 <div className="flex flex-wrap items-baseline gap-2">
-                  <span className={`font-bold tabular-nums ${a.isKitchen ? 'text-xl text-emerald-700' : 'text-sm text-slate-500'}`}>
-                    {fmtTime(a.startAt)}–{fmtTime(a.endAt)}
+                  <span className={`font-bold tabular-nums ${t.act.isKitchen ? 'text-xl text-emerald-700' : 'text-sm text-slate-500'}`}>
+                    {fmtTime(t.act.startAt)}–{fmtTime(t.act.endAt)}
                   </span>
-                  <span className={a.isKitchen ? 'text-lg font-bold text-slate-900' : 'text-sm text-slate-600'}>
-                    {a.name}
+                  <span className={t.act.isKitchen ? 'text-lg font-bold text-slate-900' : 'text-sm text-slate-600'}>
+                    {t.act.name}
                   </span>
-                  {a.team && (
+                  {t.act.team && (
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                      a.isKitchen ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-500'
+                      t.act.isKitchen ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-500'
                     }`}>
-                      {a.team.name}
+                      {t.act.team.name}
                     </span>
                   )}
                 </div>
-                {a.description && (
-                  <p className={`mt-1 whitespace-pre-wrap leading-snug ${a.isKitchen ? 'text-sm text-slate-700' : 'text-xs text-slate-400'}`}>
-                    {a.description}
+                {t.act.description && (
+                  <p className={`mt-1 whitespace-pre-wrap leading-snug ${t.act.isKitchen ? 'text-sm text-slate-700' : 'text-xs text-slate-400'}`}>
+                    {t.act.description}
                   </p>
                 )}
               </div>
@@ -378,6 +476,39 @@ export default function ServicePanel({ data, onMutate, onBusyChange }: Props) {
           </div>
         )}
       </div>
+
+      {/* Bebidas ficam fora da cozinha, mas visíveis — classificação errada tem que aparecer. */}
+      {data.hiddenDrinks.length > 0 && (
+        <p className="flex items-start gap-1 text-[10px] text-slate-400">
+          <Wine className="mt-0.5 size-2.5 shrink-0" />
+          <span>bebidas (fora da cozinha): {data.hiddenDrinks.join(' · ')}</span>
+        </p>
+      )}
+
+      {/* Histórico: quem mexeu na sequência e quando */}
+      {plan.logs.length > 0 && (
+        <div>
+          <button
+            onClick={() => setShowLog(v => !v)}
+            className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-700"
+          >
+            <History className="size-3.5" />
+            Histórico de alterações ({plan.logs.length})
+            {showLog ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
+          </button>
+          {showLog && (
+            <div className="mt-1.5 space-y-1 border-l-2 border-slate-200 pl-2">
+              {plan.logs.map(l => (
+                <div key={l.id} className="text-[11px] leading-snug">
+                  <span className="text-slate-400">{fmtDateTimeShort(l.createdAt)}</span>
+                  {l.userName && <span className="text-slate-500"> · {l.userName}</span>}
+                  <p className="text-slate-600">{l.detail}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -30,6 +30,16 @@ export function fmtWeekday(iso: string | Date | null | undefined): string {
     .format(d).replace('.', '').toUpperCase();
 }
 
+/** "11/08 19:32" — para linhas de histórico. */
+export function fmtDateTimeShort(iso: string | Date | null | undefined): string {
+  if (!iso) return '';
+  const d = typeof iso === 'string' ? new Date(iso) : iso;
+  if (isNaN(d.getTime())) return '';
+  return new Intl.DateTimeFormat('pt-BR', {
+    timeZone: TZ, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+  }).format(d);
+}
+
 export function fmtDayLabel(dateKey: string): string {
   // dateKey é "YYYY-MM-DD" já no dia BRT (calculado no servidor). Constrói ao meio-dia UTC
   // pra não escorregar de dia na formatação.

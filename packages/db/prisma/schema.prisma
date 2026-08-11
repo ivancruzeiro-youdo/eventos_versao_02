@@ -212,6 +212,7 @@ model Event {
   productions           KitchenProductionLog[]
   kitchenPlan           KitchenEventPlan?
   kitchenServicePlan    KitchenServicePlan?
+  kitchenPrepChecks     KitchenPrepCheck[]
   batchAllocations      KitchenBatchAllocation[]
   productionAllocations KitchenProductionAllocation[]
   mediaAssets           EventMediaAsset[]
@@ -1145,6 +1146,7 @@ model EventItem {
 
   kitchenMenuLink    KitchenEventMenu[]
   servicePlanEntries KitchenServicePlanEntry[]
+  prepChecks         KitchenPrepCheck[]
 
   @@index([eventId])
   @@index([productId])
@@ -1474,6 +1476,7 @@ model KitchenServicePlan {
 
   event   Event                     @relation(fields: [eventId], references: [id], onDelete: Cascade)
   entries KitchenServicePlanEntry[]
+  logs    KitchenServicePlanLog[]
 }
 
 // Uma saída de um item. Duplicar um item (ex.: quiche às 20h e de novo às 21h30) = duas
@@ -1494,6 +1497,12 @@ model KitchenServicePlanEntry {
   // trocar as escolhas, a entrada fica órfã (detectado por comparação no endpoint /service).
   itemName String
 
+  // item        = uma saída de um item de comida (regra dos 15 min)
+  // montagem / reposicao / desmontagem = pacote de estação (carrinho, buffet, coffee break,
+  //   estação de massas): não faz sentido uma linha por item a cada 15 min, o que a cozinha
+  //   precisa é montar, repor e desmontar. Ver classifyPackage em routes/kitchen-display.ts.
+  entryKind String @default("item")
+
   serveAt           DateTime
   order             Int       @default(0)
   round             Int       @default(1)
@@ -1510,6 +1519,47 @@ model KitchenServicePlanEntry {
   eventItem EventItem?         @relation(fields: [eventItemId], references: [id], onDelete: SetNull)
 
   @@index([planId, order])
+  @@index([eventItemId])
+}
+
+// Auditoria do plano de serviço: quem mexeu na sequência e quando. Tabela própria (e não
+// EventComment) porque é log de operação da cozinha, com volume alto e granularidade fina —
+// não deve poluir a timeline de comentários do evento.
+// Mantida por planId com Cascade: se o evento for apagado, o log vai com ele.
+model KitchenServicePlanLog {
+  id        String   @id @default(uuid())
+  planId    String
+  action    String // add | bulk_add | remove | reorder | duplicate | update | served | plan_update
+  detail    String   @db.Text
+  userId    String? // sem relação, mesmo padrão dos outros campos de autoria daqui
+  userName  String? // snapshot: o log tem que continuar legível se o usuário for removido
+  createdAt DateTime @default(now())
+
+  plan KitchenServicePlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([planId, createdAt])
+}
+
+// Check de "já produzido" na visão da semana — o pessoal da cozinha vai marcando o que
+// adiantou nos dias anteriores. Separado de KitchenServicePlanEntry.status ('served') de
+// propósito: produzir antes e servir na hora são momentos diferentes, e a visão da semana
+// existe justamente pra planejar produção sem depender de a sequência já estar montada.
+model KitchenPrepCheck {
+  id          String   @id @default(uuid())
+  eventId     String
+  eventItemId String? // pacote de origem; SetNull porque o item pode ser removido pelo sync
+  itemName    String
+  checkedAt   DateTime @default(now())
+  checkedById String?
+  checkedByName String?
+  createdAt   DateTime @default(now())
+
+  event     Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventItem EventItem? @relation(fields: [eventItemId], references: [id], onDelete: SetNull)
+
+  // Um check por item por evento — marcar de novo é toggle, não duplica.
+  @@unique([eventId, itemName])
+  @@index([eventId])
   @@index([eventItemId])
 }
 

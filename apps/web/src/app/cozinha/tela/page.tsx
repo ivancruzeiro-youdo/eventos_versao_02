@@ -162,13 +162,63 @@ function TelaCozinha() {
     setLastSync(new Date());
   }, [selected, eventByVenue]);
 
+  // Poll rápido só do headcount: check-in de convidado precisa aparecer quase na hora, e este
+  // endpoint é barato (2 counts) comparado ao /service completo.
+  const loadHeadcount = useCallback(async () => {
+    const entries = await Promise.all(selected.map(async venueId => {
+      const eventId = eventByVenue[venueId];
+      if (!eventId) return null;
+      const res = await fetch(`/api/v2/kitchen/display/events/${eventId}/headcount`, { credentials: 'include' });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return [venueId, data] as const;
+    }));
+    // Aplica só headcount e demanda por cima do que já está na tela — não substitui o payload
+    // inteiro, pra não piscar a lista nem perder estado local.
+    setService(prev => {
+      const next = { ...prev };
+      for (const e of entries) {
+        if (!e) continue;
+        const [venueId, data] = e;
+        const cur = next[venueId];
+        if (!cur) continue;
+        const demandById = new Map<string, any>((data.entries ?? []).map((x: any) => [x.id, x.demand]));
+        next[venueId] = {
+          ...cur,
+          headcount: data.headcount,
+          plan: {
+            ...cur.plan,
+            entries: cur.plan.entries.map(en => ({ ...en, demand: demandById.get(en.id) ?? en.demand })),
+          },
+        };
+      }
+      return next;
+    });
+    setLastSync(new Date());
+  }, [selected, eventByVenue]);
+
+  const toggleCheck = useCallback(async (eventId: string, eventItemId: string | null, itemName: string, checked: boolean) => {
+    const res = await fetch(`/api/v2/kitchen/display/events/${eventId}/prep-check`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ eventItemId, itemName, checked }),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      throw new Error(d.error || 'Erro ao marcar item.');
+    }
+    void loadWeek();
+  }, [loadWeek]);
+
   useEffect(() => { if (mode === 'semana') void loadWeek(); }, [mode, loadWeek]);
   useEffect(() => { if (mode === 'dia') void loadCandidates(); }, [mode, loadCandidates]);
   useEffect(() => { if (mode === 'dia') void loadService(); }, [mode, loadService]);
 
-  // Poll: semana muda pouco, serviço muda o tempo todo.
+  // Poll: semana muda pouco, serviço muda o tempo todo, headcount é o mais volátil.
   usePoll(() => { void loadWeek(); }, 300_000, mode !== 'semana');
   usePoll(() => { void loadService(); }, 60_000, mode !== 'dia' || busy);
+  usePoll(() => { void loadHeadcount(); }, 20_000, mode !== 'dia' || busy);
 
   const toggleVenue = (id: string) =>
     setSelected(prev => (prev.includes(id) ? prev.filter(v => v !== id) : [...prev, id]));
@@ -313,7 +363,7 @@ function TelaCozinha() {
 
                   <div className="p-3">
                     {mode === 'semana' ? (
-                      <WeekPanel days={weekByVenue.get(venueId) ?? []} />
+                      <WeekPanel days={weekByVenue.get(venueId) ?? []} onToggleCheck={toggleCheck} />
                     ) : svc ? (
                       <ServicePanel
                         data={svc}
