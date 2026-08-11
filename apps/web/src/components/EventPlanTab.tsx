@@ -6,13 +6,14 @@ import {
   Plus, Trash2, MapPin, Package, History, X, Check
 } from 'lucide-react';
 import { formatDateTime } from '@/lib/utils';
+import AbServiceTimeFields from './AbServiceTimeFields';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 interface AnswerHistory { id: string; before: any; after: any; createdAt: string; user: { name: string } | null }
 interface ItemAnswer { questionId: string; answer: any; updatedAt: string; updatedBy: { name: string } | null; history: AnswerHistory[] }
 interface ProductQuestion { id: string; text: string; type: string; required: boolean; options: any }
-interface EventItem { id: string; name: string; category: string; product: { questions: ProductQuestion[] } | null; answers: ItemAnswer[] }
+interface EventItem { id: string; name: string; category: string; serviceStartAt?: string | null; serviceEndAt?: string | null; product: { questions: ProductQuestion[] } | null; answers: ItemAnswer[] }
 interface VenueQuestion { id: string; venueId: string; text: string; type: string; required: boolean; options: any; order: number }
 interface EventVenue { id: string; venue: { id: string; name: string; questions: VenueQuestion[] } }
 interface VenueAnswer { questionId: string; answer: any; updatedAt: string; updatedBy: { name: string } | null; history: AnswerHistory[] }
@@ -273,6 +274,21 @@ export default function EventPlanTab({ eventId }: Props) {
           title={item.name}
           badge={`${item.product!.questions.length} perg.`}
         >
+          {/* Horário de serviço — mesmo editor da aba A&B, uma implementação só */}
+          {item.category === 'ab' && (
+            <div className="mb-3">
+              <AbServiceTimeFields
+                eventId={eventId}
+                itemId={item.id}
+                serviceStartAt={item.serviceStartAt ?? null}
+                serviceEndAt={item.serviceEndAt ?? null}
+                onSaved={(times) =>
+                  setItems(prev => prev.map(i => (i.id === item.id ? { ...i, ...times } : i)))
+                }
+              />
+            </div>
+          )}
+
           {item.product!.questions.map(q => (
             <QuestionRow
               key={q.id}

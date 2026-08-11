@@ -1203,7 +1203,7 @@ export default function EventDetailPage() {
             <UtensilsCrossed className="size-4" />
             A&B — Alimentação e Bebidas
           </h3>
-          <EventItemsTab eventId={eventId} category="ab" />
+          <EventItemsTab eventId={eventId} category="ab" eventStartAt={event?.startAt ?? null} />
         </div>
       )}
       {activeTab === 'infra' && (

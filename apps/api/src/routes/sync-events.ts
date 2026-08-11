@@ -1174,6 +1174,63 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     return { success: true, items };
   });
 
+  // PATCH /events/:id/items/:itemId/service-times — horário de serviço do item (A&B).
+  // Exibido no cronograma como merge visual; não cria EventSchedule (ver schedules.ts).
+  app.patch('/events/:id/items/:itemId/service-times', { preHandler: requireAuth }, async (request, reply) => {
+    const { id: eventId, itemId } = request.params as { id: string; itemId: string };
+    const user = (request as any).user;
+    const { serviceStartAt, serviceEndAt } = request.body as {
+      serviceStartAt: string | null;
+      serviceEndAt: string | null;
+    };
+
+    const item = await (prisma as any).eventItem.findFirst({
+      where: { id: itemId, eventId },
+      select: { id: true, name: true, serviceStartAt: true, serviceEndAt: true },
+    });
+    if (!item) return reply.status(404).send({ error: 'Item não encontrado neste evento.' });
+
+    const start = serviceStartAt ? new Date(serviceStartAt) : null;
+    const end = serviceEndAt ? new Date(serviceEndAt) : null;
+    if (start && isNaN(start.getTime())) return reply.status(400).send({ error: 'Horário de início inválido.' });
+    if (end && isNaN(end.getTime())) return reply.status(400).send({ error: 'Horário de fim inválido.' });
+    if (start && end && end <= start) {
+      return reply.status(400).send({ error: 'O horário de fim deve ser depois do início.' });
+    }
+    if (!start && end) {
+      return reply.status(400).send({ error: 'Defina o horário de início antes do fim.' });
+    }
+
+    const updated = await (prisma as any).eventItem.update({
+      where: { id: itemId },
+      data: {
+        serviceStartAt: start,
+        serviceEndAt: end,
+        serviceTimesUpdatedAt: new Date(),
+        serviceTimesUpdatedById: user?.id ?? null,
+      },
+    });
+
+    // Registro de auditoria no próprio item, mesmo padrão do histórico de cronograma.
+    const fmt = (d: Date | null) =>
+      d ? d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' }) : '—';
+    const antes = item.serviceStartAt || item.serviceEndAt
+      ? `${fmt(item.serviceStartAt)} → ${fmt(item.serviceEndAt)}`
+      : 'sem horário';
+    const depois = start || end ? `${fmt(start)} → ${fmt(end)}` : 'sem horário';
+    await (prisma as any).eventComment.create({
+      data: {
+        eventId,
+        eventItemId: itemId,
+        userId: user?.id ?? null,
+        isSystem: true,
+        content: `Horário de serviço alterado por ${user?.name || user?.email || 'sistema'}: ${antes} → ${depois}`,
+      },
+    });
+
+    return { success: true, item: updated };
+  });
+
   // PATCH /events/:id/items/:itemId/choices — save client choices with history
   app.patch('/events/:id/items/:itemId/choices', { preHandler: requireAuth }, async (request, reply) => {
     const { itemId } = request.params as { id: string; itemId: string };

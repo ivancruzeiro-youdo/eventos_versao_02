@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Clock, Plus, Trash2, Edit2, FileText, Calendar, Users, History, ChevronDown, ChevronUp } from 'lucide-react';
+import { Clock, Plus, Trash2, Edit2, FileText, Calendar, Users, History, ChevronDown, ChevronUp, UtensilsCrossed } from 'lucide-react';
+import { utcToLocalInput } from '@/lib/utils';
 
 interface Team {
   id: string;
@@ -25,6 +26,17 @@ interface Schedule {
   } | null;
 }
 
+// Item de A&B com horário de serviço definido. Vem do mesmo endpoint do cronograma, mas
+// NÃO é um EventSchedule — é exibido junto apenas visualmente, e editado na aba A&B.
+interface AbServiceItem {
+  id: string;
+  name: string;
+  quantity: number;
+  unit: string | null;
+  serviceStartAt: string;
+  serviceEndAt: string | null;
+}
+
 interface HistoryEntry {
   id: string;
   content: string;
@@ -36,14 +48,9 @@ interface EventScheduleTabProps {
   eventId: string;
 }
 
-function utcToLocalInput(utcIso: string): string {
-  const d = new Date(utcIso);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
 export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [abItems, setAbItems] = useState<AbServiceItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -88,6 +95,7 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
           new Date(a.startAt).getTime() - new Date(b.startAt).getTime()
         );
         setSchedules(sorted);
+        setAbItems(data.abServiceItems || []);
       }
     } catch (error) {
       console.error('Error fetching schedules:', error);
@@ -218,6 +226,17 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
     }).format(new Date(iso));
   };
 
+  // Cronograma + itens de A&B com horário, numa única linha do tempo ordenada. O merge é só
+  // visual: itens de A&B não são EventSchedule (ver comentário no GET /events/:id/schedules).
+  type TimelineEntry =
+    | { kind: 'schedule'; at: number; schedule: Schedule }
+    | { kind: 'ab'; at: number; item: AbServiceItem };
+
+  const timeline: TimelineEntry[] = [
+    ...schedules.map((s): TimelineEntry => ({ kind: 'schedule', at: new Date(s.startAt).getTime(), schedule: s })),
+    ...abItems.map((i): TimelineEntry => ({ kind: 'ab', at: new Date(i.serviceStartAt).getTime(), item: i })),
+  ].sort((a, b) => a.at - b.at);
+
   return (
     <div className="space-y-4">
       {/* Add Button */}
@@ -339,11 +358,51 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
           <Calendar className="size-4" />
           Cronograma do Evento
         </h3>
-        {schedules.length === 0 ? (
+        {timeline.length === 0 ? (
           <p className="text-muted-foreground text-center py-8">Nenhuma atividade cadastrada.</p>
         ) : (
           <div className="space-y-4">
-            {schedules.map((schedule) => (
+            {timeline.map((entry) => {
+              if (entry.kind === 'schedule') return renderSchedule(entry.schedule);
+              return (
+              /* Item de A&B — exibido junto por horário, mas não é item de cronograma:
+                 editar/excluir é na aba A&B. Sem botões aqui, de propósito. */
+              <div
+                key={`ab-${entry.item.id}`}
+                className="border-l-4 border-dashed border-amber-400 pl-4 py-2 bg-amber-50/40 rounded-r"
+              >
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <UtensilsCrossed size={14} className="text-amber-600 shrink-0" />
+                  <span className="font-medium text-foreground">{entry.item.name}</span>
+                  <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">
+                    A&amp;B
+                  </span>
+                </div>
+                <div className="text-sm text-muted-foreground mb-1">
+                  {formatDateOnly(entry.item.serviceStartAt)} · {formatTimeOnly(entry.item.serviceStartAt)}
+                  {entry.item.serviceEndAt && (
+                    <>
+                      {' – '}
+                      {formatDateOnly(entry.item.serviceStartAt) === formatDateOnly(entry.item.serviceEndAt)
+                        ? formatTimeOnly(entry.item.serviceEndAt)
+                        : `${formatDateOnly(entry.item.serviceEndAt)} ${formatTimeOnly(entry.item.serviceEndAt)}`}
+                    </>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {entry.item.quantity} {entry.item.unit || 'pessoas'} · horário definido na aba A&amp;B
+                </p>
+              </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  function renderSchedule(schedule: Schedule) {
+    return (
               <div key={schedule.id} className="border-l-4 border-primary pl-4 py-2">
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
@@ -417,10 +476,6 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
                   </button>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
+    );
+  }
 }

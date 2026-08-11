@@ -211,6 +211,7 @@ model Event {
   kitchenLabors         KitchenEventLabor[]
   productions           KitchenProductionLog[]
   kitchenPlan           KitchenEventPlan?
+  kitchenServicePlan    KitchenServicePlan?
   batchAllocations      KitchenBatchAllocation[]
   productionAllocations KitchenProductionAllocation[]
   mediaAssets           EventMediaAsset[]
@@ -1120,6 +1121,18 @@ model EventItem {
   unit             String?
   notes            String?
   occurrenceIndex  Int      @default(0)
+
+  // Horário de serviço do item (usado em A&B) — editável na aba A&B / Plano do Evento e
+  // exibido no cronograma como merge visual. NÃO gera linha em EventSchedule: aquele model
+  // exige teamId, recusa sobreposição entre times com 409 e dispara WhatsApp pro time.
+  // Nome com prefixo "service" porque startAt/endAt já significam outra coisa em Event e
+  // EventSchedule. O sync do Userp não sobrescreve esses campos (sync-events.ts, caminho de
+  // update escreve só quantity/name/unit/sourceContractId).
+  serviceStartAt          DateTime?
+  serviceEndAt            DateTime?
+  serviceTimesUpdatedAt   DateTime?
+  serviceTimesUpdatedById String?  // sem relação, mesmo padrão do venueId acima
+
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -1130,10 +1143,12 @@ model EventItem {
   answers  EventItemAnswer[]
   comments EventComment[]
 
-  kitchenMenuLink KitchenEventMenu[]
+  kitchenMenuLink    KitchenEventMenu[]
+  servicePlanEntries KitchenServicePlanEntry[]
 
   @@index([eventId])
   @@index([productId])
+  @@index([serviceStartAt])
 }
 
 // Escolhas feitas pelo cliente dentro de um item (ex: pratos selecionados)
@@ -1438,6 +1453,64 @@ model KitchenEventLabor {
 
   @@unique([eventId, laborRoleId])
   @@index([eventId])
+}
+
+// ============================================
+// TELA COZINHA — plano de serviço (display tipo KDS)
+// ============================================
+
+// Sequência de saídas de comida de um evento, montada na TELA COZINHA.
+// Um plano por EVENTO (não por espaço): os itens de A&B não são escopados por espaço —
+// EventItem.venueId é nulo para category='ab' (só category='venue' preenche). O espaço
+// escolhido na tela decide apenas qual evento aparece em qual coluna.
+model KitchenServicePlan {
+  id              String    @id @default(uuid())
+  eventId         String    @unique
+  intervalMinutes Int       @default(15)
+  anchorAt        DateTime? // horário da 1ª saída — base pra gerar a sequência
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  event   Event                     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  entries KitchenServicePlanEntry[]
+}
+
+// Uma saída de um item. Duplicar um item (ex.: quiche às 20h e de novo às 21h30) = duas
+// linhas com `round` diferente — por isso NÃO há unique em (planId, itemName, round); a
+// idempotência da geração em lote é resolvida no endpoint, que checa itemName já presente.
+model KitchenServicePlanEntry {
+  id     String @id @default(uuid())
+  planId String
+
+  // Pacote de A&B de origem. SetNull e não Cascade: EventItem é apagado quando um contrato
+  // desaparece do Userp (sync-events.ts, fluxo de confirm-removal), e a sequência montada à
+  // mão pelo operador não deve evaporar junto — a linha fica órfã e a tela sinaliza.
+  eventItemId String?
+  sourceLabel String? // grupo de origem, ex.: "Entradas (escolher 4)"
+
+  // Snapshot do nome: os itens escolhidos pelo cliente não têm identidade de linha — vivem
+  // dentro de EventItemChoice.chosen (String[]) e EventItemAnswer.answer (Json). Se o cliente
+  // trocar as escolhas, a entrada fica órfã (detectado por comparação no endpoint /service).
+  itemName String
+
+  serveAt           DateTime
+  order             Int       @default(0)
+  round             Int       @default(1)
+  portionsPerPerson Float     @default(1)
+  manualQuantity    Float? // override do operador, ignora o cálculo por pessoas
+  status            String    @default("pending") // pending | served | skipped
+  servedAt          DateTime?
+  servedById        String? // sem relação, mesmo padrão de serviceTimesUpdatedById
+  notes             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  plan      KitchenServicePlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  eventItem EventItem?         @relation(fields: [eventItemId], references: [id], onDelete: SetNull)
+
+  @@index([planId, order])
+  @@index([eventItemId])
 }
 
 // ============================================

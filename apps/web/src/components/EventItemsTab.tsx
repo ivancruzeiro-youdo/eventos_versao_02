@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronDown, ChevronRight, HelpCircle, CheckCircle2, Clock, History, MessageSquare, Send, Trash2, Printer, X, FileText, Grid3x3 } from 'lucide-react';
 import { formatDateTime } from '@/lib/utils';
+import AbServiceTimeFields from './AbServiceTimeFields';
 
 interface Question {
   id: string;
@@ -54,6 +55,8 @@ interface EventItem {
   quantity: number;
   unit: string | null;
   notes: string | null;
+  serviceStartAt?: string | null;
+  serviceEndAt?: string | null;
   choices: Choice[];
   product: { id: string; name: string; subitems: any; questions: Question[] } | null;
 }
@@ -61,9 +64,11 @@ interface EventItem {
 interface Props {
   eventId: string;
   category: 'ab' | 'infra';
+  /** Só pra pré-preencher o dia no editor de horário de serviço dos itens de A&B. */
+  eventStartAt?: string | null;
 }
 
-export default function EventItemsTab({ eventId, category }: Props) {
+export default function EventItemsTab({ eventId, category, eventStartAt }: Props) {
   const router = useRouter();
   const [selectedForMenu, setSelectedForMenu] = useState<Set<string>>(new Set());
   const [showPrintFormatModal, setShowPrintFormatModal] = useState(false);
@@ -353,6 +358,20 @@ export default function EventItemsTab({ eventId, category }: Props) {
 
             {open && (
               <div className="border-t px-4 py-4 space-y-4 bg-muted/20">
+
+                {/* Horário de serviço — só A&B; aparece no cronograma e na TELA COZINHA */}
+                {category === 'ab' && (
+                  <AbServiceTimeFields
+                    eventId={eventId}
+                    itemId={item.id}
+                    serviceStartAt={item.serviceStartAt ?? null}
+                    serviceEndAt={item.serviceEndAt ?? null}
+                    eventStartAt={eventStartAt}
+                    onSaved={(times) =>
+                      setItems(prev => prev.map(i => (i.id === item.id ? { ...i, ...times } : i)))
+                    }
+                  />
+                )}
 
                 {/* Product Questions / Answers */}
                 {(item.product?.questions?.length ?? 0) > 0 && (

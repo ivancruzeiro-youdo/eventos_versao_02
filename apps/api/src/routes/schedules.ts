@@ -144,7 +144,20 @@ export async function scheduleRoutes(app: FastifyInstance) {
       orderBy: { startAt: 'asc' },
     });
 
-    return { success: true, schedules };
+    // Itens de A&B com horário de serviço definido, pra exibir junto no cronograma. São
+    // devolvidos separados (e não como EventSchedule) de propósito: EventSchedule exige
+    // teamId, recusa sobreposição entre times com 409 e dispara WhatsApp — nada disso deve
+    // acontecer ao salvar o horário de um A&B. O merge é só visual, no front.
+    const abServiceItems = await prisma.eventItem.findMany({
+      where: { eventId, category: 'ab', serviceStartAt: { not: null } },
+      select: {
+        id: true, name: true, quantity: true, unit: true,
+        serviceStartAt: true, serviceEndAt: true,
+      },
+      orderBy: { serviceStartAt: 'asc' },
+    });
+
+    return { success: true, schedules, abServiceItems };
   });
 
   // Get history for a schedule

@@ -29,7 +29,10 @@ const mainNavigation = [
   { name: 'Relatórios', href: '/reports', icon: FileText },
 ];
 
-const kitchenNavigation = [
+// newTab: a TELA COZINHA esconde o menu (é um display de quiosque), então abrir em outra aba
+// evita o operador perder a navegação administrativa que estava usando.
+const kitchenNavigation: { name: string; href: string; icon: any; newTab?: boolean }[] = [
+  { name: 'TELA COZINHA', href: '/cozinha/tela', icon: Monitor, newTab: true },
   { name: 'Ingredientes & Estoque', href: '/cozinha/ingredientes', icon: Package },
   { name: 'Receitas', href: '/cozinha/receitas', icon: UtensilsCrossed },
   { name: 'Lista de Compras', href: '/cozinha/compras', icon: ShoppingCart },
@@ -214,6 +217,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     key={item.name}
                     href={item.href}
                     onClick={onNav}
+                    target={item.newTab ? '_blank' : undefined}
                     className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
                       isActive
                         ? 'bg-sidebar-accent text-sidebar-foreground font-medium'

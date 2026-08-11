@@ -23,6 +23,18 @@ export function formatDateTime(date: string | Date) {
   return `${datePart} às ${timePart}`;
 }
 
+// Converte um ISO UTC no formato que um <input type="datetime-local"> aceita.
+// Atenção: usa o fuso do NAVEGADOR (getHours e não Intl com TZ fixo), então numa máquina
+// configurada fora de BRT o valor exibido/gravado sai deslocado. Mantido assim porque é o
+// comportamento que o cronograma já tem desde sempre e mudar só aqui criaria divergência
+// entre as abas. Em telas novas (ex.: TELA COZINHA) prefira input HH:MM + data no servidor.
+export function utcToLocalInput(utcIso: string): string {
+  const d = new Date(utcIso);
+  if (isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 // Calcula o status visual de um evento levando em conta se o NPS foi respondido
 export function getEventDisplayStatus(event: { status: string; npsOrganizador?: { submittedAt: string | null } | null }): string {
   if (event.status === 'encerrado') {
