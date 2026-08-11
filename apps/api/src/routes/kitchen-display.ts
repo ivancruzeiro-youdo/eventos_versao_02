@@ -241,7 +241,11 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
     const venue = await prisma.venue.findFirst({ where: { id: venueId, ...venueWhere(user) }, select: { id: true } });
     if (!venue) return reply.status(404).send({ error: 'Espaço não encontrado.' });
 
-    const now = new Date();
+    // Só de ontem pra frente: a cozinha não tem uso pra evento antigo, e histórico na
+    // lista só aumentava a chance de escolher o evento errado. "Ontem" é o dia inteiro em
+    // BRT (não 24h atrás), pra virada de madrugada não esconder o evento que acabou de sair.
+    const cutoff = addDays(brtDayStart(brtDayKey(new Date())), -1);
+
     const links = await prisma.eventVenue.findMany({
       where: { venueId },
       select: {
@@ -256,7 +260,7 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
       .filter(ev => ev.status !== 'cancelled')
       .filter(ev => {
         const ref = ev.startAt ?? ev.setupAt;
-        return ref && ref >= addDays(now, -30) && ref <= addDays(now, 30);
+        return !!ref && ref >= cutoff;
       })
       .sort((a, b) => {
         const ra = (a.startAt ?? a.setupAt)!.getTime();

@@ -271,8 +271,9 @@ function TelaCozinha() {
                     {mode === 'dia' && (
                       <>
                         {/* Nunca escolhe silenciosamente: os candidatos ficam sempre visíveis.
-                            Mostram data e dia da semana, não só hora — os candidatos abrangem
-                            ±30 dias, então só o horário era ambíguo. */}
+                            A lista vem de ontem pra frente (ver /venues/:id/events), e mostra
+                            dia da semana + data + hora — só o horário era ambíguo, já que dois
+                            eventos às 19:00 em dias diferentes ficavam idênticos. */}
                         <div className="mt-1 flex flex-wrap gap-1">
                           {(candidates[venueId] ?? []).length === 0 ? (
                             <span className="text-[11px] text-slate-400">Nenhum evento próximo.</span>
