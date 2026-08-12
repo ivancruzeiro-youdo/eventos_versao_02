@@ -7,6 +7,7 @@ import {
   Wine, History, LayoutGrid,
 } from 'lucide-react';
 import { fmtTime, fmtDateTimeShort } from './lib';
+import type { ServiceCommands } from './useServiceCommands';
 
 export interface ServiceEntry {
   id: string;
@@ -61,102 +62,18 @@ const KIND_LABEL: Record<string, string> = {
 
 interface Props {
   data: ServiceData;
-  onMutate: () => void;
-  onBusyChange: (busy: boolean) => void;
+  /** Superfície de comandos vinda do VenueColumn — a mesma que a voz usa. */
+  cmd: ServiceCommands;
 }
 
-export default function ServicePanel({ data, onMutate, onBusyChange }: Props) {
+export default function ServicePanel({ data, cmd }: Props) {
   const [showAdd, setShowAdd] = useState(false);
   const [showLog, setShowLog] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
-  const [working, setWorking] = useState(false);
 
   const { headcount, plan, packages, schedule } = data;
   const entries = plan.entries;
-
-  async function call(url: string, init?: RequestInit) {
-    setWorking(true);
-    onBusyChange(true);
-    try {
-      const res = await fetch(url, { credentials: 'include', ...init });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.error || 'Falha na operação.');
-      }
-      onMutate();
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setWorking(false);
-      onBusyChange(false);
-    }
-  }
-
-  const eventId = data.event.id;
-  const json = (body: any): RequestInit => ({
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-
-  function reorder(ids: string[]) {
-    return call(`/api/v2/kitchen/display/events/${eventId}/plan/reorder`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ entryIds: ids }),
-    });
-  }
-
-  function move(index: number, dir: -1 | 1) {
-    const next = [...entries];
-    const target = index + dir;
-    if (target < 0 || target >= next.length) return;
-    [next[index], next[target]] = [next[target], next[index]];
-    reorder(next.map(e => e.id));
-  }
-
-  function generateSuggested() {
-    // Comida: uma saída por item escolhido, espaçadas pelo intervalo.
-    // Estação (carrinho, buffet, coffee break): 3 linhas do PACOTE — montagem, reposição
-    // e desmontagem — em vez de uma linha por item a cada 15 min.
-    const already = new Set(entries.map(e => `${e.itemName.toLowerCase()}|${e.entryKind}`));
-
-    const items = packages
-      .filter(p => p.kind !== 'estacao')
-      .flatMap(pkg =>
-        pkg.chosenItems
-          .filter(c => !already.has(`${c.itemName.toLowerCase()}|item`))
-          .map(c => ({ eventItemId: pkg.eventItemId, sourceLabel: c.sourceLabel, itemName: c.itemName }))
-      );
-
-    const stations = packages
-      .filter(p => p.kind === 'estacao')
-      .filter(p => !['montagem', 'reposicao', 'desmontagem'].every(k => already.has(`${p.name.toLowerCase()}|${k}`)))
-      .map(p => ({
-        eventItemId: p.eventItemId,
-        itemName: p.name,
-        startAt: p.serviceStartAt,
-        endAt: p.serviceEndAt,
-      }));
-
-    if (items.length === 0 && stations.length === 0) {
-      alert('Tudo que havia para gerar já está na sequência.');
-      return;
-    }
-    call(`/api/v2/kitchen/display/events/${eventId}/plan/entries/bulk`, json({ items, stations }));
-  }
-
-  // Itens escolhidos que ainda não entraram na sequência — a marcação é manual, então esta
-  // lista é a fonte pro operador escolher o que serve. Estações aparecem como o pacote.
-  const inSequence = new Set(entries.map(e => `${e.itemName.toLowerCase()}|${e.entryKind}`));
-  const available = packages
-    .filter(p => p.kind !== 'estacao')
-    .flatMap(pkg =>
-      pkg.chosenItems.map(c => ({ ...c, pkg })).filter(c => !inSequence.has(`${c.itemName.toLowerCase()}|item`))
-    );
-  const availableStations = packages
-    .filter(p => p.kind === 'estacao')
-    .filter(p => !['montagem', 'reposicao', 'desmontagem'].every(k => inSequence.has(`${p.name.toLowerCase()}|${k}`)));
+  const { working, available, availableStations } = cmd;
 
   const allComments = packages.flatMap(p => p.comments.map(c => ({ ...c, pkgName: p.name })));
 
@@ -226,7 +143,7 @@ export default function ServicePanel({ data, onMutate, onBusyChange }: Props) {
           </h3>
           <div className="flex gap-1.5">
             <button
-              onClick={generateSuggested}
+              onClick={() => cmd.generateSuggested()}
               disabled={working}
               className="flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 disabled:opacity-40"
               title={`Adiciona os itens escolhidos espaçados de ${plan.intervalMinutes} em ${plan.intervalMinutes} min`}
@@ -256,8 +173,7 @@ export default function ServicePanel({ data, onMutate, onBusyChange }: Props) {
                       <button
                         key={`${c.pkg.eventItemId}-${c.itemName}`}
                         onClick={() =>
-                          call(`/api/v2/kitchen/display/events/${eventId}/plan/entries`,
-                            json({ eventItemId: c.pkg.eventItemId, sourceLabel: c.sourceLabel, itemName: c.itemName }))
+                          cmd.addItem({ eventItemId: c.pkg.eventItemId, sourceLabel: c.sourceLabel, itemName: c.itemName })
                         }
                         className="rounded border border-emerald-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-emerald-100"
                       >
@@ -272,10 +188,7 @@ export default function ServicePanel({ data, onMutate, onBusyChange }: Props) {
                     {availableStations.map(p => (
                       <button
                         key={p.eventItemId}
-                        onClick={() =>
-                          call(`/api/v2/kitchen/display/events/${eventId}/plan/entries/bulk`,
-                            json({ stations: [{ eventItemId: p.eventItemId, itemName: p.name, startAt: p.serviceStartAt, endAt: p.serviceEndAt }] }))
-                        }
+                        onClick={() => cmd.addStation(p)}
                         title="Cria montagem, reposição e desmontagem"
                         className="inline-flex items-center gap-1 rounded border border-sky-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-sky-100"
                       >
@@ -305,12 +218,9 @@ export default function ServicePanel({ data, onMutate, onBusyChange }: Props) {
                 onDragOver={ev => ev.preventDefault()}
                 onDrop={() => {
                   if (!dragId || dragId === e.id) return;
-                  const ids = entries.map(x => x.id);
-                  const from = ids.indexOf(dragId);
-                  const to = ids.indexOf(e.id);
-                  ids.splice(to, 0, ids.splice(from, 1)[0]);
+                  const to = entries.findIndex(x => x.id === e.id);
                   setDragId(null);
-                  reorder(ids);
+                  cmd.moveToPosition(dragId, to);
                 }}
                 className={`rounded-lg border p-2 shadow-sm ${
                   e.status === 'served'
@@ -363,11 +273,11 @@ export default function ServicePanel({ data, onMutate, onBusyChange }: Props) {
                   </div>
 
                   <div className="flex shrink-0 flex-col gap-0.5">
-                    <button onClick={() => move(i, -1)} disabled={i === 0 || working}
+                    <button onClick={() => cmd.moveByIndex(i, -1)} disabled={i === 0 || working}
                       className="rounded border border-slate-200 bg-white p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-25" title="Subir">
                       <ChevronUp className="size-3.5" />
                     </button>
-                    <button onClick={() => move(i, 1)} disabled={i === entries.length - 1 || working}
+                    <button onClick={() => cmd.moveByIndex(i, 1)} disabled={i === entries.length - 1 || working}
                       className="rounded border border-slate-200 bg-white p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-25" title="Descer">
                       <ChevronDown className="size-3.5" />
                     </button>
@@ -375,11 +285,7 @@ export default function ServicePanel({ data, onMutate, onBusyChange }: Props) {
 
                   <div className="flex shrink-0 flex-col gap-0.5">
                     <button
-                      onClick={() => call(`/api/v2/kitchen/display/plan/entries/${e.id}`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ status: e.status === 'served' ? 'pending' : 'served' }),
-                      })}
+                      onClick={() => cmd.toggleServed(e.id)}
                       disabled={working}
                       className={`rounded border p-1 ${
                         e.status === 'served'
@@ -391,7 +297,7 @@ export default function ServicePanel({ data, onMutate, onBusyChange }: Props) {
                       <Check className="size-3.5" />
                     </button>
                     <button
-                      onClick={() => call(`/api/v2/kitchen/display/plan/entries/${e.id}/duplicate`, json({}))}
+                      onClick={() => cmd.duplicate(e.id)}
                       disabled={working}
                       className="rounded border border-slate-200 bg-white p-1 text-slate-500 hover:bg-slate-100"
                       title="Servir de novo mais tarde"
@@ -399,7 +305,7 @@ export default function ServicePanel({ data, onMutate, onBusyChange }: Props) {
                       <Copy className="size-3.5" />
                     </button>
                     <button
-                      onClick={() => call(`/api/v2/kitchen/display/plan/entries/${e.id}`, { method: 'DELETE' })}
+                      onClick={() => cmd.remove(e.id)}
                       disabled={working}
                       className="rounded border border-slate-200 bg-white p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
                       title="Remover"

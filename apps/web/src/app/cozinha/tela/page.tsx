@@ -9,9 +9,11 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { useRouter, useSearchParams } from 'next/navigation';
 import { CalendarDays, UtensilsCrossed, Maximize2, RefreshCw, Settings2, ChefHat, ExternalLink } from 'lucide-react';
 import VenuePicker from './VenuePicker';
-import WeekPanel, { type WeekDay } from './WeekPanel';
-import ServicePanel, { type ServiceData } from './ServicePanel';
-import { fmtTime, fmtDate, fmtWeekday, useNow, usePoll, LS_KEY } from './lib';
+import VenueColumn from './VenueColumn';
+import { type WeekDay } from './WeekPanel';
+import { type ServiceData } from './ServicePanel';
+import { type ServiceCommands } from './useServiceCommands';
+import { fmtTime, useNow, usePoll, LS_KEY } from './lib';
 
 interface Venue { id: string; name: string }
 type Mode = 'semana' | 'dia';
@@ -51,6 +53,15 @@ function TelaCozinha() {
   // logo depois de o operador reordenar/duplicar algo.
   const [busy, setBusy] = useState(false);
   const hydrated = useRef(false);
+
+  // Superfícies de comando por espaço, registradas pelas colunas. É um REF de propósito: se
+  // fosse state, cada mudança de identidade do objeto de comandos re-renderizaria todas as
+  // colunas. A camada de voz vai ler cmdsRef.current[venueId].
+  const cmdsRef = useRef<Record<string, ServiceCommands>>({});
+  const registerCommands = useCallback((venueId: string, cmd: ServiceCommands | null) => {
+    if (cmd) cmdsRef.current[venueId] = cmd;
+    else delete cmdsRef.current[venueId];
+  }, []);
 
   // ── Estado na URL (fonte da verdade) + localStorage (sobrevive a reboot do PC) ──
   useEffect(() => {
@@ -308,77 +319,23 @@ function TelaCozinha() {
             className="grid h-full"
             style={{ gridTemplateColumns: `repeat(${cols}, minmax(380px, 1fr))` }}
           >
-            {selected.map(venueId => {
-              const venue = venues.find(v => v.id === venueId);
-              const svc = service[venueId];
-              const otherVenues = svc?.event.venues.filter(v => v.id !== venueId) ?? [];
-
-              return (
-                <section key={venueId} className="flex h-full min-w-0 flex-col overflow-y-auto border-r border-slate-200 last:border-r-0">
-                  <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur">
-                    <p className="font-bold text-emerald-700">{venue?.name ?? '—'}</p>
-
-                    {mode === 'dia' && (
-                      <>
-                        {/* Nunca escolhe silenciosamente: os candidatos ficam sempre visíveis.
-                            A lista vem de ontem pra frente (ver /venues/:id/events), e mostra
-                            dia da semana + data + hora — só o horário era ambíguo, já que dois
-                            eventos às 19:00 em dias diferentes ficavam idênticos. */}
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          {(candidates[venueId] ?? []).length === 0 ? (
-                            <span className="text-[11px] text-slate-400">Nenhum evento próximo.</span>
-                          ) : (
-                            (candidates[venueId] ?? []).slice(0, 8).map(ev => {
-                              const ref = ev.startAt ?? ev.setupAt;
-                              const on = eventByVenue[venueId] === ev.id;
-                              return (
-                                <button
-                                  key={ev.id}
-                                  onClick={() => setEventByVenue(prev => ({ ...prev, [venueId]: ev.id }))}
-                                  className={`rounded border px-2 py-1 text-left text-[11px] leading-tight ${
-                                    on
-                                      ? 'border-emerald-600 bg-emerald-600 font-semibold text-white'
-                                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                                  }`}
-                                >
-                                  <span className="block font-semibold">
-                                    {fmtWeekday(ref)} {fmtDate(ref)} · {fmtTime(ref)}
-                                  </span>
-                                  <span className={on ? 'text-white/90' : 'text-slate-500'}>
-                                    {ev.clientName || ev.name}
-                                  </span>
-                                </button>
-                              );
-                            })
-                          )}
-                        </div>
-                        {otherVenues.length > 0 && (
-                          <p className="mt-1 text-[11px] text-amber-700">
-                            este evento também está em: {otherVenues.map(v => v.name).join(', ')} — a sequência é compartilhada
-                          </p>
-                        )}
-                      </>
-                    )}
-                  </div>
-
-                  <div className="p-3">
-                    {mode === 'semana' ? (
-                      <WeekPanel days={weekByVenue.get(venueId) ?? []} onToggleCheck={toggleCheck} />
-                    ) : svc ? (
-                      <ServicePanel
-                        data={svc}
-                        onMutate={() => { void loadService(); }}
-                        onBusyChange={setBusy}
-                      />
-                    ) : (
-                      <p className="py-8 text-center text-sm text-slate-400">
-                        {eventByVenue[venueId] ? 'Carregando…' : 'Escolha um evento acima.'}
-                      </p>
-                    )}
-                  </div>
-                </section>
-              );
-            })}
+            {selected.map(venueId => (
+              <VenueColumn
+                key={venueId}
+                venueId={venueId}
+                venueName={venues.find(v => v.id === venueId)?.name ?? '—'}
+                mode={mode}
+                days={weekByVenue.get(venueId) ?? []}
+                service={service[venueId]}
+                candidates={candidates[venueId] ?? []}
+                selectedEventId={eventByVenue[venueId]}
+                onSelectEvent={(eventId) => setEventByVenue(prev => ({ ...prev, [venueId]: eventId }))}
+                onToggleCheck={toggleCheck}
+                onMutate={() => { void loadService(); }}
+                onBusyChange={setBusy}
+                onRegisterCommands={registerCommands}
+              />
+            ))}
           </div>
         </div>
       )}
