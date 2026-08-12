@@ -13,6 +13,8 @@ import VenueColumn from './VenueColumn';
 import { type WeekDay } from './WeekPanel';
 import { type ServiceData } from './ServicePanel';
 import { type ServiceCommands } from './useServiceCommands';
+import VoiceBar from './voice/VoiceBar';
+import { useVoiceController } from './voice/useVoiceController';
 import { fmtTime, useNow, usePoll, LS_KEY } from './lib';
 
 interface Venue { id: string; name: string }
@@ -62,6 +64,12 @@ function TelaCozinha() {
     if (cmd) cmdsRef.current[venueId] = cmd;
     else delete cmdsRef.current[venueId];
   }, []);
+
+  // Coluna em foco: alvo padrão de um comando de voz quando há mais de um espaço na tela.
+  // Estado EXPLÍCITO e visível, nunca palpite — o operador tem que ver onde o comando vai cair
+  // antes de falar.
+  const [focusVenueId, setFocusVenueId] = useState<string | null>(null);
+  const [allowVoiceRemove, setAllowVoiceRemove] = useState(false);
 
   // ── Estado na URL (fonte da verdade) + localStorage (sobrevive a reboot do PC) ──
   useEffect(() => {
@@ -234,14 +242,67 @@ function TelaCozinha() {
   const toggleVenue = (id: string) =>
     setSelected(prev => (prev.includes(id) ? prev.filter(v => v !== id) : [...prev, id]));
 
-  const cols = Math.max(selected.length, 1);
+  // Foco sempre válido: se o espaço em foco sai da seleção, cai para o primeiro.
+  useEffect(() => {
+    if (selected.length <= 1) { setFocusVenueId(selected[0] ?? null); return; }
+    if (!focusVenueId || !selected.includes(focusVenueId)) setFocusVenueId(selected[0]);
+  }, [selected, focusVenueId]);
+
   const weekByVenue = useMemo(() => {
     const m = new Map<string, WeekDay[]>();
     for (const vw of week) m.set(vw.venue.id, vw.days);
     return m;
   }, [week]);
 
-  const refreshNow = () => { void (mode === 'semana' ? loadWeek() : loadService()); };
+  // Nomes marcáveis na visão da semana, por espaço — fonte do comando "produzido".
+  const getWeekItems = useCallback((venueId: string) => {
+    const out: { itemName: string; eventItemId: string | null }[] = [];
+    for (const day of weekByVenue.get(venueId) ?? []) {
+      for (const ev of day.events) {
+        for (const pkg of ev.packages) {
+          if (pkg.kind === 'estacao' || pkg.chosenItems.length === 0) {
+            out.push({ itemName: pkg.name, eventItemId: pkg.eventItemId });
+          } else {
+            for (const c of pkg.chosenItems) out.push({ itemName: c.itemName, eventItemId: pkg.eventItemId });
+          }
+        }
+      }
+    }
+    return out;
+  }, [weekByVenue]);
+
+  // A voz precisa saber a qual evento pertence o item marcado na semana.
+  const prepCheckByName = useCallback(async (venueId: string, itemName: string) => {
+    for (const day of weekByVenue.get(venueId) ?? []) {
+      for (const ev of day.events) {
+        for (const pkg of ev.packages) {
+          const isPkg = pkg.kind === 'estacao' || pkg.chosenItems.length === 0;
+          const names = isPkg ? [pkg.name] : pkg.chosenItems.map(c => c.itemName);
+          if (names.some(n => n.toLowerCase() === itemName.toLowerCase())) {
+            await toggleCheck(ev.id, pkg.eventItemId, itemName, true);
+            return;
+          }
+        }
+      }
+    }
+  }, [weekByVenue, toggleCheck]);
+
+  const cols = Math.max(selected.length, 1);
+
+  const refreshNow = useCallback(() => {
+    void (mode === 'semana' ? loadWeek() : loadService());
+  }, [mode, loadWeek, loadService]);
+
+  const voice = useVoiceController({
+    mode,
+    venues: selected.map(id => ({ id, name: venues.find(v => v.id === id)?.name ?? '—' })),
+    focusVenueId,
+    getCommands: (venueId) => cmdsRef.current[venueId],
+    onPrepCheck: prepCheckByName,
+    getWeekItems,
+    onRefresh: refreshNow,
+    allowRemove: allowVoiceRemove,
+  });
 
   return (
     <div className="flex h-screen flex-col bg-slate-50 text-slate-900">
@@ -334,11 +395,35 @@ function TelaCozinha() {
                 onMutate={() => { void loadService(); }}
                 onBusyChange={setBusy}
                 onRegisterCommands={registerCommands}
+                focused={selected.length > 1 && focusVenueId === venueId}
+                showFocus={selected.length > 1}
+                onFocus={() => setFocusVenueId(venueId)}
               />
             ))}
           </div>
         </div>
       )}
+
+      <VoiceBar
+        voiceMode={voice.voiceMode}
+        state={voice.state}
+        transcript={voice.transcript}
+        message={voice.message}
+        level={voice.level}
+        pending={voice.pending}
+        choices={voice.choices}
+        available={voice.available}
+        availableReason={voice.availableReason}
+        micError={voice.micError}
+        allowRemove={allowVoiceRemove}
+        onAllowRemoveChange={setAllowVoiceRemove}
+        onEnable={voice.enable}
+        onDisable={voice.disable}
+        onPushToTalk={voice.pushToTalk}
+        onConfirmRemoval={voice.confirmRemoval}
+        onCancelRemoval={voice.cancelRemoval}
+        onDismissChoices={voice.dismissChoices}
+      />
     </div>
   );
 }

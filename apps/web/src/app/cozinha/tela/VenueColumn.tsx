@@ -27,11 +27,16 @@ interface Props {
   onMutate: () => void;
   onBusyChange: (busy: boolean) => void;
   onRegisterCommands: (venueId: string, cmd: ServiceCommands | null) => void;
+  /** Coluna alvo dos comandos de voz. Só aparece quando há mais de um espaço. */
+  focused?: boolean;
+  showFocus?: boolean;
+  onFocus?: () => void;
 }
 
 export default function VenueColumn({
   venueId, venueName, mode, days, service, candidates, selectedEventId,
   onSelectEvent, onToggleCheck, onMutate, onBusyChange, onRegisterCommands,
+  focused, showFocus, onFocus,
 }: Props) {
   // O hook precisa ser chamado incondicionalmente, mesmo sem evento carregado ainda.
   const cmd = useServiceCommands({
@@ -52,9 +57,26 @@ export default function VenueColumn({
   const otherVenues = service?.event.venues.filter(v => v.id !== venueId) ?? [];
 
   return (
-    <section className="flex h-full min-w-0 flex-col overflow-y-auto border-r border-slate-200 last:border-r-0">
+    <section
+      onClick={showFocus ? onFocus : undefined}
+      className={`flex h-full min-w-0 flex-col overflow-y-auto border-r last:border-r-0 ${
+        focused ? 'border-emerald-400 ring-2 ring-inset ring-emerald-400' : 'border-slate-200'
+      }`}
+    >
       <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur">
-        <p className="font-bold text-emerald-700">{venueName}</p>
+        <div className="flex items-center gap-2">
+          <p className="font-bold text-emerald-700">{venueName}</p>
+          {/* Onde o comando de voz vai cair — tem que ser visível ANTES de falar. */}
+          {showFocus && (
+            focused ? (
+              <span className="rounded bg-emerald-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                VOZ AQUI
+              </span>
+            ) : (
+              <span className="text-[10px] text-slate-400">toque para focar</span>
+            )
+          )}
+        </div>
 
         {mode === 'dia' && (
           <>

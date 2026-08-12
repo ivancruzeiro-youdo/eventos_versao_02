@@ -44,6 +44,7 @@ import { spotifyRoutes } from './routes/spotify.js';
 import { desktopReleaseRoutes } from './routes/desktop-releases.js';
 import { aiChatRoutes } from './routes/ai-chat.js';
 import { kitchenDisplayRoutes } from './routes/kitchen-display.js';
+import { kitchenVoiceRoutes } from './routes/kitchen-voice.js';
 
 const logger = pino({
   transport: {
@@ -177,6 +178,7 @@ const start = async () => {
   await app.register(kitchenRoutes, { prefix: '/api/v2' });
   await app.register(kitchenPlanRoutes, { prefix: '/api/v2' });
   await app.register(kitchenDisplayRoutes, { prefix: '/api/v2' });
+  await app.register(kitchenVoiceRoutes, { prefix: '/api/v2' });
   await app.register(acessosRoutes, { prefix: '/api/v2' });
   await app.register(closureRoutes, { prefix: '/api/v2' });
   await app.register(clientRoutes, { prefix: '/api/v2' });
