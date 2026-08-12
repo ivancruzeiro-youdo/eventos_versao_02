@@ -52,7 +52,13 @@ function tone(freq: number, ms: number, delayMs = 0) {
   osc.stop(t0 + ms / 1000 + 0.02);
 }
 
-export type Beep = 'open' | 'close' | 'ok' | 'error' | 'confirm' | 'ignored';
+/** O áudio só existe depois de um gesto do usuário (exigência do navegador). A tela usa isso
+ *  pra avisar que os alertas de atraso vão sair só no visual até alguém ativar o som. */
+export function isAudioUnlocked(): boolean {
+  return !!ctx && ctx.state !== 'closed';
+}
+
+export type Beep = 'open' | 'close' | 'ok' | 'error' | 'confirm' | 'ignored' | 'late' | 'critical';
 
 export function beep(kind: Beep) {
   resumeAudio();
@@ -61,6 +67,14 @@ export function beep(kind: Beep) {
     case 'close':   tone(660, 70); break;
     case 'ok':      tone(660, 80); tone(990, 80, 90); break;
     case 'error':   tone(300, 220); break;
+    // Atraso: dois tons ASCENDENTES e agudos, timbre distinto de tudo o mais — tem que cortar
+    // ruído de cozinha e não ser confundido com confirmação de comando.
+    case 'late':     tone(1180, 120); tone(1480, 140, 150); break;
+    // Crítico: sequência de três, repetida, deliberadamente incômoda.
+    case 'critical':
+      tone(1480, 130); tone(1180, 130, 160); tone(1480, 130, 320);
+      tone(1480, 130, 620); tone(1180, 130, 780); tone(1480, 180, 940);
+      break;
     // Grave duplo, deliberadamente diferente de tudo: é o som de "vou apagar algo".
     case 'confirm': tone(520, 110); tone(520, 110, 170); break;
     // Ativação sem comando tem que ser quase invisível — se falso disparo for barulhento e

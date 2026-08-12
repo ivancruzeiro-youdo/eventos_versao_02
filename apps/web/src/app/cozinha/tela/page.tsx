@@ -7,7 +7,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { CalendarDays, UtensilsCrossed, Maximize2, RefreshCw, Settings2, ChefHat, ExternalLink } from 'lucide-react';
+import { CalendarDays, UtensilsCrossed, Maximize2, RefreshCw, Settings2, ChefHat, ExternalLink, AlertTriangle } from 'lucide-react';
 import VenuePicker from './VenuePicker';
 import VenueColumn from './VenueColumn';
 import { type WeekDay } from './WeekPanel';
@@ -36,7 +36,9 @@ export default function TelaCozinhaPage() {
 function TelaCozinha() {
   const router = useRouter();
   const params = useSearchParams();
-  const now = useNow(30_000);
+  // 10s e não 30s: é o relógio que dispara o alerta de atraso, e meia janela de tolerância de
+  // erro no aviso seria perceptível.
+  const now = useNow(10_000);
 
   const [venues, setVenues] = useState<Venue[]>([]);
   const [loadingVenues, setLoadingVenues] = useState(true);
@@ -70,6 +72,19 @@ function TelaCozinha() {
   // antes de falar.
   const [focusVenueId, setFocusVenueId] = useState<string | null>(null);
   const [allowVoiceRemove, setAllowVoiceRemove] = useState(false);
+
+  // Atrasos por espaço, reportados pelas colunas — alimenta o indicador no topo, que é o que
+  // chama atenção quando a coluna atrasada está fora do campo de visão.
+  const [lateByVenue, setLateByVenue] = useState<Record<string, { count: number; critical: number }>>({});
+  const onLateChange = useCallback((venueId: string, count: number, critical: number) => {
+    setLateByVenue(prev => {
+      const cur = prev[venueId];
+      if (cur && cur.count === count && cur.critical === critical) return prev;
+      return { ...prev, [venueId]: { count, critical } };
+    });
+  }, []);
+  const lateTotal = Object.values(lateByVenue).reduce((s, v) => s + v.count, 0);
+  const criticalTotal = Object.values(lateByVenue).reduce((s, v) => s + v.critical, 0);
 
   // ── Estado na URL (fonte da verdade) + localStorage (sobrevive a reboot do PC) ──
   useEffect(() => {
@@ -330,6 +345,27 @@ function TelaCozinha() {
           </button>
         </div>
 
+        {/* Indicador global de atraso: quando a coluna atrasada está fora do campo de visão
+            (tela dividida, rolagem), é isso que chama atenção. */}
+        {lateTotal > 0 && (
+          <span
+            className={`flex items-center gap-2 rounded-lg px-3 py-2 text-lg font-black text-white ${
+              criticalTotal > 0 ? 'animate-pulse bg-red-600' : 'bg-amber-600'
+            }`}
+          >
+            <AlertTriangle className="size-5" />
+            {lateTotal} ATRASAD{lateTotal === 1 ? 'A' : 'AS'}
+            {selected.length > 1 && (
+              <span className="text-xs font-medium opacity-90">
+                {Object.entries(lateByVenue)
+                  .filter(([, v]) => v.count > 0)
+                  .map(([id, v]) => `${venues.find(x => x.id === id)?.name ?? '?'}: ${v.count}`)
+                  .join(' · ')}
+              </span>
+            )}
+          </span>
+        )}
+
         <div className="ml-auto flex items-center gap-2">
           <span className="text-2xl font-bold tabular-nums">{fmtTime(now)}</span>
           {lastSync && (
@@ -398,6 +434,8 @@ function TelaCozinha() {
                 focused={selected.length > 1 && focusVenueId === venueId}
                 showFocus={selected.length > 1}
                 onFocus={() => setFocusVenueId(venueId)}
+                now={now}
+                onLateChange={onLateChange}
               />
             ))}
           </div>

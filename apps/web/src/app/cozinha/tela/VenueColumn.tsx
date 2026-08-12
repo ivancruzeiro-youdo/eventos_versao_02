@@ -4,10 +4,12 @@
 // `useServiceCommands` é um hook e não pode ser chamado dentro do .map() sobre os espaços
 // selecionados — mas pode ser chamado uma vez por componente renderizado por espaço.
 // A coluna também REGISTRA sua superfície de comandos, pra camada de voz alcançá-la.
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import WeekPanel, { type WeekDay } from './WeekPanel';
 import ServicePanel, { type ServiceData } from './ServicePanel';
 import { useServiceCommands, type ServiceCommands } from './useServiceCommands';
+import { useLateAlerts, fmtLate, type LateItem } from './useLateAlerts';
+import { beep, speak, isAudioUnlocked, unlockAudio } from './voice/feedback';
 import { fmtTime, fmtDate, fmtWeekday } from './lib';
 
 interface Candidate {
@@ -31,13 +33,17 @@ interface Props {
   focused?: boolean;
   showFocus?: boolean;
   onFocus?: () => void;
+  /** Relógio compartilhado da página — o alerta de atraso é função de horário. */
+  now: Date;
+  onLateChange?: (venueId: string, count: number, critical: number) => void;
 }
 
 export default function VenueColumn({
   venueId, venueName, mode, days, service, candidates, selectedEventId,
   onSelectEvent, onToggleCheck, onMutate, onBusyChange, onRegisterCommands,
-  focused, showFocus, onFocus,
+  focused, showFocus, onFocus, now, onLateChange,
 }: Props) {
+  const [audioOn, setAudioOn] = useState(isAudioUnlocked());
   // O hook precisa ser chamado incondicionalmente, mesmo sem evento carregado ainda.
   const cmd = useServiceCommands({
     eventId: service?.event.id ?? '',
@@ -53,6 +59,35 @@ export default function VenueColumn({
     onRegisterCommands(venueId, service ? cmd : null);
     return () => onRegisterCommands(venueId, null);
   }, [venueId, cmd, service, onRegisterCommands]);
+
+  // Anúncio do atraso: bipe distinto + fala dizendo O QUE não saiu. Dispara uma vez por item
+  // por faixa (ver useLateAlerts) — repetir a cada tick viraria alarme constante e a cozinha
+  // desligaria o som no primeiro turno.
+  const announce = useCallback((items: LateItem[], tier: 'atrasado' | 'critico') => {
+    beep(tier === 'critico' ? 'critical' : 'late');
+    const nomes = items.slice(0, 3).map(i => i.entry.itemName).join(', ');
+    const resto = items.length > 3 ? ` e mais ${items.length - 3}` : '';
+    const prefixo = tier === 'critico' ? 'atenção, atraso' : 'atrasado';
+    const espaco = venueName ? `${venueName}. ` : '';
+    speak(`${espaco}${prefixo}: ${nomes}${resto}`);
+  }, [venueName]);
+
+  const lateAlerts = useLateAlerts({
+    entries: service?.plan.entries ?? [],
+    active: mode === 'dia' && !!service,
+    now,
+    onAnnounce: announce,
+  });
+
+  useEffect(() => {
+    onLateChange?.(venueId, lateAlerts.late.length, lateAlerts.criticalCount);
+  }, [venueId, lateAlerts.late.length, lateAlerts.criticalCount, onLateChange]);
+
+  const enableAudio = useCallback(() => {
+    unlockAudio();
+    setAudioOn(isAudioUnlocked());
+    beep('ok');
+  }, []);
 
   const otherVenues = service?.event.venues.filter(v => v.id !== venueId) ?? [];
 
@@ -124,7 +159,13 @@ export default function VenueColumn({
         {mode === 'semana' ? (
           <WeekPanel days={days} onToggleCheck={onToggleCheck} />
         ) : service ? (
-          <ServicePanel data={service} cmd={cmd} />
+          <ServicePanel
+            data={service}
+            cmd={cmd}
+            lateAlerts={lateAlerts}
+            audioOn={audioOn}
+            onEnableAudio={enableAudio}
+          />
         ) : (
           <p className="py-8 text-center text-sm text-slate-400">
             {selectedEventId ? 'Carregando…' : 'Escolha um evento acima.'}

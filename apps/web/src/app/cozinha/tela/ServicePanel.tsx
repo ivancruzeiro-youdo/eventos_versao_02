@@ -4,10 +4,11 @@ import { useState } from 'react';
 import {
   Users, ChevronUp, ChevronDown, Copy, Trash2, Check, Plus, Wand2,
   MessageSquare, AlertTriangle, UtensilsCrossed, CalendarClock, GripVertical,
-  Wine, History, LayoutGrid,
+  Wine, History, LayoutGrid, Volume2, Clock,
 } from 'lucide-react';
 import { fmtTime, fmtDateTimeShort } from './lib';
 import type { ServiceCommands } from './useServiceCommands';
+import { fmtLate, type LateItem } from './useLateAlerts';
 
 export interface ServiceEntry {
   id: string;
@@ -64,9 +65,20 @@ interface Props {
   data: ServiceData;
   /** Superfície de comandos vinda do VenueColumn — a mesma que a voz usa. */
   cmd: ServiceCommands;
+  /** Alerta de atraso, calculado no VenueColumn (precisa do relógio). */
+  lateAlerts: {
+    late: LateItem[];
+    allLate: LateItem[];
+    criticalCount: number;
+    ack: (entryId: string) => void;
+    ackAll: () => void;
+    tierOf: (entryId: string) => 'atrasado' | 'critico' | null;
+  };
+  audioOn: boolean;
+  onEnableAudio: () => void;
 }
 
-export default function ServicePanel({ data, cmd }: Props) {
+export default function ServicePanel({ data, cmd, lateAlerts, audioOn, onEnableAudio }: Props) {
   const [showAdd, setShowAdd] = useState(false);
   const [showLog, setShowLog] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
@@ -89,6 +101,71 @@ export default function ServicePanel({ data, cmd }: Props) {
 
   return (
     <div className="space-y-3">
+      {/* ATRASO no topo de tudo, acima até das observações: é a única informação da tela que
+          exige ação AGORA. */}
+      {lateAlerts.late.length > 0 && (
+        <div
+          className={`rounded-lg border-4 p-3 ${
+            lateAlerts.criticalCount > 0
+              ? 'animate-pulse border-red-600 bg-red-100'
+              : 'border-amber-500 bg-amber-100'
+          }`}
+        >
+          <div className="mb-2 flex items-center gap-2">
+            <AlertTriangle className={`size-7 shrink-0 ${lateAlerts.criticalCount > 0 ? 'text-red-700' : 'text-amber-700'}`} />
+            <p className={`text-2xl font-black leading-none ${lateAlerts.criticalCount > 0 ? 'text-red-800' : 'text-amber-800'}`}>
+              {lateAlerts.late.length === 1 ? '1 SAÍDA ATRASADA' : `${lateAlerts.late.length} SAÍDAS ATRASADAS`}
+            </p>
+            <button
+              onClick={lateAlerts.ackAll}
+              className="ml-auto shrink-0 rounded border border-slate-400 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+              title="Silencia o alerta; a linha continua marcada como atrasada"
+            >
+              ciente de tudo
+            </button>
+          </div>
+
+          <div className="space-y-1">
+            {lateAlerts.late.map(l => (
+              <div key={l.entry.id} className="flex items-center gap-2 rounded bg-white/80 px-2 py-1.5">
+                <span className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-bold text-white ${
+                  l.tier === 'critico' ? 'bg-red-600' : 'bg-amber-600'
+                }`}>
+                  {fmtLate(l.lateMs)}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-lg font-bold text-slate-900">{l.label}</span>
+                <span className="shrink-0 text-sm text-slate-500">era {fmtTime(l.entry.serveAt)}</span>
+                <button
+                  onClick={() => cmd.setServed(l.entry.id, true)}
+                  disabled={working}
+                  className="shrink-0 rounded bg-emerald-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-40"
+                >
+                  saiu agora
+                </button>
+                <button
+                  onClick={() => lateAlerts.ack(l.entry.id)}
+                  className="shrink-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-500 hover:bg-slate-50"
+                  title="Silencia só este"
+                >
+                  ciente
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {/* O navegador só libera áudio após um gesto — sem isso o alerta sai só no visual, e
+              a cozinha precisa saber disso em vez de achar que o som está quebrado. */}
+          {!audioOn && (
+            <button
+              onClick={onEnableAudio}
+              className="mt-2 flex items-center gap-1.5 rounded bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700"
+            >
+              <Volume2 className="size-3.5" /> ativar som dos alertas
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Observações de A&B — no topo: é a informação que muda a operação ("servir só depois
           do jantar", "cliente pediu sem lactose") e não pode ficar embaixo da lista. */}
       {allComments.length > 0 && (
@@ -227,13 +304,21 @@ export default function ServicePanel({ data, cmd }: Props) {
                     ? 'border-slate-200 bg-slate-50 opacity-60'
                     : e.orphan || e.packageMissing
                       ? 'border-red-300 bg-red-50'
-                      : 'border-slate-200 bg-white'
+                      : lateAlerts.tierOf(e.id) === 'critico'
+                        ? 'border-2 border-red-600 bg-red-50'
+                        : lateAlerts.tierOf(e.id) === 'atrasado'
+                          ? 'border-2 border-amber-500 bg-amber-50'
+                          : 'border-slate-200 bg-white'
                 }`}
               >
                 <div className="flex items-center gap-2">
                   <GripVertical className="size-4 shrink-0 cursor-grab text-slate-300" />
 
-                  <span className="w-14 shrink-0 text-lg font-bold tabular-nums text-emerald-600">
+                  <span className={`w-14 shrink-0 text-lg font-bold tabular-nums ${
+                    lateAlerts.tierOf(e.id) === 'critico' ? 'text-red-700'
+                      : lateAlerts.tierOf(e.id) === 'atrasado' ? 'text-amber-700'
+                      : 'text-emerald-600'
+                  }`}>
                     {fmtTime(e.serveAt)}
                   </span>
 
@@ -259,6 +344,14 @@ export default function ServicePanel({ data, cmd }: Props) {
                     )}
                     {!e.orphan && e.packageMissing && (
                       <p className="text-[11px] text-red-600">pacote de origem removido</p>
+                    )}
+                    {lateAlerts.tierOf(e.id) && (
+                      <p className={`flex items-center gap-1 text-[11px] font-bold ${
+                        lateAlerts.tierOf(e.id) === 'critico' ? 'text-red-700' : 'text-amber-700'
+                      }`}>
+                        <Clock className="size-3" />
+                        atrasado {fmtLate(lateAlerts.allLate.find(l => l.entry.id === e.id)?.lateMs ?? 0)}
+                      </p>
                     )}
                     {e.sourceLabel && !e.orphan && (
                       <p className="truncate text-[11px] text-slate-400">{e.sourceLabel}</p>
