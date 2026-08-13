@@ -171,3 +171,15 @@ export function parseOrdinal(spoken: string): number | null {
 export function mentionsNext(spoken: string): boolean {
   return /\b(proximo|proxima|agora|seguinte)\b/.test(normalize(spoken));
 }
+
+/** "item 1", "numero 3", "item numero 2" → número 1-based dito em dígito, direto do texto —
+ *  não é ordinal por extenso ("o primeiro"), é o MESMO número que a tela mostra ao lado do
+ *  horário de cada linha. Existe pra não precisar falar o nome do prato: "check item 1" em
+ *  vez de "check bruschetta de tomate seco". */
+export function parseItemNumber(spoken: string): number | null {
+  const n = normalize(spoken);
+  const m = n.match(/\b(?:item|numero)\s*(\d{1,2})\b/);
+  if (!m) return null;
+  const v = parseInt(m[1], 10);
+  return v >= 1 ? v : null;
+}

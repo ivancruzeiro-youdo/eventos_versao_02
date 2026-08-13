@@ -10,7 +10,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ServiceCommands } from '../useServiceCommands';
 import type { ServiceEntry } from '../ServicePanel';
 import { parseIntent, SPEECH, type Intent, type Mode } from './grammar';
-import { matchBest, parseOrdinal, mentionsNext, ACCEPT_THRESHOLD } from './match';
+import { matchBest, parseOrdinal, parseItemNumber, mentionsNext, ACCEPT_THRESHOLD } from './match';
 import { beep, speak, unlockAudio, resumeAudio, isSpeaking, stopSpeaking } from './feedback';
 import { withTimeInSaoPaulo } from '../lib';
 import { useMicStream } from './useMicStream';
@@ -136,6 +136,14 @@ export function useVoiceController(opts: Opts) {
     target: string,
     entries: ServiceEntry[],
   ): { entry: ServiceEntry | null; ambiguousWith: ServiceEntry[] } => {
+    // Número falado ("item 1", "numero 3") aponta direto pra posição na lista completa, na
+    // MESMA ordem que a tela numera — é o caminho mais curto e sem ambiguidade nenhuma,
+    // então vale antes de qualquer outra resolução (inclusive nome de item).
+    const spokenNumber = parseItemNumber(target);
+    if (spokenNumber !== null) {
+      return { entry: entries[spokenNumber - 1] ?? null, ambiguousWith: [] };
+    }
+
     const pendingEntries = entries.filter(e => e.status !== 'served');
 
     if (mentionsNext(target) && pendingEntries.length > 0) {

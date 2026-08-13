@@ -329,6 +329,14 @@ export default function ServicePanel({ data, cmd, lateAlerts, audioOn, onEnableA
                 <div className="flex items-center gap-2">
                   <GripVertical className="size-4 shrink-0 cursor-grab text-slate-300" />
 
+                  {/* Número fixo da linha — "check item 1" em vez de falar o nome do prato. */}
+                  <span
+                    title="Número do item — use na voz: check item N"
+                    className="flex size-6 shrink-0 items-center justify-center rounded-full bg-slate-700 text-xs font-bold tabular-nums text-white"
+                  >
+                    {i + 1}
+                  </span>
+
                   {editingTimeId === e.id ? (
                     <input
                       type="time"
