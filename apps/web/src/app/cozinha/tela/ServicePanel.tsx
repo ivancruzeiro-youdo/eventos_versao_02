@@ -6,7 +6,7 @@ import {
   MessageSquare, AlertTriangle, UtensilsCrossed, CalendarClock, GripVertical,
   Wine, History, LayoutGrid, Volume2, Clock,
 } from 'lucide-react';
-import { fmtTime, fmtDateTimeShort } from './lib';
+import { fmtTime, fmtDateTimeShort, withTimeInSaoPaulo } from './lib';
 import type { ServiceCommands } from './useServiceCommands';
 import { fmtLate, type LateItem } from './useLateAlerts';
 
@@ -82,6 +82,21 @@ export default function ServicePanel({ data, cmd, lateAlerts, audioOn, onEnableA
   const [showAdd, setShowAdd] = useState(false);
   const [showLog, setShowLog] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
+  const [editingTimeId, setEditingTimeId] = useState<string | null>(null);
+  const [timeDraft, setTimeDraft] = useState('');
+
+  function openTimeEdit(e: ServiceEntry) {
+    setEditingTimeId(e.id);
+    setTimeDraft(fmtTime(e.serveAt));
+  }
+
+  async function commitTime(e: ServiceEntry) {
+    setEditingTimeId(null);
+    if (!timeDraft || timeDraft === fmtTime(e.serveAt)) return;
+    const [hh, mm] = timeDraft.split(':').map(Number);
+    if (isNaN(hh) || isNaN(mm)) return;
+    await cmd.updateServeAt(e.id, withTimeInSaoPaulo(e.serveAt, hh, mm));
+  }
 
   const { headcount, plan, packages, schedule } = data;
   const entries = plan.entries;
@@ -314,13 +329,34 @@ export default function ServicePanel({ data, cmd, lateAlerts, audioOn, onEnableA
                 <div className="flex items-center gap-2">
                   <GripVertical className="size-4 shrink-0 cursor-grab text-slate-300" />
 
-                  <span className={`w-14 shrink-0 text-lg font-bold tabular-nums ${
-                    lateAlerts.tierOf(e.id) === 'critico' ? 'text-red-700'
-                      : lateAlerts.tierOf(e.id) === 'atrasado' ? 'text-amber-700'
-                      : 'text-emerald-600'
-                  }`}>
-                    {fmtTime(e.serveAt)}
-                  </span>
+                  {editingTimeId === e.id ? (
+                    <input
+                      type="time"
+                      autoFocus
+                      value={timeDraft}
+                      onChange={ev => setTimeDraft(ev.target.value)}
+                      onBlur={() => commitTime(e)}
+                      onKeyDown={ev => {
+                        if (ev.key === 'Enter') commitTime(e);
+                        if (ev.key === 'Escape') setEditingTimeId(null);
+                      }}
+                      onClick={ev => ev.stopPropagation()}
+                      className="w-24 shrink-0 rounded border border-emerald-400 bg-white px-1 py-0.5 text-lg font-bold tabular-nums text-emerald-700"
+                    />
+                  ) : (
+                    <button
+                      onClick={ev => { ev.stopPropagation(); openTimeEdit(e); }}
+                      disabled={working}
+                      title="Clique para mudar o horário"
+                      className={`w-14 shrink-0 rounded text-lg font-bold tabular-nums transition hover:bg-slate-100 disabled:opacity-50 ${
+                        lateAlerts.tierOf(e.id) === 'critico' ? 'text-red-700'
+                          : lateAlerts.tierOf(e.id) === 'atrasado' ? 'text-amber-700'
+                          : 'text-emerald-600'
+                      }`}
+                    >
+                      {fmtTime(e.serveAt)}
+                    </button>
+                  )}
 
                   <div className="min-w-0 flex-1">
                     <p className={`font-medium leading-tight ${e.orphan ? 'text-slate-400 line-through' : 'text-slate-900'}`}>

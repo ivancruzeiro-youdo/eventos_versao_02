@@ -20,6 +20,8 @@ export interface ServiceCommands {
   working: boolean;
 
   setServed(entryId: string, served: boolean): Promise<Res>;
+  /** Muda o horário de saída de uma entrada já na sequência — clique na hora ou voz. */
+  updateServeAt(entryId: string, serveAt: string): Promise<Res>;
   toggleServed(entryId: string): Promise<Res>;
   duplicate(entryId: string): Promise<Res>;
   remove(entryId: string): Promise<Res>;
@@ -107,6 +109,10 @@ export function useServiceCommands(opts: Opts): ServiceCommands {
     call(`/api/v2/kitchen/display/plan/entries/${entryId}`, patchJson({ status: served ? 'served' : 'pending' })),
     [call]);
 
+  const updateServeAt = useCallback((entryId: string, serveAt: string) =>
+    call(`/api/v2/kitchen/display/plan/entries/${entryId}`, patchJson({ serveAt })),
+    [call]);
+
   const toggleServed = useCallback((entryId: string) => {
     const e = entries.find(x => x.id === entryId);
     if (!e) return Promise.resolve<Res>({ ok: false, error: 'Item não encontrado.' });
@@ -171,7 +177,7 @@ export function useServiceCommands(opts: Opts): ServiceCommands {
     eventId, entries, packages, working,
     setServed, toggleServed, duplicate, remove,
     moveByIndex, moveToPosition, reorder,
-    addItem, addStation, generateSuggested,
+    addItem, addStation, generateSuggested, updateServeAt,
     available, availableStations,
   };
 }

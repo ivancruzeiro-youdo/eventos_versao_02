@@ -12,6 +12,7 @@ import type { ServiceEntry } from '../ServicePanel';
 import { parseIntent, SPEECH, type Intent, type Mode } from './grammar';
 import { matchBest, parseOrdinal, mentionsNext, ACCEPT_THRESHOLD } from './match';
 import { beep, speak, unlockAudio, resumeAudio, isSpeaking, stopSpeaking } from './feedback';
+import { withTimeInSaoPaulo } from '../lib';
 import { useMicStream } from './useMicStream';
 import { useRecorder } from './useRecorder';
 import { createWebSpeechWakeEngine, isWebSpeechAvailable } from './WebSpeechWakeEngine';
@@ -184,7 +185,9 @@ export function useVoiceController(opts: Opts) {
     setState('idle');
   }, [say]);
 
-  const runIntent = useCallback(async (intent: Intent, target: string, raw: string, count: number) => {
+  const runIntent = useCallback(async (
+    intent: Intent, target: string, raw: string, count: number, time: { hh: number; mm: number } | null = null,
+  ) => {
     const o = optsRef.current;
 
     // Globais não precisam de alvo.
@@ -241,7 +244,7 @@ export function useVoiceController(opts: Opts) {
         // Oferece as alternativas como botões: um toque resolve melhor que repetir a frase.
         setChoices(ambiguousWith.map(e => ({
           label: `${e.itemName}`,
-          run: () => { setChoices([]); void applyTo(intent, e, cmd, venueId, withVenue, count); },
+          run: () => { setChoices([]); void applyTo(intent, e, cmd, venueId, withVenue, count, time); },
         })));
         finish(false, SPEECH.which);
       } else {
@@ -252,7 +255,7 @@ export function useVoiceController(opts: Opts) {
     }
 
     setChoices([]);
-    await applyTo(intent, entry, cmd, venueId, withVenue, count);
+    await applyTo(intent, entry, cmd, venueId, withVenue, count, time);
   }, [clearConfirm, finish, resolveEntry, resolveVenue, say]);
 
   const applyTo = useCallback(async (
@@ -262,6 +265,7 @@ export function useVoiceController(opts: Opts) {
     venueId: string,
     withVenue: (t: string) => string,
     count: number,
+    time: { hh: number; mm: number } | null = null,
   ) => {
     const idx = cmd.entries.findIndex(e => e.id === entry.id);
     const hora = new Date(entry.serveAt).toLocaleTimeString('pt-BR', {
@@ -306,6 +310,15 @@ export function useVoiceController(opts: Opts) {
         const lastServed = cmd.entries.reduce((acc, e, i) => (e.status === 'served' ? i : acc), -1);
         const r = await cmd.moveToPosition(entry.id, lastServed + 1, intent === 'ADIANTAR');
         finish(r.ok, r.ok ? withVenue(`${entry.itemName} é o próximo`) : r.error);
+        return;
+      }
+      case 'MUDAR_HORARIO': {
+        if (!time) { finish(false, 'não entendi o horário'); return; }
+        setState('executando');
+        const iso = withTimeInSaoPaulo(entry.serveAt, time.hh, time.mm);
+        const novaHora = `${String(time.hh).padStart(2, '0')}:${String(time.mm).padStart(2, '0')}`;
+        const r = await cmd.updateServeAt(entry.id, iso);
+        finish(r.ok, r.ok ? withVenue(`${entry.itemName} mudou para ${novaHora}`) : r.error);
         return;
       }
       case 'REMOVER': {
@@ -385,7 +398,7 @@ export function useVoiceController(opts: Opts) {
       return;
     }
 
-    await runIntent(cmd.intent, cmd.target, text, cmd.count);
+    await runIntent(cmd.intent, cmd.target, text, cmd.count, cmd.time ?? null);
   }, [clearConfirm, executeRemoval, runIntent, say]);
 
   const captureAndHandle = useCallback(async (maxMs = 7000) => {

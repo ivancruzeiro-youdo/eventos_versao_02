@@ -9,7 +9,7 @@ import { normalize } from './match';
 export type Intent =
   | 'MARCAR' | 'DESMARCAR' | 'DUPLICAR'
   | 'SUBIR' | 'DESCER' | 'PROXIMO' | 'ADIANTAR'
-  | 'PRODUZIDO' | 'REMOVER'
+  | 'PRODUZIDO' | 'REMOVER' | 'MUDAR_HORARIO'
   | 'CONFIRMAR' | 'NEGAR'
   | 'ATUALIZAR' | 'PARAR' | 'DESLIGAR_MIC' | 'GERAR';
 
@@ -42,6 +42,10 @@ const RULES: Rule[] = [
 
   { intent: 'DUPLICAR',  re: /\b(de novo|mais uma vez|repete\w*|repetir|duplica\w*|outra rodada|segunda rodada|mais uma saida)\b/ },
 
+  // Verbos exclusivos daqui pra não colidir com ADIANTAR/DESCER (que reordenam a sequência,
+  // não mudam o horário de saída) — "muda o horário", "remarca", "reagenda", "ajusta a hora".
+  { intent: 'MUDAR_HORARIO', re: /\b(muda\w* (o |a )?(horario|hora)|troca\w* (o |a )?(horario|hora)|remarca\w*|reagenda\w*|ajusta\w* (o |a )?(horario|hora)|corrige\w* (o |a )?horario)\b/, mode: 'dia' },
+
   { intent: 'ADIANTAR',  re: /\b(adianta\w*|antecipa\w*)\b/ },
   { intent: 'PROXIMO',   re: /\b(proximo e|proxima e|agora e|agora vai|vai o|manda o|manda a|chama o)\b/ },
   { intent: 'SUBIR',     re: /\b(sobe\w*|subir|passa na frente|pra frente|primeiro lugar)\b/ },
@@ -61,6 +65,8 @@ export interface ParsedCommand {
   /** "sobe dois" → 2. Ausente = 1. */
   count: number;
   raw: string;
+  /** Só para MUDAR_HORARIO — null quando o verbo foi dito mas nenhum horário foi entendido. */
+  time?: { hh: number; mm: number } | null;
 }
 
 const NUMBER_WORDS: Record<string, number> = {
@@ -79,6 +85,23 @@ function extractCount(n: string): number {
   return 1;
 }
 
+/** "as dezenove e trinta" a essa altura já veio transcrito como dígitos pelo Whisper — só
+ *  precisa reconhecer o formato, não a fala solta. Cobre "19:30", "19h30", "19 30", "19h",
+ *  "19 horas" (:00) e "19 e meia" (:30). Devolve também o trecho casado, pra tirar do alvo
+ *  antes de mandar pro matcher de item — senão "19" no meio do nome do prato confunde o score. */
+function extractTime(n: string): { hh: number; mm: number; matched: string } | null {
+  let m = n.match(/\b([01]?\d|2[0-3])[:h ]([0-5]\d)\b/);
+  if (m) return { hh: parseInt(m[1], 10), mm: parseInt(m[2], 10), matched: m[0] };
+
+  m = n.match(/\b([01]?\d|2[0-3])\s*(horas?)?\s*e\s*meia\b/);
+  if (m) return { hh: parseInt(m[1], 10), mm: 30, matched: m[0] };
+
+  m = n.match(/\b([01]?\d|2[0-3])\s*h(oras?)?\b/);
+  if (m) return { hh: parseInt(m[1], 10), mm: 0, matched: m[0] };
+
+  return null;
+}
+
 /**
  * Extrai intenção e alvo. Devolve null quando nada casa — e nesse caso o controlador NÃO age,
  * só emite um bipe grave: agir por palpite em cima de ruído é o caminho mais curto para o
@@ -93,16 +116,27 @@ export function parseIntent(text: string, mode: Mode): ParsedCommand | null {
     const m = n.match(rule.re);
     if (!m) continue;
 
+    // MUDAR_HORARIO: tira o trecho do horário ANTES de montar o alvo — senão "19" ou "30"
+    // sobrando no meio do nome do prato bagunça o score do matcher de item.
+    let working = n;
+    let time: { hh: number; mm: number } | null = null;
+    if (rule.intent === 'MUDAR_HORARIO') {
+      const t = extractTime(working);
+      if (t) { time = { hh: t.hh, mm: t.mm }; working = working.replace(t.matched, ' '); }
+    }
+
     // O alvo é o que sobra sem o verbo, e sem as palavras de ligação que grudam nele.
     // Remove TODAS as ocorrências, não só a primeira: "errado, volta" casa por "errado" e
     // deixaria "volta" como alvo, que iria pro matcher, falharia, e a tela diria "não achei
     // esse item" em vez de simplesmente desmarcar.
     const stripAll = new RegExp(rule.re.source, rule.re.flags.includes('g') ? rule.re.flags : rule.re.flags + 'g');
-    const target = n
+    let target = working
       .replace(stripAll, ' ')
-      .replace(/\b(o|a|os|as|do|da|de|dos|das|esse|essa|aquele|aquela|ai|la|agora|por favor)\b/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
+      .replace(/\b(o|a|os|as|do|da|de|dos|das|esse|essa|aquele|aquela|ai|la|agora|por favor)\b/g, ' ');
+    // "pra"/"para" só faz sentido tirar do alvo quando o comando é de horário ("muda o X pra
+    // 19:30") — em outros intents pode legitimamente fazer parte do que sobrou.
+    if (rule.intent === 'MUDAR_HORARIO') target = target.replace(/\b(pra|para)\b/g, ' ');
+    target = target.replace(/\s+/g, ' ').trim();
 
     return {
       intent: rule.intent,
@@ -110,6 +144,7 @@ export function parseIntent(text: string, mode: Mode): ParsedCommand | null {
       global: !!rule.global,
       count: extractCount(n),
       raw: text,
+      time: rule.intent === 'MUDAR_HORARIO' ? time : undefined,
     };
   }
 

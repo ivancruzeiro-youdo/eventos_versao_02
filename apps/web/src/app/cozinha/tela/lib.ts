@@ -90,4 +90,16 @@ export function usePoll(fn: () => void | Promise<void>, intervalMs: number, paus
   }, [intervalMs, paused]);
 }
 
+// Troca só a hora/minuto de um instante, mantendo o dia — no fuso de SP, com offset fixo
+// (BRT não tem horário de verão desde 2019, mesmo padrão já usado no parse de horário do
+// UERP). Usado tanto pelo clique direto na hora quanto pelo comando de voz de remarcar.
+export function withTimeInSaoPaulo(baseIso: string, hh: number, mm: number): string {
+  const ymd = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date(baseIso));
+  const hhStr = String(hh).padStart(2, '0');
+  const mmStr = String(mm).padStart(2, '0');
+  return new Date(`${ymd}T${hhStr}:${mmStr}:00-03:00`).toISOString();
+}
+
 export const LS_KEY = 'telaCozinha:v1';
