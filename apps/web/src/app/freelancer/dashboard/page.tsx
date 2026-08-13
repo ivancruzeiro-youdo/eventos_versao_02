@@ -55,6 +55,20 @@ function fmtLongDate(dt: string | null) {
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
 }
 
+// Horas trabalhadas nessa vaga (fim - início do próprio slot), pra calcular o total a
+// receber — não dá pra saber o total só pelo valor/hora, o freelancer precisa ver o
+// valor final considerando a duração real do turno.
+function shiftHours(startAt: string | null, endAt: string | null): number | null {
+  if (!startAt || !endAt) return null;
+  const hours = (new Date(endAt).getTime() - new Date(startAt).getTime()) / 3_600_000;
+  return hours > 0 ? hours : null;
+}
+
+function fmtHours(hours: number): string {
+  const rounded = Math.round(hours * 100) / 100;
+  return rounded % 1 === 0 ? `${rounded}h` : `${rounded.toFixed(1)}h`;
+}
+
 function monthKey(dt: string | null): string | null {
   if (!dt) return null;
   const d = new Date(dt);
@@ -332,9 +346,22 @@ export default function FreelancerDashboardPage() {
                       </p>
                     </div>
                     <div className="px-4 py-3">
-                      <p className="text-green-600 font-bold text-sm flex items-center gap-1">
-                        $ R$ {v.slot.valuePerHour.toFixed(2)}
-                      </p>
+                      {(() => {
+                        const hours = shiftHours(v.slot.startAt, v.slot.endAt);
+                        const total = hours ? hours * v.slot.valuePerHour : null;
+                        return total ? (
+                          <p className="text-green-600 font-bold text-sm flex items-center gap-1">
+                            $ Total: R$ {total.toFixed(2)}
+                            <span className="text-green-600/70 font-normal text-xs">
+                              ({fmtHours(hours!)} × R$ {v.slot.valuePerHour.toFixed(2)}/h)
+                            </span>
+                          </p>
+                        ) : (
+                          <p className="text-green-600 font-bold text-sm flex items-center gap-1">
+                            $ R$ {v.slot.valuePerHour.toFixed(2)}/h
+                          </p>
+                        );
+                      })()}
                       {v.event.venues[0]?.venue && (
                         <p className="text-sm text-gray-600 mt-1.5 flex items-center gap-1.5">
                           <MapPin className="w-3.5 h-3.5 text-gray-400" /> {v.event.venues[0].venue.name}
@@ -405,6 +432,21 @@ export default function FreelancerDashboardPage() {
                   </p>
                 </div>
               )}
+              {(() => {
+                const hours = shiftHours(selectedVaga.slot.startAt, selectedVaga.slot.endAt);
+                const total = hours ? hours * selectedVaga.slot.valuePerHour : null;
+                return (
+                  <div className="bg-green-50 rounded-xl p-3">
+                    <p className="text-xs text-gray-500">
+                      {hours ? `${fmtHours(hours)} × R$ ${selectedVaga.slot.valuePerHour.toFixed(2)}/h` : 'Valor por hora'}
+                    </p>
+                    <p className="text-green-700 font-bold text-lg">
+                      {total ? `R$ ${total.toFixed(2)}` : `R$ ${selectedVaga.slot.valuePerHour.toFixed(2)}/h`}
+                    </p>
+                    {total && <p className="text-xs text-gray-400">Valor total a receber por essa vaga</p>}
+                  </div>
+                );
+              })()}
             </div>
             <div className="flex gap-2 px-5 pb-5">
               <button
