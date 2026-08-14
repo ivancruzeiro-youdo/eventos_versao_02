@@ -146,11 +146,30 @@ export async function getPlaylists(accessToken: string): Promise<SpotifyPlaylist
 // Any public playlist by id — unlike getPlaylists (only the connected account's own
 // playlists), this is how an event picks a playlist that isn't owned by that account
 // (someone pastes a Spotify playlist link/URI instead of choosing from the dropdown).
+// Playlists cujo id começa com "37i9dQZF1" pertencem à própria Spotify — são as editoriais
+// ("Today's Top Hits") e as algorítmicas/personalizadas (Daily Mix, rádio de artista, Descobertas
+// da Semana). Desde a mudança da Web API em novembro de 2024, a Spotify devolve 404 pra elas em
+// qualquer app que não tenha acesso estendido antigo. Verificado contra a API com as credenciais
+// deste sistema: editorial e algorítmica dão 404, playlist de usuário dá 200.
+//
+// Sem essa distinção a mensagem vira "confira o link" — e o link está certo, o que faz a pessoa
+// tentar de novo várias vezes achando que errou de endereço.
+const SPOTIFY_OWNED_PREFIX = '37i9dQZF1';
+
 export async function getPlaylist(accessToken: string, playlistId: string): Promise<SpotifyPlaylist> {
   const res = await fetch(`${API_BASE}/playlists/${playlistId}?fields=id,name,images`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-  if (res.status === 404) throw new Error('Playlist não encontrada — confira o link.');
+  if (res.status === 404) {
+    if (playlistId.startsWith(SPOTIFY_OWNED_PREFIX)) {
+      throw new Error(
+        'Esta é uma playlist da própria Spotify (editorial ou automática), e a Spotify não libera ' +
+        'esse tipo para integrações. Abra a playlist no app, use "Adicionar à sua biblioteca" ou ' +
+        'copie as músicas para uma playlist sua, e cole o link dela aqui.'
+      );
+    }
+    throw new Error('Playlist não encontrada. Confira o link e se a playlist é pública.');
+  }
   if (!res.ok) throw new Error(`Spotify /playlists/${playlistId} falhou: HTTP ${res.status}`);
   const p = await res.json();
   return { id: p.id, name: p.name, imageUrl: p.images?.[0]?.url ?? null };
