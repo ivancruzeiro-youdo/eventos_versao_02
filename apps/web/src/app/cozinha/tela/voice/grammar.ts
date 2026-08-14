@@ -22,6 +22,8 @@ interface Rule {
   mode?: Mode;
   /** Comando global: não precisa de alvo. */
   global?: boolean;
+  /** Só vale se houver um horário na frase — evita capturar verbo genérico sem intenção. */
+  needsTime?: boolean;
 }
 
 // "pronto" colide entre modos — no dia significa servido, na semana significa produzido — por
@@ -45,6 +47,21 @@ const RULES: Rule[] = [
   // Verbos exclusivos daqui pra não colidir com ADIANTAR/DESCER (que reordenam a sequência,
   // não mudam o horário de saída) — "muda o horário", "remarca", "reagenda", "ajusta a hora".
   { intent: 'MUDAR_HORARIO', re: /\b(muda\w* (o |a )?(horario|hora)|troca\w* (o |a )?(horario|hora)|remarca\w*|reagenda\w*|ajusta\w* (o |a )?(horario|hora)|corrige\w* (o |a )?horario)\b/, mode: 'dia' },
+
+  // A forma acima exige "horário" logo depois do verbo, e é assim que ninguém fala quando cita
+  // o item: "muda o item 1 para 16h" põe o alvo no meio e não casava com nada — a frase caía
+  // em "não entendi". Aqui o verbo vale sozinho, mas SÓ quando há um horário na frase
+  // (needsTime): é isso que separa "muda o item 1 para 16h" de um "muda" solto ambíguo, e o que
+  // impede "passa na frente" (SUBIR) de ser capturado por engano.
+  {
+    intent: 'MUDAR_HORARIO',
+    // "deixa" fica DE FORA de propósito: já significa cancelar ("deixa pra lá") e a regra de
+    // NEGAR vem antes. Numa confirmação de remoção, "deixa" tem que cancelar — perder isso pra
+    // ganhar mais uma forma de dizer "muda o horário" seria uma troca ruim.
+    re: /\b(muda\w*|troca\w*|altera\w*|ajusta\w*|corrige\w*|remarca\w*|reagenda\w*|passa\w*|joga\w*|coloca\w*|bota\w*)\b/,
+    mode: 'dia',
+    needsTime: true,
+  },
 
   { intent: 'ADIANTAR',  re: /\b(adianta\w*|antecipa\w*)\b/ },
   { intent: 'PROXIMO',   re: /\b(proximo e|proxima e|agora e|agora vai|vai o|manda o|manda a|chama o)\b/ },
@@ -124,6 +141,10 @@ export function parseIntent(text: string, mode: Mode): ParsedCommand | null {
       const t = extractTime(working);
       if (t) { time = { hh: t.hh, mm: t.mm }; working = working.replace(t.matched, ' '); }
     }
+
+    // Regra que só vale com horário na frase: sem ele, cai pra próxima — é o que deixa
+    // "passa na frente" virar SUBIR em vez de ser capturado como mudança de horário.
+    if (rule.needsTime && !time) continue;
 
     // O alvo é o que sobra sem o verbo, e sem as palavras de ligação que grudam nele.
     // Remove TODAS as ocorrências, não só a primeira: "errado, volta" casa por "errado" e
