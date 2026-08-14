@@ -52,6 +52,46 @@ interface Opts {
 
 const CONFIRM_TIMEOUT_MS = 8000;
 
+// Preferência de voz por display (quiosque), não por usuário — mesma lógica do resto da tela.
+const VOICE_LS_KEY = 'telaCozinha:voz:v1';
+/** Sem nada salvo, a tela nasce com escuta contínua: é uma tela de cozinha, ninguém vai clicar. */
+const DEFAULT_VOICE_MODE: VoiceMode = 'wake';
+
+function loadVoicePref(): VoiceMode {
+  try {
+    const raw = localStorage.getItem(VOICE_LS_KEY);
+    if (!raw) return DEFAULT_VOICE_MODE;
+    const v = JSON.parse(raw)?.mode;
+    return v === 'off' || v === 'ptt' || v === 'wake' ? v : DEFAULT_VOICE_MODE;
+  } catch {
+    return DEFAULT_VOICE_MODE;
+  }
+}
+
+function saveVoicePref(mode: VoiceMode) {
+  try { localStorage.setItem(VOICE_LS_KEY, JSON.stringify({ mode })); } catch { /* ignora */ }
+}
+
+/**
+ * O navegador só entrega o microfone com permissão concedida. Mas a permissão PERSISTE por
+ * domínio, então a partir da segunda vez o getUserMedia resolve calado — e aí dá pra ligar a
+ * voz sozinho ao carregar, sem clique nenhum.
+ *
+ * Só liga automaticamente quando dá pra CONFIRMAR que já está concedida. Chamar getUserMedia
+ * "pra ver no que dá" faria o Chrome abrir o prompt fora de um gesto, o que ele costuma negar
+ * de cara — e negar repetido bloqueia o site de vez.
+ */
+async function micAlreadyGranted(): Promise<boolean> {
+  try {
+    const status = await (navigator as any).permissions?.query({ name: 'microphone' as PermissionName });
+    return status?.state === 'granted';
+  } catch {
+    // Navegador sem Permissions API pra microfone (Firefox): não dá pra confirmar, então espera
+    // o toque em vez de arriscar um prompt automático.
+    return false;
+  }
+}
+
 export function useVoiceController(opts: Opts) {
   const [voiceMode, setVoiceMode] = useState<VoiceMode>('off');
   const [state, setState] = useState<VoiceState>('off');
@@ -522,9 +562,41 @@ export function useVoiceController(opts: Opts) {
     }
 
     setVoiceMode(target);
+    saveVoicePref(target);
     setState('idle');
     beep('ok');
   }, [captureAndHandle, clearConfirm, mic, recorder, say]);
+
+  // Liga sozinho ao carregar a tela, quando a permissão de microfone já foi concedida antes.
+  // É o que evita ter que clicar em "LIGAR VOZ" e depois em "ok cozinha" a cada boot do
+  // quiosque. Na PRIMEIRA vez o clique é inevitável: é o navegador que exige, não o sistema.
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (autoStarted.current) return;
+    // Espera saber se o serviço de voz está disponível — ligar o microfone sem chave da OpenAI
+    // configurada só gastaria permissão e confundiria.
+    if (available !== true) return;
+    autoStarted.current = true;
+
+    (async () => {
+      const pref = loadVoicePref();
+      if (pref === 'off') return;
+      if (!(await micAlreadyGranted())) return; // sem permissão prévia: espera o toque
+      await enable(pref);
+    })();
+  }, [available, enable]);
+
+  // O áudio de saída (bipe e fala) nasce suspenso quando a página não recebeu gesto nenhum.
+  // Qualquer toque na tela destrava — inclusive o toque que a pessoa daria de qualquer jeito.
+  useEffect(() => {
+    const unlock = () => { unlockAudio(); resumeAudio(); };
+    document.addEventListener('pointerdown', unlock, { once: true });
+    document.addEventListener('keydown', unlock, { once: true });
+    return () => {
+      document.removeEventListener('pointerdown', unlock);
+      document.removeEventListener('keydown', unlock);
+    };
+  }, []);
 
   const disable = useCallback(() => {
     wakeRef.current.stop();
@@ -534,6 +606,9 @@ export function useVoiceController(opts: Opts) {
     clearConfirm();
     setChoices([]);
     setVoiceMode('off');
+    // Desligar é decisão explícita e tem que sobreviver ao reload — senão a tela religaria
+    // sozinha no próximo boot e a pessoa teria que desligar de novo toda vez.
+    saveVoicePref('off');
     setState('off');
     setTranscript('');
     setMessage('');

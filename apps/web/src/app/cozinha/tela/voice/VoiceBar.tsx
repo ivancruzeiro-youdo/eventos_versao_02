@@ -92,7 +92,7 @@ export default function VoiceBar(p: Props) {
         {/* Botão grande de apertar-e-falar: toque pra começar, toque de novo pra cancelar.
             Segurar é errado pra mão suja. */}
         <button
-          onClick={off ? () => p.onEnable('ptt') : p.onPushToTalk}
+          onClick={off ? () => p.onEnable('wake') : p.onPushToTalk}
           disabled={disabled}
           className={`relative flex items-center gap-3 rounded-xl px-6 py-4 text-lg font-bold shadow-sm transition disabled:opacity-40 ${
             p.state === 'gravando'
@@ -104,6 +104,8 @@ export default function VoiceBar(p: Props) {
           title={off ? 'Ligar voz' : 'Falar um comando'}
         >
           {p.state === 'gravando' ? <Mic className="size-6" /> : off ? <MicOff className="size-6" /> : <Mic className="size-6" />}
+          {/* Um clique só liga tudo (microfone + "ok cozinha"). Depois da primeira vez, a tela
+              já sobe com a voz ligada sozinha — o navegador só exige o gesto na 1ª permissão. */}
           {off ? 'LIGAR VOZ' : p.state === 'gravando' ? 'OUVINDO' : 'FALAR'}
           {/* Medidor de nível: mostra que o microfone captou, antes de qualquer resposta. */}
           {p.state === 'gravando' && (
@@ -166,6 +168,14 @@ export default function VoiceBar(p: Props) {
         <p className="mt-1.5 flex items-center gap-1.5 text-xs text-amber-700">
           <AlertTriangle className="size-3.5 shrink-0" />
           {p.micError?.message || p.availableReason || 'Voz indisponível.'}
+        </p>
+      )}
+
+      {/* Só na primeira vez neste computador: depois a permissão fica salva no navegador e a
+          voz sobe sozinha a cada carregamento. */}
+      {off && !disabled && !p.micError && (
+        <p className="mt-1.5 text-xs text-slate-400">
+          Um toque libera o microfone e ativa o “ok cozinha”. Nas próximas vezes já sobe ligado.
         </p>
       )}
     </div>

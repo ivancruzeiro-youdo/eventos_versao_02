@@ -113,6 +113,16 @@ function extractTime(n: string): { hh: number; mm: number; matched: string } | n
   m = n.match(/\b([01]?\d|2[0-3])\s*(horas?)?\s*e\s*meia\b/);
   if (m) return { hh: parseInt(m[1], 10), mm: 30, matched: m[0] };
 
+  // "18 horas e 45 minutos" / "18 e 45" — TEM que vir antes do padrão de hora cheia abaixo,
+  // senão "18 horas" casa primeiro, devolve 18:00 e os 45 minutos somem sem ninguém notar.
+  // Vem depois de "e meia" pra não roubar aquele caso.
+  m = n.match(/\b([01]?\d|2[0-3])\s*(?:horas?|h)?\s*e\s*([0-5]?\d)\s*(?:minutos?|min)?\b/);
+  if (m) return { hh: parseInt(m[1], 10), mm: parseInt(m[2], 10), matched: m[0] };
+
+  // "18 horas 45" (sem o "e") — a transcrição às vezes come a conjunção.
+  m = n.match(/\b([01]?\d|2[0-3])\s*(?:horas?|h)\s+([0-5]\d)\s*(?:minutos?|min)?\b/);
+  if (m) return { hh: parseInt(m[1], 10), mm: parseInt(m[2], 10), matched: m[0] };
+
   m = n.match(/\b([01]?\d|2[0-3])\s*h(oras?)?\b/);
   if (m) return { hh: parseInt(m[1], 10), mm: 0, matched: m[0] };
 
