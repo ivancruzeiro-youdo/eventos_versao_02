@@ -8,6 +8,7 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../server.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
+import { publishKitchenEvent, subscribeKitchenEvents } from '../lib/kitchen-events.js';
 
 const WRITE_ROLES = ['admin', 'event_owner', 'operator'];
 
@@ -38,6 +39,16 @@ async function checkEventAccess(user: any, eventId: string): Promise<boolean> {
   if (user.role === 'admin' || user.employerId === undefined) return true;
   const event = await prisma.event.findUnique({ where: { id: eventId }, select: { employerId: true } });
   return !!event && event.employerId === user.employerId;
+}
+
+/**
+ * Checa acesso E marca o evento na request, que é o que o hook de onResponse usa pra avisar os
+ * outros PCs. Ficam juntos de propósito: todo handler já precisa checar acesso, então não há
+ * caminho em que se mutile o evento sem passar por aqui — e assim não dá pra esquecer o aviso.
+ */
+async function allowEvent(request: any, eventId: string): Promise<boolean> {
+  request.kitchenEventId = eventId;
+  return checkEventAccess(request.user, eventId);
 }
 
 function venueWhere(user: any) {
@@ -190,6 +201,20 @@ const itemInclude = {
 } as const;
 
 export async function kitchenDisplayRoutes(app: FastifyInstance) {
+  // Publica a mudança pros outros PCs automaticamente ao fim de QUALQUER mutação bem-sucedida
+  // deste plugin. Feito por hook e não com uma chamada em cada endpoint porque assim não há
+  // como esquecer de avisar num endpoint novo — e o custo de esquecer é a outra tela mostrar
+  // dado velho sem ninguém perceber.
+  app.addHook('onResponse', async (request, reply) => {
+    const method = request.method;
+    if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return;
+    if (reply.statusCode >= 400) return;
+    const eventId = (request as any).kitchenEventId as string | undefined;
+    if (!eventId) return;
+    const type = request.url.includes('/prep-check') ? 'prep-changed' : 'plan-changed';
+    publishKitchenEvent(eventId, type);
+  });
+
   // ── Espaços disponíveis pra escolher na tela ───────────────────────────────
   app.get('/kitchen/display/venues', { preHandler: requireAuth }, async (request) => {
     const user = (request as any).user;
@@ -361,7 +386,7 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
     const user = (request as any).user;
     const { eventId } = request.params as { eventId: string };
     const { at } = request.query as { at?: string };
-    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
+    if (!(await allowEvent(request, eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     // O instante default é o do SERVIDOR — não confiamos no relógio do PC da cozinha.
     const atDate = at && !isNaN(new Date(at).getTime()) ? new Date(at) : new Date();
@@ -495,12 +520,48 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
     };
   });
 
+  // ── Stream de mudanças (SSE) ──────────────────────────────────────────────
+  // Um PC altera a sequência e os outros atualizam na hora, em vez de esperar o poll de 60s.
+  // SSE e não WebSocket: o fluxo é só servidor→cliente, o EventSource reconecta sozinho, e não
+  // precisa de dependência nova nem de upgrade de protocolo atravessando o nginx.
+  app.get('/kitchen/display/events/:eventId/stream', { preHandler: requireAuth }, async (request, reply) => {
+    const user = (request as any).user;
+    const { eventId } = request.params as { eventId: string };
+    if (!(await allowEvent(request, eventId))) return reply.status(403).send({ error: 'Access denied' });
+
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      // Faz o nginx desligar o buffer PARA ESTA resposta. Sem isso os eventos ficam presos no
+      // buffer do proxy e só saem em bloco — a falha clássica de SSE atrás de proxy, e que não
+      // depende de a config do nginx estar correta.
+      'X-Accel-Buffering': 'no',
+    });
+
+    // `retry` diz ao EventSource quanto esperar pra reconectar sozinho ao cair.
+    reply.raw.write('retry: 5000\n\n');
+    reply.raw.write(`event: hello\ndata: {"eventId":"${eventId}"}\n\n`);
+
+    const unsubscribe = subscribeKitchenEvents(eventId, reply);
+
+    // Heartbeat a cada 20s: além de detectar conexão morta, mantém dados fluindo e assim
+    // impede o proxy_read_timeout do nginx (60s por padrão) de matar a conexão parada.
+    const ping = setInterval(() => {
+      try { reply.raw.write(': ping\n\n'); } catch { /* o close abaixo limpa */ }
+    }, 20_000);
+
+    const cleanup = () => { clearInterval(ping); unsubscribe(); };
+    request.raw.on('close', cleanup);
+    request.raw.on('error', cleanup);
+  });
+
   // Alvo do poll rápido: só o headcount e a demanda recalculada.
   app.get('/kitchen/display/events/:eventId/headcount', { preHandler: requireAuth }, async (request, reply) => {
     const user = (request as any).user;
     const { eventId } = request.params as { eventId: string };
     const { at } = request.query as { at?: string };
-    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
+    if (!(await allowEvent(request, eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     const atDate = at && !isNaN(new Date(at).getTime()) ? new Date(at) : new Date();
     const headcount = await computeHeadcount(eventId, atDate);
@@ -556,7 +617,7 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
   app.post('/kitchen/display/events/:eventId/plan', { preHandler: [requireAuth, requireRole(WRITE_ROLES)] }, async (request, reply) => {
     const user = (request as any).user;
     const { eventId } = request.params as { eventId: string };
-    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
+    if (!(await allowEvent(request, eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     const { intervalMinutes, anchorAt, notes } = request.body as { intervalMinutes?: number; anchorAt?: string | null; notes?: string | null };
     if (intervalMinutes != null && (intervalMinutes < 1 || intervalMinutes > 240)) {
@@ -576,7 +637,7 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
   app.post('/kitchen/display/events/:eventId/plan/entries', { preHandler: [requireAuth, requireRole(WRITE_ROLES)] }, async (request, reply) => {
     const user = (request as any).user;
     const { eventId } = request.params as { eventId: string };
-    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
+    if (!(await allowEvent(request, eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     const { eventItemId, sourceLabel, itemName, serveAt, portionsPerPerson } = request.body as {
       eventItemId?: string | null; sourceLabel?: string | null; itemName?: string;
@@ -625,7 +686,7 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
   app.post('/kitchen/display/events/:eventId/plan/entries/bulk', { preHandler: [requireAuth, requireRole(WRITE_ROLES)] }, async (request, reply) => {
     const user = (request as any).user;
     const { eventId } = request.params as { eventId: string };
-    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
+    if (!(await allowEvent(request, eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     const { items, stations, anchorAt, intervalMinutes } = request.body as {
       items?: { eventItemId?: string | null; sourceLabel?: string | null; itemName: string; portionsPerPerson?: number }[];
@@ -731,7 +792,7 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
     const { entryId } = request.params as { entryId: string };
     const eventId = await entryEventId(entryId);
     if (!eventId) return reply.status(404).send({ error: 'Saída não encontrada.' });
-    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
+    if (!(await allowEvent(request, eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     const { serveAt, portionsPerPerson, manualQuantity, notes, status } = request.body as {
       serveAt?: string; portionsPerPerson?: number; manualQuantity?: number | null;
@@ -784,7 +845,7 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
     const { entryId } = request.params as { entryId: string };
     const eventId = await entryEventId(entryId);
     if (!eventId) return reply.status(404).send({ error: 'Saída não encontrada.' });
-    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
+    if (!(await allowEvent(request, eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     const { serveAt } = request.body as { serveAt?: string };
     const original = await prisma.kitchenServicePlanEntry.findUnique({ where: { id: entryId } });
@@ -824,7 +885,7 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
   app.patch('/kitchen/display/events/:eventId/plan/reorder', { preHandler: [requireAuth, requireRole(WRITE_ROLES)] }, async (request, reply) => {
     const user = (request as any).user;
     const { eventId } = request.params as { eventId: string };
-    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
+    if (!(await allowEvent(request, eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     const { entryIds, reflow } = request.body as { entryIds?: string[]; reflow?: boolean };
     if (!Array.isArray(entryIds) || entryIds.length === 0) {
@@ -874,7 +935,7 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
     const { entryId } = request.params as { entryId: string };
     const eventId = await entryEventId(entryId);
     if (!eventId) return reply.status(404).send({ error: 'Saída não encontrada.' });
-    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
+    if (!(await allowEvent(request, eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     const entry = await prisma.kitchenServicePlanEntry.findUnique({ where: { id: entryId } });
     await prisma.kitchenServicePlanEntry.delete({ where: { id: entryId } });
@@ -892,7 +953,7 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
   app.post('/kitchen/display/events/:eventId/prep-check', { preHandler: [requireAuth, requireRole(WRITE_ROLES)] }, async (request, reply) => {
     const user = (request as any).user;
     const { eventId } = request.params as { eventId: string };
-    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
+    if (!(await allowEvent(request, eventId))) return reply.status(403).send({ error: 'Access denied' });
 
     const { itemName, eventItemId, checked } = request.body as {
       itemName?: string; eventItemId?: string | null; checked?: boolean;

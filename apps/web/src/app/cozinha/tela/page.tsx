@@ -13,6 +13,7 @@ import VenueColumn from './VenueColumn';
 import { type WeekDay } from './WeekPanel';
 import { type ServiceData } from './ServicePanel';
 import { type ServiceCommands } from './useServiceCommands';
+import { useKitchenStream } from './useKitchenStream';
 import VoiceBar from './voice/VoiceBar';
 import { useVoiceController } from './voice/useVoiceController';
 import { fmtTime, useNow, usePoll, LS_KEY } from './lib';
@@ -249,6 +250,15 @@ function TelaCozinha() {
   useEffect(() => { if (mode === 'dia') void loadCandidates(); }, [mode, loadCandidates]);
   useEffect(() => { if (mode === 'dia') void loadService(); }, [mode, loadService]);
 
+  // Stream: outro PC mexeu na sequência → esta tela recarrega na hora, sem esperar o poll.
+  // Os polls abaixo CONTINUAM ativos de propósito: um stream pode morrer em silêncio (proxy,
+  // rede da cozinha caindo), e uma tela travada em dado velho é pior que uma requisição a mais.
+  const stream = useKitchenStream({
+    eventIds: selected.map(v => eventByVenue[v]).filter(Boolean),
+    enabled: mode === 'dia',
+    onChange: () => { void loadService(); },
+  });
+
   // Poll: semana muda pouco, serviço muda o tempo todo, headcount é o mais volátil.
   usePoll(() => { void loadWeek(); }, 300_000, mode !== 'semana');
   usePoll(() => { void loadService(); }, 60_000, mode !== 'dia' || busy);
@@ -368,6 +378,19 @@ function TelaCozinha() {
 
         <div className="ml-auto flex items-center gap-2">
           <span className="text-2xl font-bold tabular-nums">{fmtTime(now)}</span>
+          {/* "ao vivo" some quando o stream cai — a tela continua funcionando pelo poll, mas
+              quem está olhando precisa saber que a atualização deixou de ser instantânea. */}
+          {mode === 'dia' && (
+            stream.live ? (
+              <span className="hidden items-center gap-1 rounded bg-emerald-100 px-2 py-1 text-[11px] font-semibold text-emerald-700 sm:flex">
+                <span className="size-1.5 rounded-full bg-emerald-500" /> ao vivo
+              </span>
+            ) : (
+              <span className="hidden items-center gap-1 rounded bg-slate-100 px-2 py-1 text-[11px] text-slate-500 sm:flex">
+                <span className="size-1.5 rounded-full bg-slate-400" /> atualizando a cada minuto
+              </span>
+            )
+          )}
           {lastSync && (
             <span className="hidden text-[11px] text-slate-400 sm:inline">
               atualizado {fmtTime(lastSync)}
