@@ -1494,7 +1494,8 @@ model KitchenServicePlan {
   id              String    @id @default(uuid())
   eventId         String    @unique
   intervalMinutes Int       @default(15)
-  anchorAt        DateTime? // horário da 1ª saída — base pra gerar a sequência
+  anchorAt        DateTime? // horário de início do serviço — base pra gerar a sequência
+  endAt           DateTime? // horário de fim do serviço — só exibido, não gera itens
   notes           String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt

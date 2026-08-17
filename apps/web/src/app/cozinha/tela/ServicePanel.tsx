@@ -46,7 +46,7 @@ export interface ServiceData {
   packages: ServicePackage[];
   hiddenDrinks: string[];
   plan: {
-    id: string | null; intervalMinutes: number; anchorAt: string | null; entries: ServiceEntry[];
+    id: string | null; intervalMinutes: number; anchorAt: string | null; endAt: string | null; entries: ServiceEntry[];
     logs: { id: string; action: string; detail: string; userName: string | null; createdAt: string }[];
   };
   schedule: {
@@ -84,6 +84,9 @@ export default function ServicePanel({ data, cmd, lateAlerts, audioOn, onEnableA
   const [dragId, setDragId] = useState<string | null>(null);
   const [editingTimeId, setEditingTimeId] = useState<string | null>(null);
   const [timeDraft, setTimeDraft] = useState('');
+  const [editingPlanTimes, setEditingPlanTimes] = useState(false);
+  const [planStartDraft, setPlanStartDraft] = useState('');
+  const [planEndDraft, setPlanEndDraft] = useState('');
 
   function openTimeEdit(e: ServiceEntry) {
     setEditingTimeId(e.id);
@@ -96,6 +99,41 @@ export default function ServicePanel({ data, cmd, lateAlerts, audioOn, onEnableA
     const [hh, mm] = timeDraft.split(':').map(Number);
     if (isNaN(hh) || isNaN(mm)) return;
     await cmd.updateServeAt(e.id, withTimeInSaoPaulo(e.serveAt, hh, mm));
+  }
+
+  function openPlanTimesEdit() {
+    setPlanStartDraft(data.plan.anchorAt ? fmtTime(data.plan.anchorAt) : '');
+    setPlanEndDraft(data.plan.endAt ? fmtTime(data.plan.endAt) : '');
+    setEditingPlanTimes(true);
+  }
+
+  async function commitPlanTimes() {
+    setEditingPlanTimes(false);
+    const base = data.plan.anchorAt ?? data.plan.endAt ?? data.event.startAt ?? new Date().toISOString();
+    const patch: { anchorAt?: string | null; endAt?: string | null } = {};
+
+    if (planStartDraft) {
+      const [hh, mm] = planStartDraft.split(':').map(Number);
+      if (!isNaN(hh) && !isNaN(mm)) {
+        const newAnchor = withTimeInSaoPaulo(base, hh, mm);
+        if (newAnchor !== data.plan.anchorAt) patch.anchorAt = newAnchor;
+      }
+    } else if (data.plan.anchorAt) {
+      patch.anchorAt = null;
+    }
+
+    if (planEndDraft) {
+      const [hh, mm] = planEndDraft.split(':').map(Number);
+      if (!isNaN(hh) && !isNaN(mm)) {
+        const newEnd = withTimeInSaoPaulo(base, hh, mm);
+        if (newEnd !== data.plan.endAt) patch.endAt = newEnd;
+      }
+    } else if (data.plan.endAt) {
+      patch.endAt = null;
+    }
+
+    if (Object.keys(patch).length === 0) return;
+    await cmd.updatePlanTimes(patch);
   }
 
   const { headcount, plan, packages, schedule } = data;
@@ -233,6 +271,46 @@ export default function ServicePanel({ data, cmd, lateAlerts, audioOn, onEnableA
           <h3 className="flex items-center gap-1.5 text-sm font-bold text-slate-700">
             <UtensilsCrossed className="size-4" /> Sequência de serviço
           </h3>
+        </div>
+
+        {/* Início/fim do serviço — mudar o início desloca em cascata toda a sequência já
+            gerada, pelo mesmo delta, em vez de reajustar item por item. */}
+        <div className="mb-2 flex items-center justify-between rounded-lg border border-slate-200 bg-white px-2.5 py-1.5">
+          {editingPlanTimes ? (
+            <div className="flex flex-1 items-center gap-1.5">
+              <input
+                type="time" autoFocus value={planStartDraft}
+                onChange={ev => setPlanStartDraft(ev.target.value)}
+                onKeyDown={ev => { if (ev.key === 'Enter') commitPlanTimes(); if (ev.key === 'Escape') setEditingPlanTimes(false); }}
+                className="w-24 rounded border border-emerald-400 bg-white px-1.5 py-1 text-sm font-bold tabular-nums text-emerald-700"
+              />
+              <span className="text-slate-400">–</span>
+              <input
+                type="time" value={planEndDraft}
+                onChange={ev => setPlanEndDraft(ev.target.value)}
+                onKeyDown={ev => { if (ev.key === 'Enter') commitPlanTimes(); if (ev.key === 'Escape') setEditingPlanTimes(false); }}
+                className="w-24 rounded border border-emerald-400 bg-white px-1.5 py-1 text-sm font-bold tabular-nums text-emerald-700"
+              />
+              <button onClick={commitPlanTimes} className="ml-1 rounded bg-emerald-600 p-1 text-white hover:bg-emerald-700">
+                <Check className="size-3.5" />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={openPlanTimesEdit}
+              disabled={working}
+              className="flex flex-1 items-center gap-1.5 text-left disabled:opacity-50"
+              title="Clique para mudar o horário do serviço — a sequência inteira se desloca junto"
+            >
+              <Clock className="size-3.5 shrink-0 text-slate-400" />
+              <span className="text-sm font-semibold text-slate-700">
+                {data.plan.anchorAt ? fmtTime(data.plan.anchorAt) : '--:--'}
+                {' – '}
+                {data.plan.endAt ? fmtTime(data.plan.endAt) : '--:--'}
+              </span>
+              <span className="text-[11px] text-slate-400">início / fim do serviço</span>
+            </button>
+          )}
           <div className="flex gap-1.5">
             <button
               onClick={() => cmd.generateSuggested()}

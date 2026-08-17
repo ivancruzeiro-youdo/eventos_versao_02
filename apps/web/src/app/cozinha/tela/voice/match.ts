@@ -177,9 +177,17 @@ export function mentionsNext(spoken: string): boolean {
  *  horário de cada linha. Existe pra não precisar falar o nome do prato: "check item 1" em
  *  vez de "check bruschetta de tomate seco". */
 export function parseItemNumber(spoken: string): number | null {
+  return parseItemNumbers(spoken)[0] ?? null;
+}
+
+/** "item 1 e 2", "itens 1, 2 e 3" → [1, 2] / [1, 2, 3] — mesma ideia de `parseItemNumber`,
+ *  mas aceita mais de um número na mesma frase, pra "marcar item 1 e 2" marcar os dois de
+ *  uma vez em vez de exigir dois comandos separados. A vírgula nunca aparece aqui porque
+ *  `normalize()` já a converteu em espaço antes deste ponto. */
+export function parseItemNumbers(spoken: string): number[] {
   const n = normalize(spoken);
-  const m = n.match(/\b(?:item|numero)\s*(\d{1,2})\b/);
-  if (!m) return null;
-  const v = parseInt(m[1], 10);
-  return v >= 1 ? v : null;
+  const m = n.match(/\b(?:itens?|numeros?)\s+((?:\d{1,2}\s*(?:e\s+)?)+)/);
+  if (!m) return [];
+  const nums = (m[1].match(/\d{1,2}/g) ?? []).map(s => parseInt(s, 10)).filter(v => v >= 1);
+  return [...new Set(nums)];
 }

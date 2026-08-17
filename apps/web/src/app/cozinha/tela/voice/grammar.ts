@@ -69,7 +69,7 @@ const RULES: Rule[] = [
   { intent: 'DESCER',    re: /\b(desce\w*|descer|joga pro fim|pro final|mais pra frente no tempo)\b/ },
 
   { intent: 'PRODUZIDO', re: /\b(produzido|produzida|ja fiz|ja fizemos|feito|ja esta feito|pronto|prontinho)\b/, mode: 'semana' },
-  { intent: 'MARCAR',    re: /\b(saiu|ja saiu|ja foi|mandei|mandou|mandamos|subiu|serviu|servido|servida|entregue|entreguei|marca\w*|pronto)\b/, mode: 'dia' },
+  { intent: 'MARCAR',    re: /\b(saiu|ja saiu|ja foi|mandei|mandou|mandamos|subiu|serviu|servido|servida|entregue|entreguei|enviad\w*|enviei|enviamos|marca\w*|pronto)\b/, mode: 'dia' },
   // Fora do modo dia, "marca ..." ainda deve funcionar como marcar produzido.
   { intent: 'PRODUZIDO', re: /\b(marca\w*|saiu|ja foi)\b/, mode: 'semana' },
 ];

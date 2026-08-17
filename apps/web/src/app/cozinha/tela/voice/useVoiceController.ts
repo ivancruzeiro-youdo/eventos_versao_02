@@ -10,7 +10,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ServiceCommands } from '../useServiceCommands';
 import type { ServiceEntry } from '../ServicePanel';
 import { parseIntent, SPEECH, type Intent, type Mode } from './grammar';
-import { matchBest, parseOrdinal, parseItemNumber, mentionsNext, ACCEPT_THRESHOLD } from './match';
+import { matchBest, parseOrdinal, parseItemNumber, parseItemNumbers, mentionsNext, ACCEPT_THRESHOLD } from './match';
 import { beep, speak, unlockAudio, resumeAudio, isSpeaking, stopSpeaking } from './feedback';
 import { withTimeInSaoPaulo } from '../lib';
 import { useMicStream } from './useMicStream';
@@ -283,6 +283,27 @@ export function useVoiceController(opts: Opts) {
       const r = await cmd.generateSuggested();
       finish(r.ok, r.ok ? 'sequência gerada' : r.error);
       return;
+    }
+
+    // Múltiplos itens na mesma frase ("marcar item 1 e 2", "item 1 e 2 enviados") — só
+    // MARCAR/DESMARCAR aceitam lote: é o único caso em que aplicar tudo de uma vez é
+    // inequívoco (cada número aponta direto pra uma linha, sem casamento por nome nem
+    // desambiguação). Outros comandos (SUBIR, REMOVER etc.) continuam item por item.
+    if (intent === 'MARCAR' || intent === 'DESMARCAR') {
+      const numbers = parseItemNumbers(target);
+      if (numbers.length > 1) {
+        const targets = numbers.map(n => cmd.entries[n - 1]).filter((e): e is ServiceEntry => !!e);
+        if (targets.length === 0) { setChoices([]); finish(false, SPEECH.itemNotFound); return; }
+        setChoices([]);
+        setState('executando');
+        const served = intent === 'MARCAR';
+        const results = await Promise.all(targets.map(e => cmd.setServed(e.id, served)));
+        const ok = results.every(r => r.ok);
+        const label = targets.map(e => e.itemName).join(', ');
+        const failMsg = results.find(r => !r.ok) as { ok: false; error: string } | undefined;
+        finish(ok, ok ? withVenue(`${label} ${served ? SPEECH.served : SPEECH.unserved}`) : failMsg?.error);
+        return;
+      }
     }
 
     const { entry, ambiguousWith } = resolveEntry(target, cmd.entries);

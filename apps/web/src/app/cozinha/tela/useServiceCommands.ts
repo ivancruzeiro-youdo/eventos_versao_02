@@ -32,6 +32,9 @@ export interface ServiceCommands {
   addItem(a: { eventItemId: string; sourceLabel: string | null; itemName: string }): Promise<Res>;
   addStation(pkg: ServicePackage): Promise<Res>;
   generateSuggested(): Promise<Res>;
+  /** Muda início/fim do serviço. Ao mudar o início, o backend desloca em cascata todas as
+   *  saídas já geradas pelo mesmo delta — não precisa reajustar item por item. */
+  updatePlanTimes(a: { anchorAt?: string | null; endAt?: string | null }): Promise<Res>;
   /** Itens/estações ainda fora da sequência — fonte da lista de "adicionar". */
   available: { itemName: string; sourceLabel: string | null; pkg: ServicePackage }[];
   availableStations: ServicePackage[];
@@ -133,6 +136,9 @@ export function useServiceCommands(opts: Opts): ServiceCommands {
       stations: [{ eventItemId: pkg.eventItemId, itemName: pkg.name, startAt: pkg.serviceStartAt, endAt: pkg.serviceEndAt }],
     })), [call, eventId]);
 
+  const updatePlanTimes = useCallback((a: { anchorAt?: string | null; endAt?: string | null }) =>
+    call(`/api/v2/kitchen/display/events/${eventId}/plan`, postJson(a)), [call, eventId]);
+
   // Chave com o tipo: "Buffet 01 / montagem" não colide com "Buffet 01 / desmontagem".
   const inSequence = useMemo(
     () => new Set(entries.map(e => `${e.itemName.toLowerCase()}|${e.entryKind}`)),
@@ -177,7 +183,7 @@ export function useServiceCommands(opts: Opts): ServiceCommands {
     eventId, entries, packages, working,
     setServed, toggleServed, duplicate, remove,
     moveByIndex, moveToPosition, reorder,
-    addItem, addStation, generateSuggested, updateServeAt,
+    addItem, addStation, generateSuggested, updateServeAt, updatePlanTimes,
     available, availableStations,
   };
 }

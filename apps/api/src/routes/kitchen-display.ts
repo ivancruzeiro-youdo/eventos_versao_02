@@ -489,14 +489,14 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
       hiddenDrinks,
       plan: plan
         ? {
-            id: plan.id, intervalMinutes: plan.intervalMinutes, anchorAt: plan.anchorAt,
+            id: plan.id, intervalMinutes: plan.intervalMinutes, anchorAt: plan.anchorAt, endAt: plan.endAt,
             notes: plan.notes, updatedAt: plan.updatedAt, entries,
             logs: plan.logs.map(l => ({
               id: l.id, action: l.action, detail: l.detail,
               userName: l.userName, createdAt: l.createdAt,
             })),
           }
-        : { id: null, intervalMinutes: 15, anchorAt: null, notes: null, updatedAt: null, entries: [], logs: [] },
+        : { id: null, intervalMinutes: 15, anchorAt: null, endAt: null, notes: null, updatedAt: null, entries: [], logs: [] },
       schedule: {
         activities: activities.map(a => ({
           ...a,
@@ -581,17 +581,19 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
 
   // ── Mutações do plano de serviço ──────────────────────────────────────────
 
-  async function ensurePlan(eventId: string, data?: { intervalMinutes?: number; anchorAt?: Date | null }) {
+  async function ensurePlan(eventId: string, data?: { intervalMinutes?: number; anchorAt?: Date | null; endAt?: Date | null }) {
     return prisma.kitchenServicePlan.upsert({
       where: { eventId },
       create: {
         eventId,
         intervalMinutes: data?.intervalMinutes ?? 15,
         anchorAt: data?.anchorAt ?? null,
+        endAt: data?.endAt ?? null,
       },
       update: {
         ...(data?.intervalMinutes != null ? { intervalMinutes: data.intervalMinutes } : {}),
         ...(data?.anchorAt !== undefined ? { anchorAt: data.anchorAt } : {}),
+        ...(data?.endAt !== undefined ? { endAt: data.endAt } : {}),
       },
     });
   }
@@ -619,19 +621,45 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
     const { eventId } = request.params as { eventId: string };
     if (!(await allowEvent(request, eventId))) return reply.status(403).send({ error: 'Access denied' });
 
-    const { intervalMinutes, anchorAt, notes } = request.body as { intervalMinutes?: number; anchorAt?: string | null; notes?: string | null };
+    const { intervalMinutes, anchorAt, endAt, notes } = request.body as {
+      intervalMinutes?: number; anchorAt?: string | null; endAt?: string | null; notes?: string | null;
+    };
     if (intervalMinutes != null && (intervalMinutes < 1 || intervalMinutes > 240)) {
       return reply.status(400).send({ error: 'Intervalo deve estar entre 1 e 240 minutos.' });
     }
 
+    const previous = await prisma.kitchenServicePlan.findUnique({ where: { eventId }, select: { id: true, anchorAt: true } });
+    const newAnchor = anchorAt === undefined ? undefined : anchorAt ? new Date(anchorAt) : null;
+
     const plan = await ensurePlan(eventId, {
       intervalMinutes,
-      anchorAt: anchorAt === undefined ? undefined : anchorAt ? new Date(anchorAt) : null,
+      anchorAt: newAnchor,
+      endAt: endAt === undefined ? undefined : endAt ? new Date(endAt) : null,
     });
     if (notes !== undefined) {
       await prisma.kitchenServicePlan.update({ where: { id: plan.id }, data: { notes } });
     }
-    return { success: true, plan };
+
+    // Mudou o horário de início do serviço: desloca em cascata todas as saídas já geradas pelo
+    // mesmo delta, pra "arancini 19h00" virar "arancini 19h30" junto com o serviço inteiro,
+    // em vez de exigir reajustar item por item.
+    if (previous?.anchorAt && newAnchor && newAnchor.getTime() !== previous.anchorAt.getTime()) {
+      const delta = newAnchor.getTime() - previous.anchorAt.getTime();
+      const entries = await prisma.kitchenServicePlanEntry.findMany({ where: { planId: plan.id }, select: { id: true, serveAt: true } });
+      if (entries.length > 0) {
+        await prisma.$transaction(
+          entries.map(e => prisma.kitchenServicePlanEntry.update({
+            where: { id: e.id },
+            data: { serveAt: new Date(e.serveAt.getTime() + delta) },
+          }))
+        );
+        const deltaMin = Math.round(delta / 60_000);
+        await logPlan(plan.id, 'shift', `Horário do serviço mudou — sequência deslocada em ${deltaMin >= 0 ? '+' : ''}${deltaMin} min`, user);
+      }
+    }
+
+    const fresh = await prisma.kitchenServicePlan.findUnique({ where: { id: plan.id } });
+    return { success: true, plan: fresh };
   });
 
   app.post('/kitchen/display/events/:eventId/plan/entries', { preHandler: [requireAuth, requireRole(WRITE_ROLES)] }, async (request, reply) => {
