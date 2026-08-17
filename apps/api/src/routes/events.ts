@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../server.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { EventStatus } from '@youdo/db';
+import { applyVenueActivityTemplates } from '../lib/venue-activity-templates.js';
 
 const createEventSchema = z.object({
   name: z.string().min(1),
@@ -80,6 +81,12 @@ export async function eventRoutes(app: FastifyInstance) {
     });
 
     // TODO: Log to AuditLog
+
+    if (data.venueIds?.length) {
+      for (const venueId of data.venueIds) {
+        await applyVenueActivityTemplates(event.id, venueId, event.setupAt);
+      }
+    }
 
     return reply.status(201).send({ success: true, event });
   });

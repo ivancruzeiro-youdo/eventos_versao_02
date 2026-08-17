@@ -6,7 +6,7 @@ import Link from 'next/link';
 import Layout from '@/components/Layout';
 import VenueSpotifyCard from '@/components/VenueSpotifyCard';
 import { venuesApiExtended } from '@/lib/api';
-import { MapPin, Users, Phone, User, ArrowLeft, Edit2, Trash2, Plus, HelpCircle, X, Check, GripVertical, Upload, Image, Package, Save, Loader2, LayoutGrid, RotateCw, AlertCircle } from 'lucide-react';
+import { MapPin, Users, Phone, User, ArrowLeft, Edit2, Trash2, Plus, HelpCircle, X, Check, GripVertical, Upload, Image, Package, Save, Loader2, LayoutGrid, RotateCw, AlertCircle, Clock, ListChecks } from 'lucide-react';
 import { ELEMENT_ICONS } from '@/components/layout-element-icons';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
@@ -18,6 +18,22 @@ interface VenueQuestion {
   required: boolean;
   options: string[] | null;
   order: number;
+}
+
+interface VenueActivityTemplate {
+  id: string;
+  title: string;
+  description: string | null;
+  offsetMinutesBeforeCheckIn: number;
+  defaultAssignedToId: string | null;
+  defaultAssignedTo: { id: string; name: string } | null;
+  alertFreqMinutes: number;
+  active: boolean;
+}
+
+interface AssignableUser {
+  id: string;
+  name: string;
 }
 
 interface Venue {
@@ -129,6 +145,16 @@ export default function VenueDetailPage() {
   const [editingQId, setEditingQId] = useState<string | null>(null);
   const [editQ, setEditQ] = useState({ text: '', type: 'text', required: false, options: '' });
 
+  // Activity template form state
+  const [activityTemplates, setActivityTemplates] = useState<VenueActivityTemplate[]>([]);
+  const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
+  const emptyATForm = { title: '', description: '', offsetDays: 2, offsetHours: 0, defaultAssignedToId: '' };
+  const [addingAT, setAddingAT] = useState(false);
+  const [newAT, setNewAT] = useState(emptyATForm);
+  const [savingAT, setSavingAT] = useState(false);
+  const [editingATId, setEditingATId] = useState<string | null>(null);
+  const [editAT, setEditAT] = useState(emptyATForm);
+
   const [devices, setDevices] = useState<VenueDevice[]>([]);
   const [loadingDevices, setLoadingDevices] = useState(true);
   const [newDeviceName, setNewDeviceName] = useState('');
@@ -201,11 +227,13 @@ export default function VenueDetailPage() {
   async function loadVenue() {
     try {
       setLoading(true);
-      const [venueRes, planRes, configRes, tplRes] = await Promise.allSettled([
+      const [venueRes, planRes, configRes, tplRes, atRes, usersRes] = await Promise.allSettled([
         venuesApiExtended.get(venueId),
         fetch(`${API_URL}/api/v2/venues/${venueId}/floorplan-url`, { credentials: 'include' }).then(r => r.json()),
         fetch(`${API_URL}/api/v2/admin/layout-config`, { credentials: 'include' }).then(r => r.json()),
         fetch(`${API_URL}/api/v2/venues/${venueId}/layout-templates`, { credentials: 'include' }).then(r => r.json()),
+        fetch(`${API_URL}/api/v2/venues/${venueId}/activity-templates`, { credentials: 'include' }).then(r => r.json()),
+        fetch(`${API_URL}/api/v2/admin/users?limit=500`, { credentials: 'include' }).then(r => r.json()),
       ]);
       if (venueRes.status === 'fulfilled') {
         const v = venueRes.value.venue;
@@ -217,6 +245,8 @@ export default function VenueDetailPage() {
         setStockElements((configRes.value.elements ?? []).filter((e: LayoutElementConfig) => e.active));
       }
       if (tplRes.status === 'fulfilled') setTemplates(tplRes.value.templates ?? []);
+      if (atRes.status === 'fulfilled') setActivityTemplates(atRes.value.templates ?? []);
+      if (usersRes.status === 'fulfilled') setAssignableUsers(usersRes.value.users ?? []);
     } catch (err: any) {
       setError(err.message || 'Erro ao carregar local');
     } finally {
@@ -512,6 +542,62 @@ export default function VenueDetailPage() {
     await loadVenue();
   }
 
+  // ── Activity template functions ─────────────────────────────────────────────
+
+  async function createActivityTemplate() {
+    if (!newAT.title.trim()) return;
+    setSavingAT(true);
+    try {
+      await fetch(`/api/v2/venues/${venueId}/activity-templates`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: newAT.title,
+          description: newAT.description || null,
+          offsetDays: newAT.offsetDays,
+          offsetHours: newAT.offsetHours,
+          defaultAssignedToId: newAT.defaultAssignedToId || null,
+        }),
+      });
+      setNewAT(emptyATForm);
+      setAddingAT(false);
+      await loadVenue();
+    } finally { setSavingAT(false); }
+  }
+
+  async function updateActivityTemplate(id: string) {
+    await fetch(`/api/v2/venues/${venueId}/activity-templates/${id}`, {
+      method: 'PATCH', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: editAT.title,
+        description: editAT.description || null,
+        offsetDays: editAT.offsetDays,
+        offsetHours: editAT.offsetHours,
+        defaultAssignedToId: editAT.defaultAssignedToId || null,
+      }),
+    });
+    setEditingATId(null);
+    await loadVenue();
+  }
+
+  async function deleteActivityTemplate(id: string) {
+    if (!confirm('Excluir esta atividade obrigatória?')) return;
+    await fetch(`/api/v2/venues/${venueId}/activity-templates/${id}`, { method: 'DELETE', credentials: 'include' });
+    await loadVenue();
+  }
+
+  function startEditAT(t: VenueActivityTemplate) {
+    setEditingATId(t.id);
+    setEditAT({
+      title: t.title,
+      description: t.description ?? '',
+      offsetDays: Math.floor(t.offsetMinutesBeforeCheckIn / 1440),
+      offsetHours: Math.floor((t.offsetMinutesBeforeCheckIn % 1440) / 60),
+      defaultAssignedToId: t.defaultAssignedToId ?? '',
+    });
+  }
+
   function startEdit(q: VenueQuestion) {
     setEditingQId(q.id);
     setEditQ({
@@ -774,6 +860,149 @@ export default function VenueDetailPage() {
                     <button onClick={() => setAddingQ(false)} className="text-xs px-2 py-1 border rounded hover:bg-muted transition flex items-center gap-1"><X size={11} /> Cancelar</button>
                     <button onClick={createQuestion} disabled={savingQ} className="text-xs px-3 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 transition flex items-center gap-1 disabled:opacity-50">
                       <Check size={11} /> {savingQ ? 'Salvando...' : 'Criar pergunta'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── Atividades Obrigatórias Pré-Evento ──────────────────────── */}
+          <div className="bg-card rounded-lg border shadow-sm">
+            <div className="px-6 py-4 border-b flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ListChecks className="size-4 text-muted-foreground" />
+                <h2 className="text-lg font-medium text-card-foreground">Atividades Obrigatórias Pré-Evento</h2>
+                <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                  {activityTemplates.length} atividade{activityTemplates.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+              <button
+                onClick={() => setAddingAT(true)}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition"
+              >
+                <Plus className="size-3.5" /> Adicionar
+              </button>
+            </div>
+
+            <div className="p-4 space-y-2">
+              <p className="text-xs text-muted-foreground mb-3">
+                Estas atividades são criadas automaticamente na aba <strong>Atividades</strong> de todo evento
+                novo vinculado a este local, com o prazo relativo ao check-in e o responsável já definidos.
+              </p>
+
+              {activityTemplates.length === 0 && !addingAT && (
+                <p className="text-sm text-muted-foreground text-center py-4 italic">
+                  Nenhuma atividade obrigatória cadastrada.
+                </p>
+              )}
+
+              {activityTemplates.map(t => (
+                <div key={t.id} className="border rounded-lg overflow-hidden">
+                  {editingATId === t.id ? (
+                    <div className="p-3 space-y-2 bg-muted/20">
+                      <input
+                        autoFocus
+                        value={editAT.title}
+                        onChange={e => setEditAT(p => ({ ...p, title: e.target.value }))}
+                        className="w-full text-sm px-2 py-1.5 border rounded bg-background"
+                        placeholder="Título da atividade..."
+                      />
+                      <textarea
+                        value={editAT.description}
+                        onChange={e => setEditAT(p => ({ ...p, description: e.target.value }))}
+                        rows={2} placeholder="Descrição (opcional)..."
+                        className="w-full text-sm px-2 py-1.5 border rounded bg-background resize-none"
+                      />
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <label className="flex items-center gap-1 text-xs">
+                          <input type="number" min={0} value={editAT.offsetDays}
+                            onChange={e => setEditAT(p => ({ ...p, offsetDays: Number(e.target.value) }))}
+                            className="w-16 text-sm px-2 py-1 border rounded bg-background" />
+                          dias antes
+                        </label>
+                        <label className="flex items-center gap-1 text-xs">
+                          <input type="number" min={0} value={editAT.offsetHours}
+                            onChange={e => setEditAT(p => ({ ...p, offsetHours: Number(e.target.value) }))}
+                            className="w-16 text-sm px-2 py-1 border rounded bg-background" />
+                          horas antes do check-in
+                        </label>
+                        <select value={editAT.defaultAssignedToId}
+                          onChange={e => setEditAT(p => ({ ...p, defaultAssignedToId: e.target.value }))}
+                          className="text-sm px-2 py-1.5 border rounded bg-background">
+                          <option value="">Sem responsável definido</option>
+                          {assignableUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                        </select>
+                      </div>
+                      <div className="flex justify-end gap-2 pt-1">
+                        <button onClick={() => setEditingATId(null)} className="text-xs px-2 py-1 border rounded hover:bg-muted transition flex items-center gap-1"><X size={11} /> Cancelar</button>
+                        <button onClick={() => updateActivityTemplate(t.id)} className="text-xs px-3 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 transition flex items-center gap-1"><Check size={11} /> Salvar</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-start justify-between px-3 py-2.5 hover:bg-muted/30 transition">
+                      <div className="flex items-start gap-2 flex-1 min-w-0">
+                        <Clock size={14} className="text-muted-foreground/40 mt-0.5 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium leading-snug">{t.title}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {Math.floor(t.offsetMinutesBeforeCheckIn / 1440)}d {Math.floor((t.offsetMinutesBeforeCheckIn % 1440) / 60)}h antes do check-in
+                            <span className="ml-1.5">· {t.defaultAssignedTo?.name ?? 'sem responsável definido'}</span>
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0 ml-2">
+                        <button onClick={() => startEditAT(t)} className="p-1 rounded hover:bg-muted transition text-muted-foreground hover:text-foreground">
+                          <Edit2 size={13} />
+                        </button>
+                        <button onClick={() => deleteActivityTemplate(t.id)} className="p-1 rounded hover:bg-muted transition text-muted-foreground hover:text-destructive">
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {addingAT && (
+                <div className="border rounded-lg p-3 bg-muted/20 space-y-2">
+                  <input
+                    autoFocus
+                    placeholder="Título da atividade..."
+                    value={newAT.title}
+                    onChange={e => setNewAT(p => ({ ...p, title: e.target.value }))}
+                    className="w-full text-sm px-2 py-1.5 border rounded bg-background"
+                  />
+                  <textarea
+                    value={newAT.description}
+                    onChange={e => setNewAT(p => ({ ...p, description: e.target.value }))}
+                    rows={2} placeholder="Descrição (opcional)..."
+                    className="w-full text-sm px-2 py-1.5 border rounded bg-background resize-none"
+                  />
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <label className="flex items-center gap-1 text-xs">
+                      <input type="number" min={0} value={newAT.offsetDays}
+                        onChange={e => setNewAT(p => ({ ...p, offsetDays: Number(e.target.value) }))}
+                        className="w-16 text-sm px-2 py-1 border rounded bg-background" />
+                      dias antes
+                    </label>
+                    <label className="flex items-center gap-1 text-xs">
+                      <input type="number" min={0} value={newAT.offsetHours}
+                        onChange={e => setNewAT(p => ({ ...p, offsetHours: Number(e.target.value) }))}
+                        className="w-16 text-sm px-2 py-1 border rounded bg-background" />
+                      horas antes do check-in
+                    </label>
+                    <select value={newAT.defaultAssignedToId}
+                      onChange={e => setNewAT(p => ({ ...p, defaultAssignedToId: e.target.value }))}
+                      className="text-sm px-2 py-1.5 border rounded bg-background">
+                      <option value="">Sem responsável definido</option>
+                      {assignableUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex justify-end gap-2 pt-1">
+                    <button onClick={() => setAddingAT(false)} className="text-xs px-2 py-1 border rounded hover:bg-muted transition flex items-center gap-1"><X size={11} /> Cancelar</button>
+                    <button onClick={createActivityTemplate} disabled={savingAT} className="text-xs px-3 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 transition flex items-center gap-1 disabled:opacity-50">
+                      <Check size={11} /> {savingAT ? 'Salvando...' : 'Criar atividade'}
                     </button>
                   </div>
                 </div>

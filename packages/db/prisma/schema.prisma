@@ -48,6 +48,7 @@ model User {
   activitiesCompleted EventActivity[]            @relation("ActivityCompletedBy")
   teamMemberships     TeamMember[]
   aiChatThreads       AiChatThread[]
+  venueActivityTemplatesDefault VenueActivityTemplate[] @relation("VenueActivityTemplateDefaultAssignee")
 
   @@index([email])
   @@index([employerId])
@@ -281,8 +282,32 @@ model Venue {
   eventLayouts     EventLayout[]
   devices          VenueDevice[]
   spotifyConnection VenueSpotifyConnection?
+  activityTemplates VenueActivityTemplate[]
 
   @@index([employerId])
+}
+
+// Atividade obrigatória de um espaço, replicada como EventActivity de verdade sempre que um
+// evento novo é vinculado a esse espaço (com check-in/setupAt definido) — mesmo padrão de
+// "template replicado por evento" já usado por VenueQuestion/EventVenueAnswer.
+model VenueActivityTemplate {
+  id                         String   @id @default(uuid())
+  venueId                    String
+  title                      String
+  description                String?
+  offsetMinutesBeforeCheckIn Int
+  defaultAssignedToId        String?
+  alertFreqMinutes           Int      @default(30)
+  active                     Boolean  @default(true)
+  order                      Int      @default(0)
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  venue               Venue           @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  defaultAssignedTo   User?           @relation("VenueActivityTemplateDefaultAssignee", fields: [defaultAssignedToId], references: [id])
+  generatedActivities EventActivity[]
+
+  @@index([venueId])
 }
 
 // One Spotify account connected per venue (OAuth authorization-code flow — see
@@ -1846,6 +1871,10 @@ model EventActivity {
   response        String?
   lastAlertAt     DateTime?
   alertFreqMinutes Int      @default(30)
+  // Preenchido só quando a atividade nasceu de um VenueActivityTemplate (geração
+  // automática) — null para atividade criada à mão. Usado pra nunca duplicar a mesma
+  // atividade gerada duas vezes pro mesmo evento (checagem por eventId+sourceTemplateId).
+  sourceTemplateId String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -1854,11 +1883,13 @@ model EventActivity {
   assignedPerson Person?             @relation("ActivityAssignedPerson", fields: [assignedPersonId], references: [id])
   createdBy      User?               @relation("ActivityCreatedBy", fields: [createdById], references: [id])
   completedBy    User?               @relation("ActivityCompletedBy", fields: [completedById], references: [id])
+  sourceTemplate VenueActivityTemplate? @relation(fields: [sourceTemplateId], references: [id], onDelete: SetNull)
   files          EventActivityFile[]
 
   @@index([eventId])
   @@index([status])
   @@index([assignedPersonId])
+  @@index([sourceTemplateId])
 }
 
 model EventActivityFile {

@@ -28,6 +28,7 @@ interface EventActivity {
   response: string | null;
   alertFreqMinutes: number;
   files: ActivityFile[];
+  sourceTemplateId: string | null;
 }
 
 // Pessoas do evento não têm login no sistema — alertá-las só 1x por dia (em horário útil) evita incomodar
@@ -353,6 +354,11 @@ function ActivityCard({
                   <div className="flex items-start justify-between gap-2">
                     <p className={`text-sm font-medium leading-snug ${isDone ? 'line-through text-muted-foreground' : ''}`}>
                       {activity.title}
+                      {activity.sourceTemplateId && (
+                        <span className="ml-1.5 text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded align-middle">
+                          espaço
+                        </span>
+                      )}
                     </p>
                     <div className="flex items-center gap-0.5 shrink-0">
                       {!isDone && (

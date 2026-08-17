@@ -641,4 +641,92 @@ export async function uerpRoutes(app: FastifyInstance) {
     await (prisma as any).venueQuestion.delete({ where: { id: qId } });
     return { success: true };
   });
+
+  // ─── Venue Activity Templates (atividades obrigatórias pré-evento) ───────
+  // Replicadas como EventActivity de verdade quando um evento novo é vinculado a este
+  // espaço — ver apps/api/src/lib/venue-activity-templates.ts.
+
+  // GET /venues/:id/activity-templates
+  app.get('/venues/:id/activity-templates', { preHandler: requireAuth }, async (request) => {
+    const { id: venueId } = request.params as { id: string };
+    const templates = await (prisma as any).venueActivityTemplate.findMany({
+      where: { venueId },
+      include: { defaultAssignedTo: { select: { id: true, name: true } } },
+      orderBy: { order: 'asc' },
+    });
+    return { success: true, templates };
+  });
+
+  // POST /venues/:id/activity-templates
+  app.post('/venues/:id/activity-templates', { preHandler: requireAuth }, async (request, reply) => {
+    const { id: venueId } = request.params as { id: string };
+    const body = request.body as {
+      title: string; description?: string | null;
+      offsetDays?: number; offsetHours?: number;
+      defaultAssignedToId?: string | null; alertFreqMinutes?: number;
+    };
+
+    if (!body.title?.trim()) return reply.status(400).send({ error: 'Título obrigatório.' });
+    const offsetDays = Math.max(0, Number(body.offsetDays) || 0);
+    const offsetHours = Math.max(0, Number(body.offsetHours) || 0);
+    const offsetMinutesBeforeCheckIn = offsetDays * 1440 + offsetHours * 60;
+    if (offsetMinutesBeforeCheckIn <= 0) {
+      return reply.status(400).send({ error: 'Defina pelo menos dias ou horas antes do check-in.' });
+    }
+
+    const count = await (prisma as any).venueActivityTemplate.count({ where: { venueId } });
+    const t = await (prisma as any).venueActivityTemplate.create({
+      data: {
+        venueId,
+        title: body.title.trim(),
+        description: body.description?.trim() || null,
+        offsetMinutesBeforeCheckIn,
+        defaultAssignedToId: body.defaultAssignedToId || null,
+        alertFreqMinutes: body.alertFreqMinutes ?? 30,
+        order: count,
+      },
+      include: { defaultAssignedTo: { select: { id: true, name: true } } },
+    });
+    return reply.status(201).send({ success: true, template: t });
+  });
+
+  // PATCH /venues/:id/activity-templates/:templateId
+  app.patch('/venues/:id/activity-templates/:templateId', { preHandler: requireAuth }, async (request, reply) => {
+    const { templateId } = request.params as { id: string; templateId: string };
+    const body = request.body as {
+      title?: string; description?: string | null;
+      offsetDays?: number; offsetHours?: number;
+      defaultAssignedToId?: string | null; alertFreqMinutes?: number; active?: boolean;
+    };
+
+    const data: any = {};
+    if (body.title !== undefined) data.title = body.title.trim();
+    if (body.description !== undefined) data.description = body.description?.trim() || null;
+    if (body.defaultAssignedToId !== undefined) data.defaultAssignedToId = body.defaultAssignedToId || null;
+    if (body.alertFreqMinutes !== undefined) data.alertFreqMinutes = body.alertFreqMinutes;
+    if (body.active !== undefined) data.active = body.active;
+    if (body.offsetDays !== undefined || body.offsetHours !== undefined) {
+      const offsetDays = Math.max(0, Number(body.offsetDays) || 0);
+      const offsetHours = Math.max(0, Number(body.offsetHours) || 0);
+      const offsetMinutesBeforeCheckIn = offsetDays * 1440 + offsetHours * 60;
+      if (offsetMinutesBeforeCheckIn <= 0) {
+        return reply.status(400).send({ error: 'Defina pelo menos dias ou horas antes do check-in.' });
+      }
+      data.offsetMinutesBeforeCheckIn = offsetMinutesBeforeCheckIn;
+    }
+
+    const t = await (prisma as any).venueActivityTemplate.update({
+      where: { id: templateId },
+      data,
+      include: { defaultAssignedTo: { select: { id: true, name: true } } },
+    });
+    return { success: true, template: t };
+  });
+
+  // DELETE /venues/:id/activity-templates/:templateId
+  app.delete('/venues/:id/activity-templates/:templateId', { preHandler: requireAuth }, async (request) => {
+    const { templateId } = request.params as { id: string; templateId: string };
+    await (prisma as any).venueActivityTemplate.delete({ where: { id: templateId } });
+    return { success: true };
+  });
 }

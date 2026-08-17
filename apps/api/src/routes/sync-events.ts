@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../server.js';
 import { requireAuth } from '../middleware/auth.js';
+import { applyVenueActivityTemplates } from '../lib/venue-activity-templates.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -596,6 +597,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
           const venue = await (prisma as any).venue.findFirst({ where: { externalId: pid } });
           if (venue) {
             await (prisma as any).eventVenue.create({ data: { eventId, venueId: venue.id } });
+            await applyVenueActivityTemplates(eventId, venue.id, setupAtObj ?? null);
           }
         }
       }
@@ -646,12 +648,20 @@ export async function syncEventsRoutes(app: FastifyInstance) {
             if (p.padrao) allPadraoIds.add(String(p.padrao));
           }
         }
+        // Só busca o setupAt do evento se algum espaço novo realmente precisar dele — a
+        // maioria das sincronizações não adiciona espaço nenhum aqui.
+        let currentCheckInAt: Date | null | undefined;
         for (const pid of allPadraoIds) {
           const venue = await (prisma as any).venue.findFirst({ where: { externalId: pid } });
           if (venue) {
             const exists = await (prisma as any).eventVenue.findFirst({ where: { eventId, venueId: venue.id } });
             if (!exists) {
               await (prisma as any).eventVenue.create({ data: { eventId, venueId: venue.id } });
+              if (currentCheckInAt === undefined) {
+                const ev = await (prisma as any).event.findUnique({ where: { id: eventId }, select: { setupAt: true } });
+                currentCheckInAt = ev?.setupAt ?? null;
+              }
+              await applyVenueActivityTemplates(eventId, venue.id, currentCheckInAt ?? null);
             }
           }
         }
