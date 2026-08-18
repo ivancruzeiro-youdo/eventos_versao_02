@@ -7,7 +7,7 @@ import {
   Upload, Trash2, Plus, Search, CheckCircle, AlertCircle,
   FileImage, FileVideo, User, ChevronDown, ChevronRight, X,
   Utensils, Circle, LayoutGrid, Lock, MonitorPlay, Video, Music,
-  Image as ImageIcon, Pencil, Check, ZoomIn, ZoomOut,
+  Image as ImageIcon, Pencil, Check, ZoomIn, ZoomOut, Wine, MapPin,
 } from 'lucide-react';
 import { ELEMENT_ICONS } from '@/components/layout-element-icons';
 
@@ -566,6 +566,143 @@ function SpotifyTab({ token, jwt }: { token: string; jwt: string }) {
 }
 
 // ── Guests tab ────────────────────────────────────────────────────────────────
+
+interface DegustacaoOccurrence {
+  id: string;
+  startAt: string | null;
+  venues: string[];
+  menu: string | null;
+  maxGuests: number;
+  enrolled: boolean;
+}
+
+function DegustacoesTab({ token, jwt }: { token: string; jwt: string }) {
+  const [items, setItems] = useState<DegustacaoOccurrence[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [nomes, setNomes] = useState<string[]>(['']);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const res = await fetch(`/api/v2/client/${token}/degustacoes`, { headers: { 'x-client-auth': jwt } });
+    const data = await res.json();
+    setItems(data.degustacoes || []);
+    setLoading(false);
+  }, [token, jwt]);
+
+  useEffect(() => { load(); }, [load]);
+
+  function openEnroll(item: DegustacaoOccurrence) {
+    setOpenId(item.id);
+    setNomes(['']);
+    setError('');
+  }
+
+  function updateNome(i: number, value: string) {
+    setNomes(prev => prev.map((n, idx) => idx === i ? value : n));
+  }
+
+  async function submitEnroll(item: DegustacaoOccurrence) {
+    const clean = nomes.map(n => n.trim()).filter(Boolean);
+    if (clean.length === 0) { setError('Informe ao menos um nome.'); return; }
+    setSubmitting(true);
+    setError('');
+    try {
+      const res = await fetch(`/api/v2/client/${token}/degustacoes/${item.id}/enroll`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-client-auth': jwt },
+        body: JSON.stringify({ nomes: clean }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || 'Erro ao inscrever'); return; }
+      setOpenId(null);
+      load();
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (loading) {
+    return <div className="text-center py-8 text-sm text-gray-400">Carregando degustações...</div>;
+  }
+
+  if (items.length === 0) {
+    return (
+      <div className="text-center py-12">
+        <Wine className="mx-auto mb-3 text-gray-300" size={32} />
+        <p className="text-sm text-gray-500">Nenhuma degustação disponível no momento.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {items.map(item => (
+        <div key={item.id} className="bg-white border rounded-xl p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                <Calendar size={13} className="text-primary" /> {item.startAt ? formatDate(item.startAt) : 'Data a definir'}
+              </p>
+              {item.venues[0] && (
+                <p className="text-xs text-gray-500 mt-1 flex items-center gap-1.5">
+                  <MapPin size={12} /> {item.venues[0]}
+                </p>
+              )}
+              {item.menu && <p className="text-xs text-gray-500 mt-1">Menu: {item.menu}</p>}
+            </div>
+            {item.enrolled ? (
+              <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700 font-medium flex items-center gap-1 shrink-0">
+                <Check size={12} /> Inscrito
+              </span>
+            ) : (
+              <button
+                onClick={() => openEnroll(item)}
+                className="text-xs px-3 py-1.5 bg-primary text-white rounded-lg font-medium shrink-0"
+              >
+                Inscrever-se
+              </button>
+            )}
+          </div>
+
+          {openId === item.id && (
+            <div className="mt-3 pt-3 border-t space-y-2">
+              <p className="text-xs text-gray-500">Quem vai comparecer? (até {item.maxGuests})</p>
+              {nomes.map((nome, i) => (
+                <input
+                  key={i}
+                  type="text"
+                  value={nome}
+                  onChange={(e) => updateNome(i, e.target.value)}
+                  placeholder={i === 0 ? 'Seu nome' : `Convidado ${i}`}
+                  className="w-full px-3 py-1.5 border rounded-lg text-sm"
+                />
+              ))}
+              {nomes.length < item.maxGuests && (
+                <button onClick={() => setNomes(prev => [...prev, ''])} className="text-xs text-primary flex items-center gap-1">
+                  <Plus size={12} /> Adicionar convidado
+                </button>
+              )}
+              {error && <p className="text-xs text-red-500">{error}</p>}
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={() => submitEnroll(item)}
+                  disabled={submitting}
+                  className="flex-1 py-2 bg-primary text-white rounded-lg text-sm font-medium disabled:opacity-50"
+                >
+                  {submitting ? 'Confirmando...' : 'Confirmar'}
+                </button>
+                <button onClick={() => setOpenId(null)} className="px-3 py-2 border rounded-lg text-sm">Cancelar</button>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function GuestsTab({ token, jwt }: { token: string; jwt: string }) {
   const [guests, setGuests] = useState<Guest[]>([]);
@@ -2085,6 +2222,7 @@ const TABS = [
   { id: 'plan', label: 'Plano', icon: CheckCircle },
   { id: 'schedule', label: 'Cronograma', icon: Clock },
   { id: 'ab', label: 'A&B', icon: Utensils },
+  { id: 'degustacoes', label: 'Degustações', icon: Wine },
   { id: 'guests', label: 'Convidados', icon: Users },
   { id: 'fornecedores', label: 'Fornecedores', icon: User },
   { id: 'checkin', label: 'Check-in', icon: CheckCircle },
@@ -2207,6 +2345,7 @@ export default function ClientPortalPage() {
         {activeTab === 'fornecedores' && <FornecedoresTab token={token} jwt={jwt} />}
         {activeTab === 'checkin' && <CheckinReportTab token={token} jwt={jwt} />}
         {activeTab === 'ab' && <FoodTab token={token} jwt={jwt} approvals={approvals} onToggle={toggleApproval} locked={locked} />}
+        {activeTab === 'degustacoes' && <DegustacoesTab token={token} jwt={jwt} />}
         {activeTab === 'plan' && <PlanTab token={token} jwt={jwt} approvals={approvals} onToggle={toggleApproval} locked={locked} />}
         {activeTab === 'schedule' && <ScheduleTab token={token} jwt={jwt} approvals={approvals} onToggle={toggleApproval} locked={locked} />}
         {activeTab === 'layout' && <LayoutTab token={token} jwt={jwt} />}

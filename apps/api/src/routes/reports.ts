@@ -14,7 +14,9 @@ export async function reportRoutes(app: FastifyInstance) {
     const user = (request as any).user;
     const query = request.query as { from?: string; to?: string };
 
-    const whereClause: any = {};
+    // Degustação é um Event técnico (etapa de conversão de lead), não um evento comercial —
+    // fora daqui pra não inflar contagem/receita/relatório.
+    const whereClause: any = { degustacao: null };
     if (user.role !== 'admin') {
       whereClause.employerId = user.employerId;
     }
@@ -34,7 +36,7 @@ export async function reportRoutes(app: FastifyInstance) {
       prisma.event.count({ where: whereClause }),
       prisma.guest.count({
         where: {
-          event: user.role !== 'admin' ? { employerId: user.employerId } : undefined,
+          event: { degustacao: null, ...(user.role !== 'admin' ? { employerId: user.employerId } : {}) },
         },
       }),
       prisma.event.groupBy({
@@ -43,11 +45,12 @@ export async function reportRoutes(app: FastifyInstance) {
         _count: { status: true },
       }),
       prisma.$queryRaw`
-        SELECT 
+        SELECT
           DATE_TRUNC('month', "createdAt") as month,
           COUNT(*) as count
         FROM "Event"
-        ${user.role !== 'admin' ? prisma.$queryRaw`WHERE "employerId" = ${user.employerId}` : prisma.$queryRaw``}
+        WHERE NOT EXISTS (SELECT 1 FROM "Degustacao" d WHERE d."eventId" = "Event".id)
+        ${user.role !== 'admin' ? prisma.$queryRaw`AND "employerId" = ${user.employerId}` : prisma.$queryRaw``}
         GROUP BY DATE_TRUNC('month', "createdAt")
         ORDER BY month DESC
         LIMIT 12
@@ -73,7 +76,7 @@ export async function reportRoutes(app: FastifyInstance) {
     const user = (request as any).user;
     const query = request.query as { from?: string; to?: string; status?: string };
 
-    const whereClause: any = {};
+    const whereClause: any = { degustacao: null };
     if (user.role !== 'admin') {
       whereClause.employerId = user.employerId;
     }
@@ -107,9 +110,13 @@ export async function reportRoutes(app: FastifyInstance) {
 
     const whereClause: any = {};
     if (query.eventId) {
+      // Drill-down num evento específico — se o próprio admin pediu, mostra mesmo sendo
+      // degustação; a exclusão é só pra listagem agregada abaixo.
       whereClause.eventId = query.eventId;
     } else if (user.role !== 'admin') {
-      whereClause.event = { employerId: user.employerId };
+      whereClause.event = { degustacao: null, employerId: user.employerId };
+    } else {
+      whereClause.event = { degustacao: null };
     }
     if (query.status) {
       whereClause.status = query.status;
@@ -187,7 +194,7 @@ export async function reportRoutes(app: FastifyInstance) {
     const user = (request as any).user;
     const query = request.query as { from?: string; to?: string };
 
-    const whereClause: any = {};
+    const whereClause: any = { degustacao: null };
     if (user.role !== 'admin') {
       whereClause.employerId = user.employerId;
     }

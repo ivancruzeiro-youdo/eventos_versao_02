@@ -218,6 +218,13 @@ model Event {
   productionAllocations KitchenProductionAllocation[]
   mediaAssets           EventMediaAsset[]
 
+  // Degustação: presente só quando este Event É uma ocorrência de degustação (padrão de
+  // "característica extra" 1:1 já usado por closure/kitchenPlan acima — uma tela sabe "isto é
+  // degustação" checando event.degustacao !== null, sem precisar de enum novo em Event).
+  degustacao                   Degustacao?
+  degustacaoEnrollmentsAsContract DegustacaoEnrollment[] @relation("DegustacaoEnrollmentContract")
+  degustacaoLinkEnrollments    DegustacaoLink[] @relation("DegustacaoLinkEnrollment")
+
   @@index([employerId])
   @@index([status])
   @@index([startAt])
@@ -1092,6 +1099,7 @@ model Product {
   eventItems EventItem[]
 
   kitchenRecipes KitchenRecipe[]
+  degustacoes    Degustacao[]
 
   @@index([categoryName])
 }
@@ -1587,6 +1595,93 @@ model KitchenPrepCheck {
   @@unique([eventId, itemName])
   @@index([eventId])
   @@index([eventItemId])
+}
+
+// ============================================
+// Degustação (integrada ao sistema de Eventos)
+// ============================================
+//
+// Cada degustação É um Event de verdade (convidados, check-in, cronograma, portal do cliente
+// — tudo reaproveitado sem mudança). Este model só guarda o que é EXTRA de uma degustação,
+// seguindo o mesmo padrão de EventClosure/KitchenEventPlan acima: 1:1 lateral, não campo em
+// Event. `event.degustacao !== null` é como qualquer tela sabe "isto é uma degustação".
+
+model Degustacao {
+  id         String  @id @default(uuid())
+  eventId    String  @unique
+  visibility String // 'publico' | 'contrato'
+  productId  String? // o "menu" — produto com subitems, mesmo mecanismo do Finger Food
+
+  maxGuests Int @default(4) // contratante + 3 convidados, default do pedido de negócio
+
+  // Agrupamento de recorrência. Sem tabela própria de propósito: as N ocorrências nascem
+  // todas de uma vez (decisão de produto — sem job/cron por trás), então só precisam de uma
+  // chave compartilhada pra "ver as outras desta série"; não há nada além disso pra guardar.
+  seriesId           String?
+  seriesIndex        Int?
+  seriesIntervalDays Int?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  event   Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id])
+
+  links       DegustacaoLink[]
+  enrollments DegustacaoEnrollment[]
+
+  @@index([seriesId])
+}
+
+// Modo PÚBLICO: 1 link por entidade do Userp, ANCORADO numa ocorrência (degustacaoId) só pra
+// achar a série (Degustacao.seriesId) — o link não trava nessa ocorrência específica. Ao abrir
+// o link, o backend resolve dinamicamente "a próxima ocorrência aberta da série" (ou a própria
+// ancorada, se não houver série); assim um único link sobrevive à recorrência inteira, sem
+// precisar gerar um novo a cada data. Depois de inscrito uma vez (enrolledEventId setado), o
+// link vira somente-leitura, mostrando a ocorrência confirmada — nunca deixa escolher outra
+// nem reinscrever. O contato é resolvido consultando
+// GET /api/userp-satelite/entidades/index.php?id=<userpEntidadeId> (mesmo Bearer token já usado
+// pelo sync — ver getUserpToken() em sync-events.ts) — nome/telefone/email abaixo são um
+// SNAPSHOT do momento da geração, não um espelho ao vivo do Userp.
+model DegustacaoLink {
+  id              String    @id @default(uuid())
+  degustacaoId    String
+  userpEntidadeId Int
+  nome            String
+  telefone        String?
+  email           String?
+  token           String    @unique @default(uuid()) // única credencial da URL pública
+  enrolledEventId String?   // Event.id da ocorrência em que a pessoa de fato se inscreveu
+  enrolledAt      DateTime?
+  createdById     String?
+  createdAt       DateTime  @default(now())
+
+  degustacao    Degustacao @relation(fields: [degustacaoId], references: [id], onDelete: Cascade)
+  enrolledEvent Event?     @relation("DegustacaoLinkEnrollment", fields: [enrolledEventId], references: [id])
+
+  // Mesma regra de idempotência do sistema anterior: gerar de novo pra mesma
+  // entidade+degustação não duplica, devolve conflito.
+  @@unique([degustacaoId, userpEntidadeId])
+  @@index([degustacaoId])
+}
+
+// Modo CONTRATO: registra que um cliente (autenticado pela sessão do PRÓPRIO evento já
+// contratado, via clientToken) se inscreveu numa degustação. O vínculo de volta ao evento de
+// origem é o que permite ao comercial ver "este lead do evento X degustou no dia Y" — os
+// convidados de fato (nomes) são Guest rows comuns no Event DA DEGUSTAÇÃO, não neste model.
+model DegustacaoEnrollment {
+  id              String   @id @default(uuid())
+  degustacaoId    String
+  contractEventId String
+  enrolledAt      DateTime @default(now())
+
+  degustacao    Degustacao @relation(fields: [degustacaoId], references: [id], onDelete: Cascade)
+  contractEvent Event      @relation("DegustacaoEnrollmentContract", fields: [contractEventId], references: [id], onDelete: Cascade)
+
+  // Um cliente só se inscreve uma vez em cada ocorrência.
+  @@unique([degustacaoId, contractEventId])
+  @@index([degustacaoId])
 }
 
 // ============================================

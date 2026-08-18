@@ -736,4 +736,77 @@ export async function clientRoutes(app: FastifyInstance) {
     await (prisma as any).eventLayout.delete({ where: { id: layoutId } });
     return { success: true };
   });
+
+  // Degustação — agenda de ocorrências exclusivas a contrato, abertas e futuras. Cliente só
+  // escolhe A DATA aqui; o menu já vem fixado pelo staff (nome só informativo).
+  app.get('/client/:token/degustacoes', async (request, reply) => {
+    const session = await getClientSession(app, request, reply);
+    if (!session) return;
+
+    const [events, myEnrollments] = await Promise.all([
+      prisma.event.findMany({
+        where: {
+          degustacao: { is: { visibility: 'contrato' } },
+          startAt: { gte: new Date() },
+        },
+        include: {
+          venues: { include: { venue: { select: { name: true } } } },
+          degustacao: { include: { product: { select: { name: true } } } },
+        },
+        orderBy: { startAt: 'asc' },
+      }),
+      (prisma as any).degustacaoEnrollment.findMany({ where: { contractEventId: session.eventId } }),
+    ]);
+    const enrolledDegustacaoIds = new Set(myEnrollments.map((e: any) => e.degustacaoId));
+
+    return {
+      success: true,
+      degustacoes: events.map((e: any) => ({
+        id: e.id,
+        startAt: e.startAt,
+        venues: e.venues.map((v: any) => v.venue.name),
+        menu: e.degustacao?.product?.name ?? null,
+        maxGuests: e.degustacao?.maxGuests,
+        enrolled: e.degustacao ? enrolledDegustacaoIds.has(e.degustacao.id) : false,
+      })),
+    };
+  });
+
+  // Degustação — inscrição do cliente (contratante + convidados). O vínculo com session.eventId
+  // (o evento JÁ CONTRATADO por trás do token) é o que impede inscrição anônima — só quem tem
+  // sessão de um contrato válido chega aqui.
+  app.post('/client/:token/degustacoes/:eventId/enroll', async (request, reply) => {
+    const session = await getClientSession(app, request, reply);
+    if (!session) return;
+    const { eventId: degustacaoEventId } = request.params as { token: string; eventId: string };
+    const { nomes } = request.body as { nomes?: string[] };
+
+    const degustacao = await (prisma as any).degustacao.findUnique({ where: { eventId: degustacaoEventId } });
+    if (!degustacao || degustacao.visibility !== 'contrato') {
+      return reply.status(404).send({ error: 'Degustação não encontrada.' });
+    }
+
+    const targetEvent = await prisma.event.findUnique({ where: { id: degustacaoEventId }, select: { startAt: true } });
+    if (targetEvent?.startAt && targetEvent.startAt < new Date()) {
+      return reply.status(409).send({ error: 'Essa data já passou.' });
+    }
+
+    const existing = await (prisma as any).degustacaoEnrollment.findUnique({
+      where: { degustacaoId_contractEventId: { degustacaoId: degustacao.id, contractEventId: session.eventId } },
+    });
+    if (existing) return reply.status(409).send({ error: 'Você já está inscrito nesta degustação.' });
+
+    const cleanNomes = (nomes ?? []).map((n: string) => n.trim()).filter(Boolean);
+    if (cleanNomes.length === 0) return reply.status(400).send({ error: 'Informe ao menos um nome.' });
+    if (cleanNomes.length > degustacao.maxGuests) {
+      return reply.status(400).send({ error: `Máximo de ${degustacao.maxGuests} convidados.` });
+    }
+
+    await prisma.guest.createMany({ data: cleanNomes.map((name: string) => ({ eventId: degustacaoEventId, name })) });
+    await (prisma as any).degustacaoEnrollment.create({
+      data: { degustacaoId: degustacao.id, contractEventId: session.eventId },
+    });
+
+    return reply.status(201).send({ success: true });
+  });
 }

@@ -20,13 +20,13 @@ import EventTeamTab from '@/components/EventTeamTab';
 import EventProfessionalsTab from '@/components/EventProfessionalsTab';
 import EventSpotifyPlaylist from '@/components/EventSpotifyPlaylist';
 import UserpStatusBanner from '@/components/UserpStatusBanner';
-import { eventsApi, guestsApi } from '@/lib/api';
+import { eventsApi, guestsApi, degustacoesApi } from '@/lib/api';
 import { formatDateTime, getStatusColor, getStatusLabel, getEventDisplayStatus, formatPhone, formatCpf } from '@/lib/utils';
 import {
   MessageCircle, FileText, Clock, CheckSquare, Users,
   ClipboardList, Briefcase, UtensilsCrossed, HardHat, Trash2, ChevronDown,
   Calendar, MapPin, Pencil, Check, X, Copy, UserCog, ChefHat, LogOut, Star, Plus,
-  GripVertical, Printer, Mail, Phone, CreditCard, FileSignature, Receipt, ListTodo, LayoutGrid, AlertTriangle, Camera, MonitorPlay, Music
+  GripVertical, Printer, Mail, Phone, CreditCard, FileSignature, Receipt, ListTodo, LayoutGrid, AlertTriangle, Camera, MonitorPlay, Music, Wine
 } from 'lucide-react';
 
 interface EventContract {
@@ -63,6 +63,11 @@ interface Event {
   _count?: { guests: number };
   contracts?: EventContract[];
   npsOrganizador?: { submittedAt: string | null } | null;
+  degustacao?: {
+    visibility: string;
+    maxGuests: number;
+    links: { id: string; token: string; nome: string; userpEntidadeId: number; enrolledEventId: string | null }[];
+  } | null;
 }
 
 interface ChecklistItem {
@@ -149,6 +154,11 @@ export default function EventDetailPage() {
   const [reservationInput, setReservationInput] = useState('');
   const [savingReservation, setSavingReservation] = useState(false);
   const [generatingToken, setGeneratingToken] = useState(false);
+
+  // Degustação — link público via entidade Userp
+  const [userpEntidadeInput, setUserpEntidadeInput] = useState('');
+  const [generatingLink, setGeneratingLink] = useState(false);
+  const [linkError, setLinkError] = useState('');
 
   function toLocalInput(iso: string | null): string {
     if (!iso) return '';
@@ -515,6 +525,28 @@ export default function EventDetailPage() {
     } finally { setGeneratingToken(false); }
   }
 
+  async function handleGenerateLink() {
+    const userpEntidadeId = parseInt(userpEntidadeInput, 10);
+    if (!userpEntidadeId) { setLinkError('Informe um código de entidade válido.'); return; }
+    setLinkError('');
+    setGeneratingLink(true);
+    try {
+      await degustacoesApi.createLink(eventId, userpEntidadeId);
+      setUserpEntidadeInput('');
+      await loadEvent();
+    } catch (err: any) {
+      setLinkError(err.message || 'Erro ao gerar link');
+    } finally {
+      setGeneratingLink(false);
+    }
+  }
+
+  function copyDegustacaoLinkUrl(token: string) {
+    const url = `${window.location.origin}/degustacao/${token}`;
+    navigator.clipboard.writeText(url);
+    alert('Link copiado: ' + url);
+  }
+
   async function saveReservationNumber() {
     if (!reservationInput.trim()) return;
     setSavingReservation(true);
@@ -730,6 +762,45 @@ export default function EventDetailPage() {
                 )}
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Degustação — geração de link público via Userp */}
+        {event.degustacao?.visibility === 'publico' && (
+          <div className="mt-3 bg-amber-50 border border-amber-200 rounded-xl px-5 py-4">
+            <h3 className="text-sm font-semibold text-amber-900 mb-3 flex items-center gap-2">
+              <Wine size={15} /> Links de Degustação (Userp)
+            </h3>
+            <div className="flex gap-2 mb-3">
+              <input
+                type="text"
+                value={userpEntidadeInput}
+                onChange={e => setUserpEntidadeInput(e.target.value)}
+                placeholder="Código da entidade no Userp"
+                className="flex-1 max-w-xs px-3 py-1.5 border rounded-lg text-sm bg-white"
+              />
+              <button
+                onClick={handleGenerateLink}
+                disabled={generatingLink || !userpEntidadeInput.trim()}
+                className="px-3 py-1.5 bg-amber-600 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+              >
+                {generatingLink ? 'Gerando...' : 'Gerar Link'}
+              </button>
+            </div>
+            {linkError && <p className="text-xs text-destructive mb-2">{linkError}</p>}
+            {event.degustacao.links.length > 0 && (
+              <div className="space-y-1.5">
+                {event.degustacao.links.map(link => (
+                  <div key={link.id} className="flex items-center gap-2 bg-white border border-amber-100 rounded-lg px-3 py-1.5">
+                    <span className="text-xs font-medium flex-1 truncate">{link.nome} <span className="text-muted-foreground">(#{link.userpEntidadeId})</span></span>
+                    {link.enrolledEventId && <Check size={13} className="text-green-600 shrink-0" />}
+                    <button onClick={() => copyDegustacaoLinkUrl(link.token)} className="p-1 text-amber-700 hover:bg-amber-50 rounded shrink-0" title="Copiar link">
+                      <Copy size={13} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

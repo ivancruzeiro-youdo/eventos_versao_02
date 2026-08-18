@@ -116,6 +116,7 @@ export async function eventRoutes(app: FastifyInstance) {
           orderBy: { createdAt: 'asc' },
         },
         npsOrganizador: { select: { submittedAt: true } },
+        degustacao: { include: { links: { orderBy: { createdAt: 'desc' } } } },
       },
     });
 

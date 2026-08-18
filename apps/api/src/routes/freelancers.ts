@@ -577,6 +577,27 @@ export async function freelancerRoutes(app: FastifyInstance) {
     return { success: true, profile: freelancer };
   });
 
+  // Freelancer sets their own photo (used pelo sistema de acessos) — usa o id do JWT,
+  // nunca um :id de URL, pra um freelancer não poder trocar a foto de outro.
+  app.patch('/freelancer/profile/photo', { preHandler: requireAuth }, async (request, reply) => {
+    const user = (request as any).user;
+    if (user.role !== 'freelancer') {
+      return reply.status(403).send({ error: 'Freelancer access only' });
+    }
+
+    const { fotoBase64 } = request.body as { fotoBase64?: string };
+    if (!fotoBase64 || !/^data:image\/(jpeg|jpg|png|webp);base64,/.test(fotoBase64)) {
+      return reply.status(400).send({ error: 'Foto inválida' });
+    }
+
+    const freelancer = await prisma.freelancer.update({
+      where: { id: user.id },
+      data: { fotoBase64 },
+      select: FREELANCER_SAFE_SELECT,
+    });
+    return { success: true, freelancer };
+  });
+
   // List applications for an event (employer view)
   app.get('/events/:id/applications', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId } = request.params as { id: string };

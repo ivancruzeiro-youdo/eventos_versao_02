@@ -58,6 +58,27 @@ export const venuesApi = {
   create: (data: any) => fetchApi('/api/v2/venues', { method: 'POST', body: JSON.stringify(data) }),
 };
 
+// Degustação API
+export const degustacoesApi = {
+  list: (params?: { visibility?: string; from?: string; to?: string }) => {
+    const query = params ? '?' + new URLSearchParams(params as any).toString() : '';
+    return fetchApi(`/api/v2/degustacoes${query}`);
+  },
+  get: (id: string) => fetchApi(`/api/v2/degustacoes/${id}`),
+  create: (data: any) => fetchApi('/api/v2/degustacoes', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id: string, data: any) => fetchApi(`/api/v2/degustacoes/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  createLink: (id: string, userpEntidadeId: number) =>
+    fetchApi(`/api/v2/degustacoes/${id}/links`, { method: 'POST', body: JSON.stringify({ userpEntidadeId }) }),
+  listLinks: (id: string) => fetchApi(`/api/v2/degustacoes/${id}/links`),
+};
+
+// Link público de degustação (sem sessão — o token na URL é a credencial)
+export const degustacaoLinkApi = {
+  get: (token: string) => fetchApi(`/api/v2/degustacao-link/${token}`),
+  enroll: (token: string, nomes: string[]) =>
+    fetchApi(`/api/v2/degustacao-link/${token}/guests`, { method: 'POST', body: JSON.stringify({ nomes }) }),
+};
+
 // Auth API
 export const authApi = {
   login: (email: string, cpf: string) => 
@@ -85,6 +106,8 @@ export const freelancerApi = {
   cancelApplication: (id: string) =>
     fetchApi(`/api/v2/freelancer/applications/${id}/cancel`, { method: 'PATCH' }),
   profile: () => fetchApi('/api/v2/freelancer/profile'),
+  updatePhoto: (fotoBase64: string) =>
+    fetchApi('/api/v2/freelancer/profile/photo', { method: 'PATCH', body: JSON.stringify({ fotoBase64 }) }),
 };
 
 // Products/Categories from UERP
