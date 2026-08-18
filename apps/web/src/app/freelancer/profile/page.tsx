@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { freelancerApi, ApiError } from '@/lib/api';
 import FreelancerHeader from '@/components/FreelancerHeader';
-import { Mail, Phone, IdCard, Cake, Briefcase, CheckCircle2, AlertTriangle, Camera, X, RotateCcw, Check, User } from 'lucide-react';
+import { Mail, Phone, IdCard, Cake, Briefcase, CheckCircle2, AlertTriangle, Camera, X, RotateCcw, Check, User, Images } from 'lucide-react';
 
 interface ServiceLink {
   service: { id: string; name: string };
@@ -75,13 +75,15 @@ export default function FreelancerProfilePage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const [showSheet, setShowSheet] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [savingPhoto, setSavingPhoto] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraFileInputRef = useRef<HTMLInputElement>(null);
+  const galleryFileInputRef = useRef<HTMLInputElement>(null);
 
   function stopCamera() {
     streamRef.current?.getTracks().forEach(t => t.stop());
@@ -90,6 +92,7 @@ export default function FreelancerProfilePage() {
   }
 
   async function openCamera() {
+    setShowSheet(false);
     setPhotoError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
@@ -101,8 +104,14 @@ export default function FreelancerProfilePage() {
       });
     } catch {
       // Sem câmera/permissão negada: cai pro seletor nativo (que no celular já abre a câmera).
-      fileInputRef.current?.click();
+      cameraFileInputRef.current?.click();
     }
+  }
+
+  function openGallery() {
+    setShowSheet(false);
+    setPhotoError(null);
+    galleryFileInputRef.current?.click();
   }
 
   function capturePhoto() {
@@ -190,35 +199,42 @@ export default function FreelancerProfilePage() {
           </div>
           <div className="p-5 space-y-3">
             <div className="flex items-center gap-4">
-              <div className="relative shrink-0">
+              <button
+                onClick={() => setShowSheet(true)}
+                className="relative shrink-0"
+                aria-label="Alterar foto de perfil"
+              >
                 {profile.fotoBase64 ? (
-                  <img src={profile.fotoBase64} alt="Sua foto" className="w-16 h-16 rounded-full object-cover border-2 border-orange-100" />
+                  <img src={profile.fotoBase64} alt="Sua foto" className="w-24 h-24 rounded-full object-cover border-2 border-orange-100" />
                 ) : (
-                  <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center border-2 border-gray-200">
-                    <User className="w-7 h-7 text-gray-400" />
+                  <div className="w-24 h-24 rounded-full bg-gray-100 flex items-center justify-center border-2 border-gray-200">
+                    <User className="w-10 h-10 text-gray-400" />
                   </div>
                 )}
-                <button
-                  onClick={openCamera}
-                  className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-orange-400 text-white flex items-center justify-center shadow-sm hover:bg-orange-500"
-                  aria-label="Tirar foto"
-                >
-                  <Camera className="w-3.5 h-3.5" />
-                </button>
-              </div>
+                <span className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-orange-400 text-white flex items-center justify-center shadow-md ring-2 ring-white">
+                  <Camera className="w-4 h-4" />
+                </span>
+              </button>
               <div>
                 <p className="text-sm font-medium text-[#1a1f2e]">{profile.fotoBase64 ? 'Foto para o sistema de acessos' : 'Sem foto cadastrada'}</p>
-                <button onClick={openCamera} className="text-xs text-orange-600 font-medium hover:underline">
-                  {profile.fotoBase64 ? 'Trocar foto' : 'Tirar foto'}
+                <button onClick={() => setShowSheet(true)} className="text-xs text-orange-600 font-medium hover:underline mt-0.5">
+                  {profile.fotoBase64 ? 'Alterar foto' : 'Adicionar foto'}
                 </button>
               </div>
             </div>
             {photoError && <p className="text-xs text-red-500">{photoError}</p>}
             <input
-              ref={fileInputRef}
+              ref={cameraFileInputRef}
               type="file"
               accept="image/*"
               capture="user"
+              className="hidden"
+              onChange={handleFileSelected}
+            />
+            <input
+              ref={galleryFileInputRef}
+              type="file"
+              accept="image/*"
               className="hidden"
               onChange={handleFileSelected}
             />
@@ -285,6 +301,40 @@ export default function FreelancerProfilePage() {
         )}
       </div>
 
+      {showSheet && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowSheet(false)} />
+          <div className="relative w-full max-w-lg bg-white rounded-t-2xl pb-[env(safe-area-inset-bottom)] animate-in slide-in-from-bottom duration-200">
+            <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mt-3 mb-1" />
+            <p className="text-center text-sm font-semibold text-[#1a1f2e] py-3 border-b">Foto de perfil</p>
+            <button
+              onClick={openCamera}
+              className="w-full flex items-center gap-3 px-5 py-4 text-left active:bg-gray-50"
+            >
+              <span className="w-9 h-9 rounded-full bg-orange-50 flex items-center justify-center shrink-0">
+                <Camera className="w-4 h-4 text-orange-500" />
+              </span>
+              <span className="text-[15px] text-[#1a1f2e]">Tirar foto</span>
+            </button>
+            <button
+              onClick={openGallery}
+              className="w-full flex items-center gap-3 px-5 py-4 text-left active:bg-gray-50 border-t"
+            >
+              <span className="w-9 h-9 rounded-full bg-orange-50 flex items-center justify-center shrink-0">
+                <Images className="w-4 h-4 text-orange-500" />
+              </span>
+              <span className="text-[15px] text-[#1a1f2e]">Escolher da galeria</span>
+            </button>
+            <button
+              onClick={() => setShowSheet(false)}
+              className="w-full text-center py-4 mt-2 border-t text-[15px] font-semibold text-gray-500 active:bg-gray-50"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
       {showCamera && (
         <div className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center">
           <video ref={videoRef} autoPlay playsInline muted className="w-full max-w-md h-auto scale-x-[-1]" />
@@ -310,11 +360,11 @@ export default function FreelancerProfilePage() {
           <img src={photoPreview} alt="Prévia da foto" className="w-56 h-56 rounded-full object-cover border-4 border-white/20" />
           <div className="flex items-center gap-4">
             <button
-              onClick={() => { setPhotoPreview(null); openCamera(); }}
+              onClick={() => { setPhotoPreview(null); setShowSheet(true); }}
               disabled={savingPhoto}
               className="px-4 py-2.5 rounded-xl bg-white/10 text-white font-medium flex items-center gap-2 disabled:opacity-50"
             >
-              <RotateCcw className="w-4 h-4" /> Tirar novamente
+              <RotateCcw className="w-4 h-4" /> Escolher outra
             </button>
             <button
               onClick={confirmPhoto}
