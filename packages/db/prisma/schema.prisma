@@ -1654,6 +1654,10 @@ model DegustacaoLink {
   token           String    @unique @default(uuid()) // única credencial da URL pública
   enrolledEventId String?   // Event.id da ocorrência em que a pessoa de fato se inscreveu
   enrolledAt      DateTime?
+  // Snapshot dos nomes informados na inscrição (POST .../guests) — guardado aqui em vez de só
+  // nos Guest rows porque várias entidades podem se inscrever na MESMA ocorrência; sem isso não
+  // dava pra saber quais Guest vieram deste link especificamente. Vazio enquanto "Pendente".
+  enrolledGuestNames String[] @default([])
   createdById     String?
   createdAt       DateTime  @default(now())
 

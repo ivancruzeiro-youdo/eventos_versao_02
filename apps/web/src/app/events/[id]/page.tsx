@@ -66,7 +66,7 @@ interface Event {
   degustacao?: {
     visibility: string;
     maxGuests: number;
-    links: { id: string; token: string; nome: string; userpEntidadeId: number; enrolledEventId: string | null }[];
+    links: { id: string; token: string; nome: string; userpEntidadeId: number; enrolledEventId: string | null; enrolledGuestNames: string[] }[];
   } | null;
 }
 
@@ -159,6 +159,8 @@ export default function EventDetailPage() {
   const [userpEntidadeInput, setUserpEntidadeInput] = useState('');
   const [generatingLink, setGeneratingLink] = useState(false);
   const [linkError, setLinkError] = useState('');
+  const [expandedLinkId, setExpandedLinkId] = useState<string | null>(null);
+  const [deletingLinkId, setDeletingLinkId] = useState<string | null>(null);
 
   function toLocalInput(iso: string | null): string {
     if (!iso) return '';
@@ -547,6 +549,19 @@ export default function EventDetailPage() {
     alert('Link copiado: ' + url);
   }
 
+  async function handleDeleteLink(linkId: string) {
+    if (!confirm('Remover este link? Só é possível enquanto ninguém se inscreveu por ele.')) return;
+    setDeletingLinkId(linkId);
+    try {
+      await degustacoesApi.deleteLink(eventId, linkId);
+      await loadEvent();
+    } catch (err: any) {
+      alert(err.message || 'Erro ao remover link');
+    } finally {
+      setDeletingLinkId(null);
+    }
+  }
+
   async function saveReservationNumber() {
     if (!reservationInput.trim()) return;
     setSavingReservation(true);
@@ -806,30 +821,65 @@ export default function EventDetailPage() {
               <p className="text-xs text-muted-foreground italic">Nenhum link gerado ainda.</p>
             ) : (
               <div className="border rounded-lg divide-y overflow-hidden">
-                {event.degustacao.links.map(link => (
-                  <div key={link.id} className="flex items-center gap-3 px-3 py-2 bg-background">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{link.nome}</p>
-                      <p className="text-xs text-muted-foreground">Userp #{link.userpEntidadeId}</p>
+                {event.degustacao.links.map(link => {
+                  const enrolled = !!link.enrolledEventId;
+                  const guestCount = link.enrolledGuestNames?.length ?? 0;
+                  const isExpanded = expandedLinkId === link.id;
+                  return (
+                    <div key={link.id} className="bg-background">
+                      <button
+                        onClick={() => enrolled && setExpandedLinkId(isExpanded ? null : link.id)}
+                        className={`w-full flex items-center gap-3 px-3 py-2 text-left ${enrolled ? 'cursor-pointer hover:bg-muted/40' : 'cursor-default'}`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{link.nome}</p>
+                          <p className="text-xs text-muted-foreground">Userp #{link.userpEntidadeId}</p>
+                        </div>
+                        {enrolled ? (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium flex items-center gap-1 shrink-0">
+                            <Check size={11} /> {guestCount} convidado{guestCount !== 1 ? 's' : ''}
+                          </span>
+                        ) : (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium shrink-0">
+                            Pendente
+                          </span>
+                        )}
+                        {enrolled && <ChevronDown size={14} className={`text-muted-foreground shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />}
+                        <span
+                          role="button"
+                          onClick={(e) => { e.stopPropagation(); copyDegustacaoLinkUrl(link.token); }}
+                          className="p-1.5 text-amber-700 hover:bg-amber-50 rounded-lg shrink-0"
+                          title="Copiar link"
+                        >
+                          <Copy size={14} />
+                        </span>
+                        {!enrolled && (
+                          <span
+                            role="button"
+                            onClick={(e) => { e.stopPropagation(); handleDeleteLink(link.id); }}
+                            className="p-1.5 text-muted-foreground hover:bg-red-50 hover:text-destructive rounded-lg shrink-0"
+                            title="Remover link"
+                          >
+                            {deletingLinkId === link.id ? <span className="text-xs">...</span> : <Trash2 size={14} />}
+                          </span>
+                        )}
+                      </button>
+                      {isExpanded && enrolled && (
+                        <div className="px-3 pb-2.5 pl-4">
+                          {guestCount > 0 ? (
+                            <ul className="text-xs text-muted-foreground space-y-0.5">
+                              {link.enrolledGuestNames.map((name, i) => (
+                                <li key={i}>• {name}</li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-xs text-muted-foreground italic">Sem nomes registrados.</p>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    {link.enrolledEventId ? (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium flex items-center gap-1 shrink-0">
-                        <Check size={11} /> Inscrito
-                      </span>
-                    ) : (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium shrink-0">
-                        Pendente
-                      </span>
-                    )}
-                    <button
-                      onClick={() => copyDegustacaoLinkUrl(link.token)}
-                      className="p-1.5 text-amber-700 hover:bg-amber-50 rounded-lg shrink-0"
-                      title="Copiar link"
-                    >
-                      <Copy size={14} />
-                    </button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

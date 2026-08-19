@@ -70,6 +70,8 @@ export const degustacoesApi = {
   createLink: (id: string, userpEntidadeId: number) =>
     fetchApi(`/api/v2/degustacoes/${id}/links`, { method: 'POST', body: JSON.stringify({ userpEntidadeId }) }),
   listLinks: (id: string) => fetchApi(`/api/v2/degustacoes/${id}/links`),
+  deleteLink: (id: string, linkId: string) =>
+    fetchApi(`/api/v2/degustacoes/${id}/links/${linkId}`, { method: 'DELETE' }),
 };
 
 // Link público de degustação (sem sessão — o token na URL é a credencial)

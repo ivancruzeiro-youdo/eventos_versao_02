@@ -186,13 +186,35 @@ export async function degustacaoRoutes(app: FastifyInstance) {
       where,
       include: {
         venues: { include: { venue: true } },
-        degustacao: { include: { product: { select: { id: true, name: true } } } },
+        degustacao: {
+          include: {
+            product: { select: { id: true, name: true } },
+            // Só o essencial pra contar — evitar trazer nome/telefone/token de todo mundo aqui.
+            links: { select: { enrolledEventId: true } },
+            enrollments: { select: { id: true } },
+          },
+        },
         _count: { select: { guests: true } },
       },
       orderBy: { startAt: 'asc' },
     });
 
-    return { success: true, degustacoes: events };
+    // Um link é ANCORADO nesta ocorrência mas pode ter resolvido e confirmado presença numa
+    // outra data da série (ver resolveLinkOccurrence) — "confirmados" conta só quem confirmou
+    // PRA ESTA data específica, não qualquer link que só nasceu aqui.
+    const degustacoes = events.map((e: any) => ({
+      ...e,
+      degustacao: e.degustacao ? {
+        ...e.degustacao,
+        linksTotal: e.degustacao.links?.length ?? 0,
+        linksConfirmed: e.degustacao.links?.filter((l: any) => l.enrolledEventId === e.id).length ?? 0,
+        enrollmentsCount: e.degustacao.enrollments?.length ?? 0,
+        links: undefined,
+        enrollments: undefined,
+      } : null,
+    }));
+
+    return { success: true, degustacoes };
   });
 
   // Detail — inclui as outras ocorrências da mesma série, pra tela mostrar o calendário todo.
@@ -315,6 +337,25 @@ export async function degustacaoRoutes(app: FastifyInstance) {
     };
   });
 
+  // Remove um link ainda não usado — só permitido enquanto "Pendente" (enrolledEventId nulo);
+  // uma vez que alguém se inscreveu por ele, apagar destruiria o único registro de quem
+  // confirmou presença, então fica bloqueado (a pessoa continua com o link, só não dá pra
+  // reaproveitar o código de entidade pra outro convite).
+  app.delete('/degustacoes/:id/links/:linkId', { preHandler: [requireAuth, requireRole(WRITE_ROLES)] }, async (request, reply) => {
+    const { id, linkId } = request.params as { id: string; linkId: string };
+    const degustacao = await (prisma as any).degustacao.findUnique({ where: { eventId: id } });
+    if (!degustacao) return reply.status(404).send({ error: 'Degustação não encontrada.' });
+
+    const link = await (prisma as any).degustacaoLink.findFirst({ where: { id: linkId, degustacaoId: degustacao.id } });
+    if (!link) return reply.status(404).send({ error: 'Link não encontrado.' });
+    if (link.enrolledEventId) {
+      return reply.status(409).send({ error: 'Esse link já tem inscrição confirmada e não pode ser removido.' });
+    }
+
+    await (prisma as any).degustacaoLink.delete({ where: { id: linkId } });
+    return { success: true };
+  });
+
   // --- Link público: sem auth de staff nem de cliente — o token É a credencial ---
 
   // Resolve e devolve a ocorrência atual do link: a próxima aberta da série, ou a confirmada
@@ -373,7 +414,7 @@ export async function degustacaoRoutes(app: FastifyInstance) {
     });
     await (prisma as any).degustacaoLink.update({
       where: { token },
-      data: { enrolledEventId: event.id, enrolledAt: new Date() },
+      data: { enrolledEventId: event.id, enrolledAt: new Date(), enrolledGuestNames: cleanNomes },
     });
 
     return reply.status(201).send({ success: true, eventId: event.id });

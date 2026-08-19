@@ -17,6 +17,9 @@ interface DegustacaoEvent {
     maxGuests: number;
     seriesId: string | null;
     product: { id: string; name: string } | null;
+    linksTotal: number;
+    linksConfirmed: number;
+    enrollmentsCount: number;
   } | null;
   _count?: { guests: number };
 }
@@ -113,7 +116,10 @@ export default function DegustacoesPage() {
                       </p>
                     )}
                     <p className="text-sm text-muted-foreground mt-1 flex items-center gap-1.5">
-                      <Users className="size-3.5 shrink-0" /> {event._count?.guests ?? 0} / {event.degustacao?.maxGuests ?? '—'} convidados
+                      <Users className="size-3.5 shrink-0" />
+                      {event.degustacao?.visibility === 'publico'
+                        ? `${event.degustacao.linksConfirmed} inscrito${event.degustacao.linksConfirmed !== 1 ? 's' : ''} · ${event.degustacao.linksTotal} link${event.degustacao.linksTotal !== 1 ? 's' : ''} gerado${event.degustacao.linksTotal !== 1 ? 's' : ''}`
+                        : `${event.degustacao?.enrollmentsCount ?? 0} inscri${(event.degustacao?.enrollmentsCount ?? 0) !== 1 ? 'ções' : 'ção'}`}
                     </p>
                     {event.degustacao?.product && (
                       <p className="text-xs text-muted-foreground mt-2 pt-2 border-t">Menu: {event.degustacao.product.name}</p>
