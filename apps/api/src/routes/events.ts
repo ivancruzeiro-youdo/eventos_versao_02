@@ -4,6 +4,7 @@ import { prisma } from '../server.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { EventStatus } from '@youdo/db';
 import { applyVenueActivityTemplates } from '../lib/venue-activity-templates.js';
+import { registrarCheckinsUserp } from '../services/userp-checkin.js';
 
 const createEventSchema = z.object({
   name: z.string().min(1),
@@ -256,6 +257,14 @@ export async function eventRoutes(app: FastifyInstance) {
     });
 
     // TODO: Log to AuditLog with reason
+
+    // Registra o check-in de espaço na Userp ao iniciar o evento — fire-and-forget, não
+    // atrasa a resposta pro operador nem trava a mudança de status se a Userp estiver fora.
+    if (status === 'in_progress') {
+      registrarCheckinsUserp(id, user.id).catch((err: any) =>
+        console.error(`[userp-checkin] evento ${id}: ${err.message}`),
+      );
+    }
 
     return { success: true, event: updated };
   });

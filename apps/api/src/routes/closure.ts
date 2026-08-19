@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../server.js';
 import { requireAuth } from '../middleware/auth.js';
 import { randomUUID } from 'crypto';
+import { registrarCheckoutsUserp } from '../services/userp-checkin.js';
 
 const closureSchema = z.object({
   itensQuebrados: z.string().optional(),
@@ -92,6 +93,12 @@ export async function closureRoutes(app: FastifyInstance) {
       where: { id: eventId },
       data: { status: 'encerrado' as any },
     });
+
+    // Registra o check-out de espaço na Userp ao encerrar — fire-and-forget, mesmo motivo do
+    // check-in em events.ts (não travar o encerramento esperando a Userp responder).
+    registrarCheckoutsUserp(eventId, user.id).catch((err: any) =>
+      console.error(`[userp-checkin] evento ${eventId}: ${err.message}`),
+    );
 
     const npsUrl = `${process.env.WEB_URL || 'https://eventos.youdobrasil.com.br'}/nps/org/${npsToken}`;
 
