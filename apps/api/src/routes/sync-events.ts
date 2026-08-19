@@ -2,29 +2,11 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '../server.js';
 import { requireAuth } from '../middleware/auth.js';
 import { applyVenueActivityTemplates } from '../lib/venue-activity-templates.js';
+import { getUserpToken } from '../lib/userp-auth.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-async function getUserpToken(): Promise<{ token: string; baseUrl: string }> {
-  const rows = await (prisma as any).uerpConfig.findMany();
-  const map: Record<string, string> = {};
-  for (const r of rows) map[r.key] = r.value;
-  const baseUrl = map['userpBaseUrl'] || '';
-  const email = map['userpEmail'] || '';
-  const senha = map['userpSenha'] || '';
-  if (!baseUrl || !email || !senha) throw new Error('Credenciais Userp não configuradas.');
-  const res = await fetch(`${baseUrl}/api/userp-satelite/auth/token.php`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ email, senha }),
-  });
-  if (!res.ok) throw new Error('Falha na autenticação Userp.');
-  const data: any = await res.json();
-  if (!data.access_token) throw new Error('Token não retornado pelo Userp.');
-  return { token: data.access_token, baseUrl };
-}
 
 // Fetch paginated list of contract IDs from the satelite experience API (Bearer auth; includes real start/end times)
 async function fetchContratoIds(token: string, baseUrl: string): Promise<number[]> {

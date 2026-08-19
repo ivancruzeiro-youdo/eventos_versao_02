@@ -3,32 +3,11 @@ import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import { prisma } from '../server.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
+import { getUserpToken } from '../lib/userp-auth.js';
 
 const WRITE_ROLES = ['admin', 'event_owner', 'operator'];
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEB_URL = process.env.WEB_URL || 'https://eventos.youdobrasil.com.br';
-
-// Mesmo mecanismo de auth já usado pelo sync do Userp (sync-events.ts) — duplicado aqui de
-// propósito, seguindo a convenção já estabelecida no repo de cada arquivo de rota ter sua
-// própria cópia em vez de compartilhar um módulo (ver WRITE_ROLES repetido em outros arquivos).
-async function getUserpToken(): Promise<{ token: string; baseUrl: string }> {
-  const rows = await (prisma as any).uerpConfig.findMany();
-  const map: Record<string, string> = {};
-  for (const r of rows) map[r.key] = r.value;
-  const baseUrl = map['userpBaseUrl'] || '';
-  const email = map['userpEmail'] || '';
-  const senha = map['userpSenha'] || '';
-  if (!baseUrl || !email || !senha) throw new Error('Credenciais Userp não configuradas.');
-  const res = await fetch(`${baseUrl}/api/userp-satelite/auth/token.php`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ email, senha }),
-  });
-  if (!res.ok) throw new Error('Falha na autenticação Userp.');
-  const data: any = await res.json();
-  if (!data.access_token) throw new Error('Token não retornado pelo Userp.');
-  return { token: data.access_token, baseUrl };
-}
 
 async function fetchUserpEntidade(userpEntidadeId: number): Promise<{ nome: string; telefone: string | null; email: string | null } | null> {
   const { token, baseUrl } = await getUserpToken();

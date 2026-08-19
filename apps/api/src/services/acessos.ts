@@ -1,44 +1,16 @@
-import { prisma } from '@youdo/db';
+import { getUserpToken } from '../lib/userp-auth.js';
 
 const BASE_URL = process.env.ACESSOS_API_URL || 'https://acessos.youdobrasil.com.br';
 
-let cachedToken: string | null = null;
-let tokenExpiresAt = 0;
-
-async function getCredentials(): Promise<{ email: string; senha: string; userpBaseUrl: string }> {
-  const rows = await (prisma as any).uerpConfig.findMany();
-  const map: Record<string, string> = {};
-  for (const r of rows) map[r.key] = r.value;
-  return {
-    email: map['userpEmail'] || '',
-    senha: map['userpSenha'] || '',
-    userpBaseUrl: map['userpBaseUrl'] || 'https://userpweb.youdobrasil.com.br',
-  };
-}
-
 async function getToken(): Promise<string> {
-  if (cachedToken && Date.now() < tokenExpiresAt) return cachedToken;
-
-  const { email, senha, userpBaseUrl } = await getCredentials();
-  if (!email || !senha) throw new Error('Credenciais Userp não configuradas. Acesse Admin → Integrações.');
-
-  const res = await fetch(`${userpBaseUrl}/api/userp-satelite/auth/token.php`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, senha }),
-  });
-
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Userp auth failed: ${res.status} — ${body}`);
-  }
-
-  const data = (await res.json()) as { access_token: string };
-  if (!data.access_token) throw new Error('Userp auth: access_token não retornado');
-
-  cachedToken = data.access_token;
-  tokenExpiresAt = Date.now() + 23 * 60 * 60 * 1000; // renovar antes de expirar
-  return cachedToken;
+  // Mesmo cache compartilhado usado por toda chamada à Userp neste backend — antes esta função
+  // tinha sua PRÓPRIA cópia de login+cache, e havia mais 3 outras (admin.ts, sync-events.ts,
+  // degustacoes.ts) fazendo a mesma coisa de forma independente. Como a Userp só mantém uma
+  // sessão ativa por conta, um login feito por qualquer uma delas invalidava o token que as
+  // outras ainda achavam válido — causa raiz de 401 intermitente aqui mesmo (GET /acessos
+  // funcionando ou não dependia de qual dessas quatro tinha logado por último).
+  const { token } = await getUserpToken();
+  return token;
 }
 
 export type AcessoInput = {
@@ -64,7 +36,10 @@ export async function listAcessos(): Promise<{ id: string; nome: string; empreen
   const res = await fetch(`${BASE_URL}/api/acessos`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) throw new Error(`Acessos listAcessos failed: ${res.status}`);
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Acessos listAcessos failed: ${res.status} — ${body}`);
+  }
   const data = (await res.json()) as any[];
   return data.map((a) => ({
     id: a.id,
