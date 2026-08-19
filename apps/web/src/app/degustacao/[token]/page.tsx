@@ -9,6 +9,7 @@ interface LinkData {
   confirmed: boolean;
   contato: { nome: string; telefone: string | null; email: string | null };
   degustacao: { maxGuests: number; menu: string | null };
+  menuChoices: { label: string; chosen: string[] }[];
   event: { id: string; startAt: string | null; venues: { name: string }[] };
 }
 
@@ -115,6 +116,16 @@ export default function DegustacaoLinkPage() {
             <p className="text-sm text-muted-foreground flex items-center gap-2">
               <MapPin className="size-4 shrink-0" /> {data.event.venues[0].name}
             </p>
+          )}
+          {data.menuChoices.length > 0 && (
+            <div className="pt-2 border-t space-y-1">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">O que vai ser servido</p>
+              {data.menuChoices.map((c, i) => (
+                <p key={i} className="text-sm">
+                  <span className="text-muted-foreground">{c.label}:</span> {c.chosen.join(', ')}
+                </p>
+              ))}
+            </div>
           )}
         </div>
 

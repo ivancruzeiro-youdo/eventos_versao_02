@@ -37,35 +37,34 @@ async function fetchUserpEntidade(userpEntidadeId: number): Promise<{ nome: stri
 // se a âncora faz parte de uma série, é a próxima ainda não realizada dessa série (não a âncora
 // em si) — assim o link sobrevive a toda a recorrência sem staff precisar gerar um novo a cada
 // data. Sem série, é sempre a própria âncora.
+// Itens escolhidos do menu (aba A&B) vêm junto com a ocorrência resolvida — cada ocorrência
+// da série tem seu próprio EventItem/EventItemChoice, então isso não pode vir só da âncora.
+const OCCURRENCE_INCLUDE = {
+  venues: { include: { venue: true } },
+  degustacao: { include: { product: { select: { id: true, name: true } } } },
+  items: { where: { category: 'ab' }, include: { choices: true } },
+} as const;
+
 async function resolveLinkOccurrence(link: any) {
   if (link.enrolledEventId) {
-    return prisma.event.findUnique({
-      where: { id: link.enrolledEventId },
-      include: { venues: { include: { venue: true } }, degustacao: { include: { product: { select: { id: true, name: true } } } } },
-    });
+    return prisma.event.findUnique({ where: { id: link.enrolledEventId }, include: OCCURRENCE_INCLUDE });
   }
 
   const anchor = link.degustacao;
   if (!anchor.seriesId) {
-    return prisma.event.findUnique({
-      where: { id: anchor.eventId },
-      include: { venues: { include: { venue: true } }, degustacao: { include: { product: { select: { id: true, name: true } } } } },
-    });
+    return prisma.event.findUnique({ where: { id: anchor.eventId }, include: OCCURRENCE_INCLUDE });
   }
 
   const next = await prisma.event.findFirst({
     where: { degustacao: { seriesId: anchor.seriesId }, startAt: { gte: new Date() } },
-    include: { venues: { include: { venue: true } }, degustacao: { include: { product: { select: { id: true, name: true } } } } },
+    include: OCCURRENCE_INCLUDE,
     orderBy: { startAt: 'asc' },
   });
   if (next) return next;
 
   // Série inteira já passou — devolve a âncora mesmo assim, pra tela mostrar algo coerente
   // ("essa data já passou") em vez de um 404 seco.
-  return prisma.event.findUnique({
-    where: { id: anchor.eventId },
-    include: { venues: { include: { venue: true } }, degustacao: { include: { product: { select: { id: true, name: true } } } } },
-  });
+  return prisma.event.findUnique({ where: { id: anchor.eventId }, include: OCCURRENCE_INCLUDE });
 }
 
 const createDegustacaoSchema = z.object({
@@ -290,6 +289,21 @@ export async function degustacaoRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Geração de link só se aplica a degustações públicas.' });
     }
 
+    // Sem menu escolhido ainda, o link levaria o convidado a uma página sem nenhuma
+    // informação do que vai ser servido — bloqueado até a aba A&B do evento ter pelo menos
+    // um item escolhido (mesma tela/mecanismo já usado em qualquer evento normal).
+    if (!degustacao.productId) {
+      return reply.status(400).send({ error: 'Defina o menu (produto) da degustação antes de gerar links.' });
+    }
+    const menuItem = await prisma.eventItem.findFirst({
+      where: { eventId: id, category: 'ab', productId: degustacao.productId },
+      include: { choices: true },
+    });
+    const hasChoice = menuItem?.choices.some((c: any) => c.chosen.length > 0) ?? false;
+    if (!hasChoice) {
+      return reply.status(400).send({ error: 'Escolha os itens do menu na aba A&B do evento antes de gerar links.' });
+    }
+
     const existing = await (prisma as any).degustacaoLink.findUnique({
       where: { degustacaoId_userpEntidadeId: { degustacaoId: degustacao.id, userpEntidadeId } },
     });
@@ -445,11 +459,19 @@ export async function degustacaoRoutes(app: FastifyInstance) {
     const event = await resolveLinkOccurrence(link);
     if (!event) return reply.status(404).send({ error: 'Ocorrência não encontrada.' });
 
+    // Itens escolhidos na aba A&B do evento (um EventItemChoice por grupo de subitem) —
+    // mostrados como confirmação do que vai ser servido.
+    const menuItem = (event as any).items?.[0];
+    const menuChoices = (menuItem?.choices ?? [])
+      .filter((c: any) => c.chosen.length > 0)
+      .map((c: any) => ({ label: c.label, chosen: c.chosen }));
+
     return {
       success: true,
       confirmed: !!link.enrolledEventId,
       contato: { nome: link.nome, telefone: link.telefone, email: link.email },
       degustacao: { maxGuests: link.degustacao.maxGuests, menu: link.degustacao.product?.name ?? null },
+      menuChoices,
       event: {
         id: event.id,
         startAt: (event as any).startAt,

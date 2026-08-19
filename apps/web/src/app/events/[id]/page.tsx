@@ -840,6 +840,7 @@ export default function EventDetailPage() {
             </div>
             <p className="text-xs text-muted-foreground mb-3">
               Cada convidado da degustação (pessoa/empresa) tem seu próprio link, gerado a partir do código da entidade no Userp. Gere um por convidado, quantos precisar.
+              {' '}Escolha os itens do menu na aba A&B antes de gerar o primeiro link — o convidado vê o que foi escolhido.
             </p>
 
             <div className="flex gap-2 mb-3">
