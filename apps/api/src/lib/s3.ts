@@ -46,6 +46,17 @@ export async function createDownloadPresignedUrl(key: string, filename: string, 
   return getSignedUrl(s3Client, command, { expiresIn: expiresInSeconds });
 }
 
+// Baixa o objeto de fato (bytes), não uma URL — usado quando o arquivo precisa ser
+// reenviado a outro serviço (ex.: base64 pra API externa), não só servido ao navegador.
+export async function getS3ObjectBuffer(key: string): Promise<Buffer> {
+  const res = await s3Client.send(new GetObjectCommand({ Bucket: getS3Bucket(), Key: key }));
+  const chunks: Buffer[] = [];
+  for await (const chunk of res.Body as any) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
 export async function deleteS3Object(key: string): Promise<void> {
   await s3Client.send(new DeleteObjectCommand({
     Bucket: getS3Bucket(),

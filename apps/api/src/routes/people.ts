@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { prisma } from '../server.js';
 import { requireAuth } from '../middleware/auth.js';
 import { uploadBufferToS3, s3Client, getS3Bucket } from '../lib/s3.js';
+import { registrarPessoaUserp } from '../services/userp-pessoas.js';
 
 function cpfValid(digits: string): boolean {
   if (digits.length !== 11 || /^(\d)\1{10}$/.test(digits)) return false;
@@ -179,12 +180,24 @@ export async function peopleRoutes(app: FastifyInstance) {
     if (!person || (user.employerId && person.employerId !== user.employerId))
       return reply.status(404).send({ error: 'Pessoa não encontrada' });
 
+    const existingMember = await (prisma as any).eventMember.findUnique({
+      where: { eventId_personId: { eventId, personId } },
+    });
+
     const member = await (prisma as any).eventMember.upsert({
       where: { eventId_personId: { eventId, personId } },
       create: { eventId, personId, role },
       update: { role },
       include: { person: true },
     });
+
+    // Só no vínculo NOVO (não em toda edição de cargo) — "quando adicionar uma pessoa",
+    // não a cada troca de função. Fire-and-forget: nunca atrasa a resposta pro operador.
+    if (!existingMember) {
+      registrarPessoaUserp(personId, eventId, user.id).catch((err: any) =>
+        console.error(`[userp-pessoas] evento ${eventId} pessoa ${personId}: ${err.message}`),
+      );
+    }
 
     return reply.status(201).send({ success: true, member });
   });

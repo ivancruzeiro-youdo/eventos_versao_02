@@ -1914,6 +1914,10 @@ model Person {
   cpf        String?
   whatsapp   String?
   photoUrl   String?
+  // usuario_id devolvido pela Userp ao vincular esta pessoa a um contrato (POST
+  // contratos/usuarios/create.php) — guardado pra não precisar relocalizar por CPF a cada
+  // vínculo novo, e pra saber a quem enviar a foto (usuarios/update-foto.php).
+  userpUsuarioId Int?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
