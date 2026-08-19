@@ -767,35 +767,66 @@ export default function EventDetailPage() {
 
         {/* Degustação — geração de link público via Userp */}
         {event.degustacao?.visibility === 'publico' && (
-          <div className="mt-3 bg-amber-50 border border-amber-200 rounded-xl px-5 py-4">
-            <h3 className="text-sm font-semibold text-amber-900 mb-3 flex items-center gap-2">
-              <Wine size={15} /> Links de Degustação (Userp)
-            </h3>
+          <div className="mt-3 bg-card border rounded-xl px-5 py-4">
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <Wine size={15} className="text-amber-600" /> Links de Degustação
+              </h3>
+              {event.degustacao.links.length > 0 && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 font-medium">
+                  {event.degustacao.links.length} gerado{event.degustacao.links.length !== 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mb-3">
+              Cada convidado da degustação (pessoa/empresa) tem seu próprio link, gerado a partir do código da entidade no Userp. Gere um por convidado, quantos precisar.
+            </p>
+
             <div className="flex gap-2 mb-3">
               <input
                 type="text"
+                inputMode="numeric"
                 value={userpEntidadeInput}
                 onChange={e => setUserpEntidadeInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !generatingLink) handleGenerateLink(); }}
                 placeholder="Código da entidade no Userp"
-                className="flex-1 max-w-xs px-3 py-1.5 border rounded-lg text-sm bg-white"
+                className="flex-1 max-w-xs px-3 py-1.5 border rounded-lg text-sm bg-background"
               />
               <button
                 onClick={handleGenerateLink}
                 disabled={generatingLink || !userpEntidadeInput.trim()}
-                className="px-3 py-1.5 bg-amber-600 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+                className="px-3 py-1.5 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 transition disabled:opacity-50 flex items-center gap-1.5 shrink-0"
               >
-                {generatingLink ? 'Gerando...' : 'Gerar Link'}
+                <Plus size={14} /> {generatingLink ? 'Gerando...' : 'Gerar Link'}
               </button>
             </div>
-            {linkError && <p className="text-xs text-destructive mb-2">{linkError}</p>}
-            {event.degustacao.links.length > 0 && (
-              <div className="space-y-1.5">
+            {linkError && <p className="text-xs text-destructive mb-3">{linkError}</p>}
+
+            {event.degustacao.links.length === 0 ? (
+              <p className="text-xs text-muted-foreground italic">Nenhum link gerado ainda.</p>
+            ) : (
+              <div className="border rounded-lg divide-y overflow-hidden">
                 {event.degustacao.links.map(link => (
-                  <div key={link.id} className="flex items-center gap-2 bg-white border border-amber-100 rounded-lg px-3 py-1.5">
-                    <span className="text-xs font-medium flex-1 truncate">{link.nome} <span className="text-muted-foreground">(#{link.userpEntidadeId})</span></span>
-                    {link.enrolledEventId && <Check size={13} className="text-green-600 shrink-0" />}
-                    <button onClick={() => copyDegustacaoLinkUrl(link.token)} className="p-1 text-amber-700 hover:bg-amber-50 rounded shrink-0" title="Copiar link">
-                      <Copy size={13} />
+                  <div key={link.id} className="flex items-center gap-3 px-3 py-2 bg-background">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{link.nome}</p>
+                      <p className="text-xs text-muted-foreground">Userp #{link.userpEntidadeId}</p>
+                    </div>
+                    {link.enrolledEventId ? (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium flex items-center gap-1 shrink-0">
+                        <Check size={11} /> Inscrito
+                      </span>
+                    ) : (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium shrink-0">
+                        Pendente
+                      </span>
+                    )}
+                    <button
+                      onClick={() => copyDegustacaoLinkUrl(link.token)}
+                      className="p-1.5 text-amber-700 hover:bg-amber-50 rounded-lg shrink-0"
+                      title="Copiar link"
+                    >
+                      <Copy size={14} />
                     </button>
                   </div>
                 ))}

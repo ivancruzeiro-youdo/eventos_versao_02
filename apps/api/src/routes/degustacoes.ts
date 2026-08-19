@@ -9,6 +9,14 @@ const WRITE_ROLES = ['admin', 'event_owner', 'operator'];
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEB_URL = process.env.WEB_URL || 'https://eventos.youdobrasil.com.br';
 
+// `fones`/`emails` da Userp vêm como listas de OBJETOS ({id, nome, fone, fone_padrao}, idem
+// pra email) — não strings. Pega o marcado como padrão; sem nenhum marcado, usa o primeiro.
+function pickPadrao(list: any[] | undefined, valueKey: string, flagKey: string): string | null {
+  if (!list?.length) return null;
+  const padrao = list.find((i) => i?.[flagKey]) ?? list[0];
+  return padrao?.[valueKey] ?? null;
+}
+
 async function fetchUserpEntidade(userpEntidadeId: number): Promise<{ nome: string; telefone: string | null; email: string | null } | null> {
   const { token, baseUrl } = await getUserpToken();
   const res = await fetch(`${baseUrl}/api/userp-satelite/entidades/index.php?id=${userpEntidadeId}`, {
@@ -20,8 +28,8 @@ async function fetchUserpEntidade(userpEntidadeId: number): Promise<{ nome: stri
   if (!entidade) return null;
   return {
     nome: entidade.nome_razao_social,
-    telefone: entidade.fones?.[0] ?? null,
-    email: entidade.emails?.[0] ?? null,
+    telefone: pickPadrao(entidade.fones, 'fone', 'fone_padrao'),
+    email: pickPadrao(entidade.emails, 'email', 'email_padrao'),
   };
 }
 

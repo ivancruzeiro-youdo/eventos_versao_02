@@ -206,6 +206,9 @@ const start = async () => {
 
     const { startMediaRetentionWorker } = await import('./workers/media-retention.js');
     startMediaRetentionWorker((msg) => app.log.info(msg));
+
+    const { startContractSyncScheduler } = await import('./workers/contract-sync.js');
+    startContractSyncScheduler(app, (msg) => app.log.info(msg));
   } catch (err) {
     app.log.error(err);
     process.exit(1);
