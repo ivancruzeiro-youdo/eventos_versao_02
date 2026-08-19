@@ -161,6 +161,10 @@ export default function EventDetailPage() {
   const [linkError, setLinkError] = useState('');
   const [expandedLinkId, setExpandedLinkId] = useState<string | null>(null);
   const [deletingLinkId, setDeletingLinkId] = useState<string | null>(null);
+  const [editingLinkId, setEditingLinkId] = useState<string | null>(null);
+  const [editGuestNames, setEditGuestNames] = useState<string[]>([]);
+  const [savingGuests, setSavingGuests] = useState(false);
+  const [editGuestsError, setEditGuestsError] = useState('');
 
   function toLocalInput(iso: string | null): string {
     if (!iso) return '';
@@ -562,6 +566,47 @@ export default function EventDetailPage() {
     }
   }
 
+  function startEditGuests(linkId: string, currentNames: string[]) {
+    setEditingLinkId(linkId);
+    setEditGuestNames(currentNames.length ? [...currentNames] : ['']);
+    setEditGuestsError('');
+  }
+
+  function cancelEditGuests() {
+    setEditingLinkId(null);
+    setEditGuestNames([]);
+    setEditGuestsError('');
+  }
+
+  function updateEditGuestName(i: number, value: string) {
+    setEditGuestNames(prev => prev.map((n, idx) => idx === i ? value : n));
+  }
+
+  function addEditGuestName(maxGuests: number) {
+    if (editGuestNames.length >= maxGuests) return;
+    setEditGuestNames(prev => [...prev, '']);
+  }
+
+  function removeEditGuestName(i: number) {
+    setEditGuestNames(prev => prev.filter((_, idx) => idx !== i));
+  }
+
+  async function saveEditGuests(linkId: string) {
+    setSavingGuests(true);
+    setEditGuestsError('');
+    try {
+      const clean = editGuestNames.map(n => n.trim()).filter(Boolean);
+      await degustacoesApi.updateLinkGuests(eventId, linkId, clean);
+      await loadEvent();
+      setEditingLinkId(null);
+      setEditGuestNames([]);
+    } catch (err: any) {
+      setEditGuestsError(err.message || 'Erro ao salvar convidados');
+    } finally {
+      setSavingGuests(false);
+    }
+  }
+
   async function saveReservationNumber() {
     if (!reservationInput.trim()) return;
     setSavingReservation(true);
@@ -866,14 +911,62 @@ export default function EventDetailPage() {
                       </button>
                       {isExpanded && enrolled && (
                         <div className="px-3 pb-2.5 pl-4">
-                          {guestCount > 0 ? (
-                            <ul className="text-xs text-muted-foreground space-y-0.5">
-                              {link.enrolledGuestNames.map((name, i) => (
-                                <li key={i}>• {name}</li>
+                          {editingLinkId === link.id ? (
+                            <div className="space-y-1.5">
+                              {editGuestNames.map((name, i) => (
+                                <div key={i} className="flex items-center gap-2">
+                                  <input
+                                    type="text"
+                                    value={name}
+                                    onChange={e => updateEditGuestName(i, e.target.value)}
+                                    placeholder={`Convidado ${i + 1}`}
+                                    className="flex-1 px-2.5 py-1 border rounded-lg text-xs bg-background"
+                                  />
+                                  <button onClick={() => removeEditGuestName(i)} className="p-1 text-muted-foreground hover:text-destructive shrink-0">
+                                    <X size={13} />
+                                  </button>
+                                </div>
                               ))}
-                            </ul>
+                              {editGuestNames.length < event.degustacao!.maxGuests && (
+                                <button
+                                  onClick={() => addEditGuestName(event.degustacao!.maxGuests)}
+                                  className="text-xs text-primary flex items-center gap-1 hover:underline"
+                                >
+                                  <Plus size={12} /> Adicionar convidado
+                                </button>
+                              )}
+                              {editGuestsError && <p className="text-xs text-destructive">{editGuestsError}</p>}
+                              <div className="flex gap-2 pt-1">
+                                <button
+                                  onClick={() => saveEditGuests(link.id)}
+                                  disabled={savingGuests}
+                                  className="px-3 py-1 bg-primary text-primary-foreground rounded-lg text-xs font-medium disabled:opacity-50"
+                                >
+                                  {savingGuests ? 'Salvando...' : 'Salvar'}
+                                </button>
+                                <button onClick={cancelEditGuests} disabled={savingGuests} className="px-3 py-1 border rounded-lg text-xs">
+                                  Cancelar
+                                </button>
+                              </div>
+                            </div>
                           ) : (
-                            <p className="text-xs text-muted-foreground italic">Sem nomes registrados.</p>
+                            <div className="space-y-1.5">
+                              {guestCount > 0 ? (
+                                <ul className="text-xs text-muted-foreground space-y-0.5">
+                                  {link.enrolledGuestNames.map((name, i) => (
+                                    <li key={i}>• {name}</li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <p className="text-xs text-muted-foreground italic">Sem nomes registrados.</p>
+                              )}
+                              <button
+                                onClick={() => startEditGuests(link.id, link.enrolledGuestNames)}
+                                className="text-xs text-primary flex items-center gap-1 hover:underline"
+                              >
+                                <Pencil size={11} /> Editar convidados
+                              </button>
+                            </div>
                           )}
                         </div>
                       )}

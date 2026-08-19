@@ -356,6 +356,80 @@ export async function degustacaoRoutes(app: FastifyInstance) {
     return { success: true };
   });
 
+  // Edita os convidados de um link JÁ inscrito — adiciona/remove nomes sem perder o histórico
+  // (check-in, status) de quem não mudou. Reconhece cada Guest pelo degustacaoLinkId, nunca
+  // por busca aberta no evento (dois links diferentes podem ter convidados com o mesmo nome).
+  app.patch('/degustacoes/:id/links/:linkId/guests', { preHandler: [requireAuth, requireRole(WRITE_ROLES)] }, async (request, reply) => {
+    const { id, linkId } = request.params as { id: string; linkId: string };
+    const { nomes } = request.body as { nomes?: string[] };
+
+    const degustacao = await (prisma as any).degustacao.findUnique({ where: { eventId: id } });
+    if (!degustacao) return reply.status(404).send({ error: 'Degustação não encontrada.' });
+
+    const link = await (prisma as any).degustacaoLink.findFirst({ where: { id: linkId, degustacaoId: degustacao.id } });
+    if (!link) return reply.status(404).send({ error: 'Link não encontrado.' });
+    if (!link.enrolledEventId) return reply.status(400).send({ error: 'Esse link ainda não tem inscrição confirmada — nada para editar.' });
+
+    const cleanNomes = (nomes ?? []).map((n: string) => n.trim()).filter(Boolean);
+    if (cleanNomes.length > degustacao.maxGuests) {
+      return reply.status(400).send({ error: `Máximo de ${degustacao.maxGuests} convidados.` });
+    }
+
+    let currentGuests = await prisma.guest.findMany({ where: { degustacaoLinkId: link.id } });
+
+    // Self-heal com escopo travado: link inscrito antes desta migration tem Guest reais, só
+    // sem a marca. Só adota se achar EXATAMENTE os nomes do próprio snapshot — nunca varre o
+    // evento inteiro (evitaria "roubar" convidado de outro link com nome coincidente).
+    if (currentGuests.length === 0 && link.enrolledGuestNames.length > 0) {
+      const candidates = await prisma.guest.findMany({
+        where: { eventId: link.enrolledEventId, degustacaoLinkId: null, name: { in: link.enrolledGuestNames } },
+      });
+      if (candidates.length !== link.enrolledGuestNames.length) {
+        return reply.status(409).send({
+          error: 'Não foi possível confirmar com segurança quais convidados pertencem a este link (nomes duplicados entre links ou dados já alterados). Reconcilie manualmente antes de editar.',
+        });
+      }
+      await prisma.guest.updateMany({
+        where: { id: { in: candidates.map((g) => g.id) } },
+        data: { degustacaoLinkId: link.id },
+      });
+      currentGuests = candidates;
+    }
+
+    // Diff por nome, primeiro-casamento-vence — quem não mudou fica intocado (preserva
+    // checkedInAt/status); nunca apaga e recria um nome só porque foi retranscrito igual.
+    const pool = [...currentGuests];
+    const toCreateNames: string[] = [];
+    for (const name of cleanNomes) {
+      const idx = pool.findIndex((g) => g.name === name);
+      if (idx !== -1) pool.splice(idx, 1);
+      else toCreateNames.push(name);
+    }
+    const toRemove = pool;
+
+    const blockedCheckedIn = toRemove.filter((g) => g.checkedInAt);
+    if (blockedCheckedIn.length > 0) {
+      return reply.status(409).send({
+        error: `Já fez check-in, não pode ser removido: ${blockedCheckedIn.map((g) => g.name).join(', ')}. Desfaça o check-in na aba de convidados do evento antes de remover.`,
+      });
+    }
+
+    const ops: any[] = [];
+    if (toRemove.length) {
+      ops.push(prisma.guest.deleteMany({ where: { id: { in: toRemove.map((g) => g.id) } } }));
+    }
+    if (toCreateNames.length) {
+      ops.push(prisma.guest.createMany({
+        data: toCreateNames.map((name) => ({ eventId: link.enrolledEventId, name, degustacaoLinkId: link.id })),
+      }));
+    }
+    ops.push((prisma as any).degustacaoLink.update({ where: { id: linkId }, data: { enrolledGuestNames: cleanNomes } }));
+    await prisma.$transaction(ops);
+
+    const updatedLink = await (prisma as any).degustacaoLink.findUnique({ where: { id: linkId } });
+    return { success: true, link: updatedLink };
+  });
+
   // --- Link público: sem auth de staff nem de cliente — o token É a credencial ---
 
   // Resolve e devolve a ocorrência atual do link: a próxima aberta da série, ou a confirmada
@@ -410,7 +484,7 @@ export async function degustacaoRoutes(app: FastifyInstance) {
     }
 
     await prisma.guest.createMany({
-      data: cleanNomes.map(name => ({ eventId: event.id, name })),
+      data: cleanNomes.map(name => ({ eventId: event.id, name, degustacaoLinkId: link.id })),
     });
     await (prisma as any).degustacaoLink.update({
       where: { token },

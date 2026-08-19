@@ -507,8 +507,14 @@ model Guest {
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
 
+  // Presente só quando este Guest veio de uma inscrição por link de degustação — é o que
+  // permite editar/remover convidados de UM link específico sem afetar outros que se
+  // inscreveram na mesma ocorrência (ver DegustacaoLink).
+  degustacaoLinkId String?
+
   event     Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
   checkedInBy User?   @relation("CheckedInBy", fields: [checkedInByUserId], references: [id])
+  degustacaoLink DegustacaoLink? @relation(fields: [degustacaoLinkId], references: [id], onDelete: SetNull)
   nps       EventNPS?
   parkingEntries ParkingEntry[]
 
@@ -516,6 +522,7 @@ model Guest {
   @@index([status])
   @@index([cpf])
   @@index([rsvpToken])
+  @@index([degustacaoLinkId])
 }
 
 model ParkingEntry {
@@ -1663,6 +1670,7 @@ model DegustacaoLink {
 
   degustacao    Degustacao @relation(fields: [degustacaoId], references: [id], onDelete: Cascade)
   enrolledEvent Event?     @relation("DegustacaoLinkEnrollment", fields: [enrolledEventId], references: [id])
+  guests        Guest[]
 
   // Mesma regra de idempotência do sistema anterior: gerar de novo pra mesma
   // entidade+degustação não duplica, devolve conflito.
