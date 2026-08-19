@@ -1,16 +1,14 @@
-import { getUserpToken } from '../lib/userp-auth.js';
+import { getUserpLoginToken } from '../lib/userp-auth.js';
 
 const BASE_URL = process.env.ACESSOS_API_URL || 'https://acessos.youdobrasil.com.br';
 
 async function getToken(): Promise<string> {
-  // Mesmo cache compartilhado usado por toda chamada à Userp neste backend — antes esta função
-  // tinha sua PRÓPRIA cópia de login+cache, e havia mais 3 outras (admin.ts, sync-events.ts,
-  // degustacoes.ts) fazendo a mesma coisa de forma independente. Como a Userp só mantém uma
-  // sessão ativa por conta, um login feito por qualquer uma delas invalidava o token que as
-  // outras ainda achavam válido — causa raiz de 401 intermitente aqui mesmo (GET /acessos
-  // funcionando ou não dependia de qual dessas quatro tinha logado por último).
-  const { token } = await getUserpToken();
-  return token;
+  // A API de Acessos valida o Bearer chamando de volta `verify-token/index.php` na Userp, e
+  // esse endpoint SÓ aceita token emitido por `login/index.php` (tabela tb_token_login) — o
+  // token de `auth/token.php` (tabela tb_token, usado por sync-events/degustacoes/admin pra
+  // falar com o resto da Userp) é rejeitado por ele, sempre, mesmo recém-emitido. Confirmado
+  // via doc oficial + teste ponta a ponta: são dois pools de token completamente separados.
+  return getUserpLoginToken();
 }
 
 export type AcessoInput = {
