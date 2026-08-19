@@ -658,6 +658,12 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       // Track changes for system comment
       const syncAddedItems: string[] = [];
       const syncUpdatedQty: { name: string; oldQty: number; newQty: number }[] = [];
+      // Item de A&B cuja soma entre contratos (principal + secundário) zerou ou foi a negativo
+      // — ex.: contrato principal com "Finger Food 01" 90pax + contrato secundário com o mesmo
+      // item a -70pax deve resultar em 20pax exibidos; se o saldo for <= 0, o item não faz mais
+      // sentido na lista (não dá pra servir 0 ou menos pessoas) e é removido, sempre com registro
+      // em comentário — nunca fica um item de A&B com quantidade 0 parado na lista.
+      const syncRemovedZeroedItems: { name: string; oldQty: number }[] = [];
 
       // Fallback only — every item should carry its own sourceContractExternalId now
       // (tagged per-product in buildItemsSnapshot), pointing at the exact main/secondary
@@ -701,6 +707,20 @@ export async function syncEventsRoutes(app: FastifyInstance) {
         const existing = await (prisma as any).eventItem.findFirst({
           where: { eventId, productId: item.productId, occurrenceIndex: occIdx },
         });
+
+        // A&B com saldo <= 0 depois de somar contrato principal + secundário(s) — o desconto
+        // de um contrato secundário (ex.: -70pax) já foi somado ao positivo do principal em
+        // buildItemsSnapshot; se o resultado não sobrou nada pra servir, o item some da lista
+        // (não fica um "Finger Food 01: 0 Pessoa" parado no A&B), com o motivo em comentário.
+        if (item.category === 'ab' && item.qty <= 0) {
+          if (existing) {
+            await (prisma as any).kitchenEventMenu.updateMany({ where: { eventItemId: existing.id }, data: { eventItemId: null } });
+            await (prisma as any).eventItem.delete({ where: { id: existing.id } });
+            syncRemovedZeroedItems.push({ name: item.name, oldQty: existing.quantity });
+          }
+          // Se não existia ainda, nunca chega a ser criado — nada a remover, só não entra na lista.
+          continue;
+        }
 
         let eventItemId: string;
 
@@ -815,7 +835,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       }
 
       // Auto system comment — only when there are real changes
-      if (effectiveAction !== 'create' && (syncAddedItems.length > 0 || syncUpdatedQty.length > 0)) {
+      if (effectiveAction !== 'create' && (syncAddedItems.length > 0 || syncUpdatedQty.length > 0 || syncRemovedZeroedItems.length > 0)) {
         const lines: string[] = [
           `Sincronização UERP — contrato(s): ${contractIds.filter(Boolean).join(', ')}`,
         ];
@@ -828,6 +848,11 @@ export async function syncEventsRoutes(app: FastifyInstance) {
           lines.push('');
           lines.push('Quantidades atualizadas:');
           syncUpdatedQty.forEach(u => lines.push(`${u.name}: ${u.oldQty} → ${u.newQty}`));
+        }
+        if (syncRemovedZeroedItems.length > 0) {
+          lines.push('');
+          lines.push('Removidos do A&B (saldo zerado/negativo após contrato secundário):');
+          syncRemovedZeroedItems.forEach(r => lines.push(`- ${r.name} (era ${r.oldQty})`));
         }
         await (prisma as any).eventComment.create({
           data: {
