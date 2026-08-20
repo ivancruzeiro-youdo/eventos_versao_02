@@ -33,16 +33,37 @@ async function fetchUserpEntidade(userpEntidadeId: number): Promise<{ nome: stri
   };
 }
 
+// Um produto sinaliza "item escolhido" por UM de dois mecanismos, nunca os dois — subitens
+// (EventItemChoice, ex.: Buffet 01, "Massas (escolher 1)") ou perguntas de configuração
+// (EventItemAnswer, ex.: Finger Food 01, "Entradas (escolher 4) — quais itens deseja servir?").
+// answer é Json (string | string[]), por isso o parse manual em vez de só checar length.
+function answerToChosen(answer: any): string[] {
+  if (Array.isArray(answer)) return answer.filter((s: any): s is string => typeof s === 'string' && s.trim().length > 0);
+  if (typeof answer === 'string' && answer.trim()) return [answer];
+  return [];
+}
+
+function hasAnyMenuSelection(menuItem: { choices?: { chosen: string[] }[]; answers?: { answer: any }[] } | null | undefined): boolean {
+  if (!menuItem) return false;
+  const fromChoices = menuItem.choices?.some(c => c.chosen.length > 0) ?? false;
+  const fromAnswers = menuItem.answers?.some(a => answerToChosen(a.answer).length > 0) ?? false;
+  return fromChoices || fromAnswers;
+}
+
 // Resolve a ocorrência de fato pra um DegustacaoLink: se já inscrito, é a mesma de sempre; senão,
 // se a âncora faz parte de uma série, é a próxima ainda não realizada dessa série (não a âncora
 // em si) — assim o link sobrevive a toda a recorrência sem staff precisar gerar um novo a cada
 // data. Sem série, é sempre a própria âncora.
 // Itens escolhidos do menu (aba A&B) vêm junto com a ocorrência resolvida — cada ocorrência
-// da série tem seu próprio EventItem/EventItemChoice, então isso não pode vir só da âncora.
+// da série tem seu próprio EventItem/EventItemChoice/EventItemAnswer, então isso não pode vir
+// só da âncora.
 const OCCURRENCE_INCLUDE = {
   venues: { include: { venue: true } },
   degustacao: { include: { product: { select: { id: true, name: true } } } },
-  items: { where: { category: 'ab' }, include: { choices: true } },
+  items: {
+    where: { category: 'ab' },
+    include: { choices: true, answers: { include: { question: { select: { id: true, text: true } } } } },
+  },
 } as const;
 
 async function resolveLinkOccurrence(link: any) {
@@ -126,10 +147,9 @@ async function createOrGetDegustacaoLink(
   }
   const menuItem = await prisma.eventItem.findFirst({
     where: { eventId, category: 'ab', productId: degustacao.productId },
-    include: { choices: true },
+    include: { choices: true, answers: true },
   });
-  const hasChoice = menuItem?.choices.some((c: any) => c.chosen.length > 0) ?? false;
-  if (!hasChoice) {
+  if (!hasAnyMenuSelection(menuItem)) {
     return { error: 'Escolha os itens do menu na aba A&B do evento antes de gerar links.', status: 400 };
   }
 
@@ -412,7 +432,7 @@ export async function degustacaoRoutes(app: FastifyInstance) {
       include: {
         venues: { include: { venue: true } },
         degustacao: { include: { product: { select: { id: true, name: true } } } },
-        items: { where: { category: 'ab' }, include: { choices: true } },
+        items: { where: { category: 'ab' }, include: { choices: true, answers: true } },
       },
       orderBy: { startAt: 'asc' },
     });
@@ -420,7 +440,7 @@ export async function degustacaoRoutes(app: FastifyInstance) {
     const degustacoes = events
       .filter((e: any) => {
         const menuItem = (e.items ?? []).find((it: any) => it.productId === e.degustacao.productId);
-        return menuItem?.choices?.some((c: any) => c.chosen.length > 0) ?? false;
+        return hasAnyMenuSelection(menuItem);
       })
       .map((e: any) => ({
         id: e.id,
@@ -559,12 +579,17 @@ export async function degustacaoRoutes(app: FastifyInstance) {
     const event = await resolveLinkOccurrence(link);
     if (!event) return reply.status(404).send({ error: 'Ocorrência não encontrada.' });
 
-    // Itens escolhidos na aba A&B do evento (um EventItemChoice por grupo de subitem) —
-    // mostrados como confirmação do que vai ser servido.
+    // Itens escolhidos na aba A&B do evento — vêm de UM dos dois mecanismos (ver
+    // hasAnyMenuSelection acima): subitens (EventItemChoice) ou perguntas de configuração
+    // do produto (EventItemAnswer). Mostrados como confirmação do que vai ser servido.
     const menuItem = (event as any).items?.[0];
-    const menuChoices = (menuItem?.choices ?? [])
+    const fromChoices = (menuItem?.choices ?? [])
       .filter((c: any) => c.chosen.length > 0)
       .map((c: any) => ({ label: c.label, chosen: c.chosen }));
+    const fromAnswers = (menuItem?.answers ?? [])
+      .map((a: any) => ({ label: a.question?.text ?? '', chosen: answerToChosen(a.answer) }))
+      .filter((a: any) => a.chosen.length > 0);
+    const menuChoices = [...fromChoices, ...fromAnswers];
 
     return {
       success: true,
