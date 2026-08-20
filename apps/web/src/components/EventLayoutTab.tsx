@@ -1053,7 +1053,7 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
                   {selectedIds.size > 1 && (
                     <div
                       className="absolute top-2 left-1/2 z-40 flex items-center gap-2 bg-card border rounded-lg shadow-lg px-3 py-1.5 text-xs"
-                      style={{ transform: 'translateX(-50%)' }}
+                      style={{ transform: `translateX(-50%) scale(${1 / zoom})`, transformOrigin: 'top center' }}
                       onMouseDown={e => e.stopPropagation()}
                     >
                       <span className="font-medium text-muted-foreground">{selectedIds.size} selecionados</span>
@@ -1101,7 +1101,7 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
                         </div>
                         <div
                           className={`absolute -top-7 left-1/2 flex gap-1 transition-opacity ${isActive ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-                          style={{ transform: `translateX(-50%) rotate(${-el.rotation}deg)` }}
+                          style={{ transform: `translateX(-50%) rotate(${-el.rotation}deg) scale(${1 / zoom})` }}
                           onMouseDown={e => e.stopPropagation()}
                           onMouseEnter={() => setHoverId(el.id)}
                         >
