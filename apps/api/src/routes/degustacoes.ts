@@ -17,15 +17,24 @@ function pickPadrao(list: any[] | undefined, valueKey: string, flagKey: string):
   return padrao?.[valueKey] ?? null;
 }
 
+// Erro de CONEXÃO/AUTENTICAÇÃO com a Userp — distinto de "entidade não existe". Antes as duas
+// situações viravam a mesma coisa (fetchUserpEntidade retornava null pros dois casos), e um
+// 401 intermitente de token (já visto antes nesse projeto, ver getUserpLoginToken) aparecia
+// pro operador como "Entidade não encontrada no Userp" — mensagem errada que mandava procurar
+// no lugar errado quando na real era a Userp/rede que tinha falhado, não a entidade.
+class UserpUpstreamError extends Error {}
+
 async function fetchUserpEntidade(userpEntidadeId: number): Promise<{ nome: string; telefone: string | null; email: string | null } | null> {
   const { token, baseUrl } = await getUserpToken();
   const res = await fetch(`${baseUrl}/api/userp-satelite/entidades/index.php?id=${userpEntidadeId}`, {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
   });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    throw new UserpUpstreamError(`Falha ao consultar entidade na Userp (HTTP ${res.status}) — pode não significar que a entidade não existe.`);
+  }
   const data: any = await res.json();
   const entidade = data?.items?.[0] ?? (data?.nome_razao_social ? data : null);
-  if (!entidade) return null;
+  if (!entidade) return null; // resposta OK da Userp, mas sem a entidade — aí sim não existe
   return {
     nome: entidade.nome_razao_social,
     telefone: pickPadrao(entidade.fones, 'fone', 'fone_padrao'),
@@ -164,7 +173,7 @@ async function createOrGetDegustacaoLink(
   try {
     entidade = await fetchUserpEntidade(userpEntidadeId);
   } catch (e: any) {
-    return { error: e.message, status: 400 };
+    return { error: e.message, status: e instanceof UserpUpstreamError ? 502 : 400 };
   }
   if (!entidade) return { error: 'Entidade não encontrada no Userp.', status: 404 };
 
