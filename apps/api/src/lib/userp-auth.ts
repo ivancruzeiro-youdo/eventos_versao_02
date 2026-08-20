@@ -71,3 +71,20 @@ export async function getUserpLoginToken(): Promise<string> {
   loginTokenExpiresAt = Date.now() + 23 * 60 * 60 * 1000; // token dura 24h, renova antes
   return cachedLoginToken as string;
 }
+
+/**
+ * Valida um token EMITIDO PELA USERP chamando de volta `verify-token/index.php` — o mesmo
+ * mecanismo que a própria API de Acessos usa pra confirmar o Bearer que a gente envia pra ela
+ * (ver comentário de getUserpLoginToken acima: é a Userp quem confirma, não a Acessos sozinha).
+ * Usado pra validar tokens que sistemas EXTERNOS (ex.: chat) recebem da Userp e nos enviam,
+ * sem precisar de login/JWT nosso — o token da Userp É a credencial.
+ */
+export async function verifyUserpToken(token: string): Promise<{ valid: boolean; user?: { tipo: string; codigo: string | number } }> {
+  const { baseUrl } = await getUserpCredentials();
+  const res = await fetch(`${baseUrl}/api/userp-satelite/verify-token/index.php`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return { valid: false };
+  const data: any = await res.json().catch(() => null);
+  return data?.valid ? { valid: true, user: data.user } : { valid: false };
+}

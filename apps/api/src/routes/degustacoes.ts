@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import { prisma } from '../server.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
-import { getUserpToken } from '../lib/userp-auth.js';
+import { getUserpToken, verifyUserpToken } from '../lib/userp-auth.js';
 
 const WRITE_ROLES = ['admin', 'event_owner', 'operator'];
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -81,6 +81,68 @@ const createDegustacaoSchema = z.object({
     count: z.number().int().min(2).max(52),
   }).optional(),
 });
+
+type LinkResult =
+  | { error: string; status: number }
+  | { link: any; url: string; alreadyExisted: boolean };
+
+// Núcleo de "gerar (ou devolver, se já existir) o link público de uma entidade Userp pra esta
+// degustação" — compartilhado entre a rota de staff (POST /degustacoes/:id/links, login nosso)
+// e a rota pública pra sistemas externos (POST /degustacoes/:id/links/external, token da Userp).
+// As duas fazem exatamente a mesma coisa depois de autenticar por caminhos diferentes.
+async function createOrGetDegustacaoLink(
+  eventId: string,
+  userpEntidadeId: number,
+  createdById: string | null,
+): Promise<LinkResult> {
+  const degustacao = await (prisma as any).degustacao.findUnique({ where: { eventId } });
+  if (!degustacao) return { error: 'Degustação não encontrada.', status: 404 };
+  if (degustacao.visibility !== 'publico') {
+    return { error: 'Geração de link só se aplica a degustações públicas.', status: 400 };
+  }
+
+  // Sem menu escolhido ainda, o link levaria o convidado a uma página sem nenhuma informação
+  // do que vai ser servido — bloqueado até a aba A&B do evento ter pelo menos um item escolhido
+  // (mesma tela/mecanismo já usado em qualquer evento normal).
+  if (!degustacao.productId) {
+    return { error: 'Defina o menu (produto) da degustação antes de gerar links.', status: 400 };
+  }
+  const menuItem = await prisma.eventItem.findFirst({
+    where: { eventId, category: 'ab', productId: degustacao.productId },
+    include: { choices: true },
+  });
+  const hasChoice = menuItem?.choices.some((c: any) => c.chosen.length > 0) ?? false;
+  if (!hasChoice) {
+    return { error: 'Escolha os itens do menu na aba A&B do evento antes de gerar links.', status: 400 };
+  }
+
+  const existing = await (prisma as any).degustacaoLink.findUnique({
+    where: { degustacaoId_userpEntidadeId: { degustacaoId: degustacao.id, userpEntidadeId } },
+  });
+  if (existing) {
+    return { link: existing, url: `${WEB_URL}/degustacao/${existing.token}`, alreadyExisted: true };
+  }
+
+  let entidade;
+  try {
+    entidade = await fetchUserpEntidade(userpEntidadeId);
+  } catch (e: any) {
+    return { error: e.message, status: 400 };
+  }
+  if (!entidade) return { error: 'Entidade não encontrada no Userp.', status: 404 };
+
+  const link = await (prisma as any).degustacaoLink.create({
+    data: {
+      degustacaoId: degustacao.id,
+      userpEntidadeId,
+      nome: entidade.nome,
+      telefone: entidade.telefone,
+      email: entidade.email,
+      createdById,
+    },
+  });
+  return { link, url: `${WEB_URL}/degustacao/${link.token}`, alreadyExisted: false };
+}
 
 const updateDegustacaoSchema = z.object({
   productId: z.string().nullable().optional(),
@@ -283,55 +345,44 @@ export async function degustacaoRoutes(app: FastifyInstance) {
     const { userpEntidadeId } = request.body as { userpEntidadeId?: number };
     if (!userpEntidadeId) return reply.status(400).send({ error: 'userpEntidadeId é obrigatório.' });
 
-    const degustacao = await (prisma as any).degustacao.findUnique({ where: { eventId: id } });
-    if (!degustacao) return reply.status(404).send({ error: 'Degustação não encontrada.' });
-    if (degustacao.visibility !== 'publico') {
-      return reply.status(400).send({ error: 'Geração de link só se aplica a degustações públicas.' });
-    }
-
-    // Sem menu escolhido ainda, o link levaria o convidado a uma página sem nenhuma
-    // informação do que vai ser servido — bloqueado até a aba A&B do evento ter pelo menos
-    // um item escolhido (mesma tela/mecanismo já usado em qualquer evento normal).
-    if (!degustacao.productId) {
-      return reply.status(400).send({ error: 'Defina o menu (produto) da degustação antes de gerar links.' });
-    }
-    const menuItem = await prisma.eventItem.findFirst({
-      where: { eventId: id, category: 'ab', productId: degustacao.productId },
-      include: { choices: true },
-    });
-    const hasChoice = menuItem?.choices.some((c: any) => c.chosen.length > 0) ?? false;
-    if (!hasChoice) {
-      return reply.status(400).send({ error: 'Escolha os itens do menu na aba A&B do evento antes de gerar links.' });
-    }
-
-    const existing = await (prisma as any).degustacaoLink.findUnique({
-      where: { degustacaoId_userpEntidadeId: { degustacaoId: degustacao.id, userpEntidadeId } },
-    });
-    if (existing) {
-      return reply.status(409).send({ error: 'Link já existe para esta entidade.', link: existing, url: `${WEB_URL}/degustacao/${existing.token}` });
-    }
-
-    let entidade;
-    try {
-      entidade = await fetchUserpEntidade(userpEntidadeId);
-    } catch (e: any) {
-      return reply.status(400).send({ error: e.message });
-    }
-    if (!entidade) return reply.status(404).send({ error: 'Entidade não encontrada no Userp.' });
-
     const user = (request as any).user;
-    const link = await (prisma as any).degustacaoLink.create({
-      data: {
-        degustacaoId: degustacao.id,
-        userpEntidadeId,
-        nome: entidade.nome,
-        telefone: entidade.telefone,
-        email: entidade.email,
-        createdById: user.id,
-      },
-    });
+    const result = await createOrGetDegustacaoLink(id, userpEntidadeId, user.id);
+    if ('error' in result) return reply.status(result.status).send({ error: result.error });
+    if (result.alreadyExisted) {
+      return reply.status(409).send({ error: 'Link já existe para esta entidade.', link: result.link, url: result.url });
+    }
+    return reply.status(201).send({ success: true, link: result.link, url: result.url });
+  });
 
-    return reply.status(201).send({ success: true, link, url: `${WEB_URL}/degustacao/${link.token}` });
+  // Mesma geração de link, mas para o sistema de CHAT externo: sem login de staff, autenticado
+  // por um token EMITIDO PELA USERP (Authorization: Bearer) que a gente valida chamando de
+  // volta verify-token/index.php — igual à Acessos confirmando o Bearer que a gente manda pra
+  // ela. Idempotente igual à rota de staff: pedir de novo pra mesma entidade devolve o mesmo link.
+  app.post('/degustacoes/:id/links/external', {
+    config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { userpEntidadeId } = request.body as { userpEntidadeId?: number };
+    if (!userpEntidadeId) return reply.status(400).send({ error: 'userpEntidadeId é obrigatório.' });
+
+    const authHeader = request.headers.authorization;
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (!token) return reply.status(401).send({ error: 'Header Authorization: Bearer <token Userp> é obrigatório.' });
+
+    let verified: { valid: boolean };
+    try {
+      verified = await verifyUserpToken(token);
+    } catch {
+      return reply.status(502).send({ error: 'Não foi possível validar o token junto à Userp.' });
+    }
+    if (!verified.valid) return reply.status(401).send({ error: 'Token Userp inválido ou expirado.' });
+
+    const result = await createOrGetDegustacaoLink(id, userpEntidadeId, null);
+    if ('error' in result) return reply.status(result.status).send({ error: result.error });
+    if (result.alreadyExisted) {
+      return reply.status(200).send({ success: true, link: result.link, url: result.url });
+    }
+    return reply.status(201).send({ success: true, link: result.link, url: result.url });
   });
 
   // Lista os links já gerados pra esta degustação (âncora), com status de inscrição de cada.
