@@ -82,6 +82,23 @@ const createDegustacaoSchema = z.object({
   }).optional(),
 });
 
+// Autenticação compartilhada das rotas externas (chat): token EMITIDO PELA USERP no header
+// Authorization, validado chamando de volta verify-token/index.php — ver verifyUserpToken().
+async function requireUserpBearer(request: any): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  const authHeader = request.headers.authorization;
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!token) return { ok: false, status: 401, error: 'Header Authorization: Bearer <token Userp> é obrigatório.' };
+
+  let verified: { valid: boolean };
+  try {
+    verified = await verifyUserpToken(token);
+  } catch {
+    return { ok: false, status: 502, error: 'Não foi possível validar o token junto à Userp.' };
+  }
+  if (!verified.valid) return { ok: false, status: 401, error: 'Token Userp inválido ou expirado.' };
+  return { ok: true };
+}
+
 type LinkResult =
   | { error: string; status: number }
   | { link: any; url: string; alreadyExisted: boolean };
@@ -365,17 +382,8 @@ export async function degustacaoRoutes(app: FastifyInstance) {
     const { userpEntidadeId } = request.body as { userpEntidadeId?: number };
     if (!userpEntidadeId) return reply.status(400).send({ error: 'userpEntidadeId é obrigatório.' });
 
-    const authHeader = request.headers.authorization;
-    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-    if (!token) return reply.status(401).send({ error: 'Header Authorization: Bearer <token Userp> é obrigatório.' });
-
-    let verified: { valid: boolean };
-    try {
-      verified = await verifyUserpToken(token);
-    } catch {
-      return reply.status(502).send({ error: 'Não foi possível validar o token junto à Userp.' });
-    }
-    if (!verified.valid) return reply.status(401).send({ error: 'Token Userp inválido ou expirado.' });
+    const auth = await requireUserpBearer(request);
+    if (!auth.ok) return reply.status(auth.status).send({ error: auth.error });
 
     const result = await createOrGetDegustacaoLink(id, userpEntidadeId, null);
     if ('error' in result) return reply.status(result.status).send({ error: result.error });
@@ -383,6 +391,47 @@ export async function degustacaoRoutes(app: FastifyInstance) {
       return reply.status(200).send({ success: true, link: result.link, url: result.url });
     }
     return reply.status(201).send({ success: true, link: result.link, url: result.url });
+  });
+
+  // Lista, pro sistema de CHAT externo, as degustações prontas pra gerar link agora: públicas,
+  // com menu definido, com pelo menos um item já escolhido na aba A&B, e ainda no futuro — as
+  // MESMAS condições que POST /links/external exige, então tudo que aparece aqui tem garantia
+  // de funcionar quando o chat pedir o link. Mesma autenticação (token Userp) das outras rotas
+  // externas, não expõe nada pra quem não tiver um token válido da Userp.
+  app.get('/degustacoes/available/external', {
+    config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
+    const auth = await requireUserpBearer(request);
+    if (!auth.ok) return reply.status(auth.status).send({ error: auth.error });
+
+    const events = await prisma.event.findMany({
+      where: {
+        degustacao: { is: { visibility: 'publico', productId: { not: null } } },
+        startAt: { gte: new Date() },
+      },
+      include: {
+        venues: { include: { venue: true } },
+        degustacao: { include: { product: { select: { id: true, name: true } } } },
+        items: { where: { category: 'ab' }, include: { choices: true } },
+      },
+      orderBy: { startAt: 'asc' },
+    });
+
+    const degustacoes = events
+      .filter((e: any) => {
+        const menuItem = (e.items ?? []).find((it: any) => it.productId === e.degustacao.productId);
+        return menuItem?.choices?.some((c: any) => c.chosen.length > 0) ?? false;
+      })
+      .map((e: any) => ({
+        id: e.id,
+        name: e.name,
+        startAt: e.startAt,
+        venues: e.venues.map((v: any) => v.venue.name),
+        menu: e.degustacao.product?.name ?? null,
+        maxGuests: e.degustacao.maxGuests,
+      }));
+
+    return { success: true, degustacoes };
   });
 
   // Lista os links já gerados pra esta degustação (âncora), com status de inscrição de cada.
