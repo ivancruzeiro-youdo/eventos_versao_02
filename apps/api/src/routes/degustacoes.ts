@@ -640,4 +640,25 @@ export async function degustacaoRoutes(app: FastifyInstance) {
 
     return reply.status(201).send({ success: true, eventId: event.id });
   });
+
+  // Debug admin-only: mostra a resposta CRUA da Userp pra uma entidade, sem passar pelo parse
+  // de fetchUserpEntidade — pra diagnosticar "entidade X não existe" quando ela existe de fato
+  // na Userp (formato de resposta inesperado, id em campo diferente, etc.). Mesmo padrão de
+  // apps/api/src/routes/auth.ts (GET /sso-debug).
+  app.get('/degustacoes/debug/entidade/:userpEntidadeId', { preHandler: [requireAuth, requireRole(['admin'])] }, async (request, reply) => {
+    const { userpEntidadeId } = request.params as { userpEntidadeId: string };
+    const { token, baseUrl } = await getUserpToken();
+    const url = `${baseUrl}/api/userp-satelite/entidades/index.php?id=${userpEntidadeId}`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+    const rawText = await res.text();
+    let parsed: any = null;
+    try { parsed = JSON.parse(rawText); } catch { /* corpo não-JSON — devolve cru mesmo */ }
+    return {
+      url,
+      status: res.status,
+      ok: res.ok,
+      parsed,
+      rawText: parsed ? undefined : rawText.slice(0, 2000),
+    };
+  });
 }
