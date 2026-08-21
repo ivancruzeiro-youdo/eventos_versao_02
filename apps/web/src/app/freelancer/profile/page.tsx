@@ -139,7 +139,10 @@ export default function FreelancerProfilePage() {
     setPhotoError(null);
     try {
       const res: any = await freelancerApi.updatePhoto(photoPreview);
-      setProfile(res.freelancer);
+      // A resposta desse endpoint só traz os campos básicos do freelancer (sem
+      // services/penalties) — mescla em vez de substituir, senão o resto da tela
+      // (que depende desses arrays) quebra com "Cannot read properties of undefined".
+      setProfile(prev => prev ? { ...prev, ...res.freelancer } : res.freelancer);
       setPhotoPreview(null);
     } catch {
       setPhotoError('Não foi possível salvar a foto. Tente novamente.');
