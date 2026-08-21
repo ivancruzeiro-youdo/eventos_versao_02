@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import { prisma } from '../server.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
-import { getUserpToken, verifyUserpToken } from '../lib/userp-auth.js';
+import { getUserpToken, verifyUserpToken, userpFetch } from '../lib/userp-auth.js';
 
 const WRITE_ROLES = ['admin', 'event_owner', 'operator'];
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -25,9 +25,11 @@ function pickPadrao(list: any[] | undefined, valueKey: string, flagKey: string):
 class UserpUpstreamError extends Error {}
 
 async function fetchUserpEntidade(userpEntidadeId: number): Promise<{ nome: string; telefone: string | null; email: string | null } | null> {
-  const { token, baseUrl } = await getUserpToken();
-  const res = await fetch(`${baseUrl}/api/userp-satelite/entidades/index.php?id=${userpEntidadeId}`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+  // userpFetch já refaz a chamada 1x com token novo se vier 401 — sessão única por conta na
+  // Userp, um login concorrente (nosso ou de fora) invalida o token cacheado sem isso ser um
+  // problema real de credencial ou de entidade inexistente.
+  const res = await userpFetch(`/api/userp-satelite/entidades/index.php?id=${userpEntidadeId}`, {
+    headers: { Accept: 'application/json' },
   });
   if (!res.ok) {
     throw new UserpUpstreamError(`Falha ao consultar entidade na Userp (HTTP ${res.status}) — pode não significar que a entidade não existe.`);

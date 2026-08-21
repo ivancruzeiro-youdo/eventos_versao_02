@@ -44,6 +44,35 @@ export async function getUserpToken(): Promise<{ token: string; baseUrl: string 
   return { token: cachedToken as string, baseUrl };
 }
 
+function invalidateUserpToken(): void {
+  cachedToken = null;
+  tokenExpiresAt = 0;
+}
+
+/**
+ * fetch autenticado com o token de `/auth/token.php`, com 1 retry automático em 401. A Userp só
+ * mantém uma sessão ativa por conta — qualquer login concorrente na mesma conta (outra chamada
+ * nossa, um script de diagnóstico, o que for) invalida o token cacheado, e sem isso esse 401
+ * vazava pro usuário como se fosse um erro real (já aconteceu com a API de Acessos, e de novo
+ * na busca de entidade — não é a credencial, é a sessão única sendo disputada). `path` é
+ * relativo à base da Userp, ex. `/api/userp-satelite/entidades/index.php?id=123`.
+ */
+export async function userpFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const first = await getUserpToken();
+  const call = (token: string) => fetch(`${first.baseUrl}${path}`, {
+    ...init,
+    headers: { ...(init.headers || {}), Authorization: `Bearer ${token}` },
+  });
+
+  let res = await call(first.token);
+  if (res.status === 401) {
+    invalidateUserpToken();
+    const retried = await getUserpToken();
+    res = await call(retried.token);
+  }
+  return res;
+}
+
 let cachedLoginToken: string | null = null;
 let loginTokenExpiresAt = 0;
 
