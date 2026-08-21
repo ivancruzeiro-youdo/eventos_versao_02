@@ -12,7 +12,17 @@ const FREELANCER_SAFE_SELECT = {
   status: true, strikeCount: true, fotoBase64: true, createdAt: true, updatedAt: true,
 } as const;
 
-async function handleAcessoGrant(applicationId: string): Promise<void> {
+// Resultado explícito do que aconteceu — antes a função só devolvia void e engolia tanto o
+// "nem tentei" (sem vaga/mapeamento) quanto o "tentei e falhou", os dois em silêncio total
+// (nem log). Isso é o que fazia 11 candidaturas aprovadas de um evento pra amanhã nunca
+// aparecerem como fornecedor na Acessos sem nenhum rastro pra diagnosticar. Usado tanto pelo
+// disparo automático (fire-and-forget, ignora o retorno) quanto pelo reenvio manual abaixo
+// (que precisa mostrar pro operador exatamente por que não foi, ou se falhou de verdade).
+type GrantResult =
+  | { attempted: false; reason: string }
+  | { attempted: true; status: 'granted' | 'error'; reason?: string };
+
+async function handleAcessoGrant(applicationId: string): Promise<GrantResult> {
   const application = await prisma.freelancerApplication.findUnique({
     where: { id: applicationId },
     include: {
@@ -27,14 +37,19 @@ async function handleAcessoGrant(applicationId: string): Promise<void> {
     },
   });
 
-  if (!application) return;
+  if (!application) return { attempted: false, reason: 'Candidatura não encontrada.' };
 
   // Encontra o slot do serviço com as datas e mapeamentos de acesso
   const slot = application.event.services.find(
     (s: any) => s.service.name === application.role,
   );
 
-  if (!slot || !slot.service.acessoMappings.length) return;
+  if (!slot) {
+    return { attempted: false, reason: `Nenhuma vaga de "${application.role}" cadastrada neste evento (aba Mão de Obra).` };
+  }
+  if (!slot.service.acessoMappings.length) {
+    return { attempted: false, reason: `O serviço "${application.role}" não tem nenhuma portaria mapeada em Admin → Acessos por Serviço.` };
+  }
 
   const acessos = slot.service.acessoMappings.map((m: any) => ({
     acesso_id: m.acessoId,
@@ -74,6 +89,10 @@ async function handleAcessoGrant(applicationId: string): Promise<void> {
       response,
     },
   });
+
+  return status === 'granted'
+    ? { attempted: true, status: 'granted' }
+    : { attempted: true, status: 'error', reason: response?.error };
 }
 
 async function handleAcessoRevoke(applicationId: string): Promise<void> {
@@ -667,6 +686,30 @@ export async function freelancerRoutes(app: FastifyInstance) {
     }
 
     return { success: true, application: updated };
+  });
+
+  // Reenvio manual pra Acessos — cobre candidaturas já aprovadas que nunca foram enviadas
+  // (ex.: mapeamento de serviço configurado DEPOIS da aprovação; o envio automático só
+  // dispara uma vez, no momento da aprovação, então isso nunca se autocorrige sozinho).
+  // Ao contrário do fire-and-forget automático, aqui a resposta é aguardada de propósito —
+  // é uma ação manual do operador, que precisa saber na hora se funcionou ou não.
+  app.post('/applications/:id/resend-access', { preHandler: [requireAuth, requireRole(['admin', 'event_owner', 'operator'])] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const application = await prisma.freelancerApplication.findUnique({ where: { id }, include: { event: true } });
+    if (!application) return reply.status(404).send({ error: 'Candidatura não encontrada.' });
+    if (application.status !== 'approved') {
+      return reply.status(400).send({ error: 'Só é possível reenviar acesso para candidaturas aprovadas.' });
+    }
+
+    const result = await handleAcessoGrant(id);
+    if (!result.attempted) {
+      return reply.status(400).send({ error: result.reason });
+    }
+    if (result.status === 'error') {
+      return reply.status(502).send({ error: `A Acessos rejeitou o envio: ${result.reason || 'erro desconhecido'}` });
+    }
+    return { success: true };
   });
 
   // --- Admin CRUD ---

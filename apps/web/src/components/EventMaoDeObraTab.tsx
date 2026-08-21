@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { HardHat, Plus, Pencil, Trash2, X, Check, User, Phone, ChevronDown, ChevronRight, Mail, AlertTriangle, UserCheck, UserX, Users, Paperclip, FileText, Download, ClipboardList, Link2, Link2Off, UserPlus } from 'lucide-react';
+import { HardHat, Plus, Pencil, Trash2, X, Check, User, Phone, ChevronDown, ChevronRight, Mail, AlertTriangle, UserCheck, UserX, Users, Paperclip, FileText, Download, ClipboardList, Link2, Link2Off, UserPlus, RefreshCw } from 'lucide-react';
 import { formatDateTime } from '@/lib/utils';
 
 interface FreelancerService {
@@ -122,6 +122,7 @@ export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
   // Applications state
   const [applications, setApplications] = useState<Application[]>([]);
   const [updating, setUpdating] = useState<string | null>(null);
+  const [resending, setResending] = useState<string | null>(null);
 
   // Briefing state
   const [eventChecklists, setEventChecklists] = useState<{ id: string; title: string }[]>([]);
@@ -341,6 +342,25 @@ export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
       }
     } finally {
       setUpdating(null);
+    }
+  }
+
+  async function resendAccess(app: Application) {
+    setResending(app.id);
+    try {
+      const res = await fetch(`/api/v2/applications/${app.id}/resend-access`, {
+        method: 'POST', credentials: 'include',
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(`Acesso reenviado com sucesso pra ${app.freelancer.name}.`);
+      } else {
+        alert(`Não foi possível reenviar o acesso de ${app.freelancer.name}: ${data.error || 'erro desconhecido'}`);
+      }
+    } catch {
+      alert('Erro de conexão ao reenviar acesso.');
+    } finally {
+      setResending(null);
     }
   }
 
@@ -949,18 +969,28 @@ export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
                           </button>
                         )}
                         {app.status === 'approved' && (
-                          <button
-                            onClick={() => {
-                              if (confirm(`Remover ${app.freelancer.name} desta vaga?`)) {
-                                updateStatus(app.id, 'rejected');
-                              }
-                            }}
-                            disabled={busy}
-                            title="Remover freelancer"
-                            className="p-1.5 rounded-full bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-40 transition shrink-0"
-                          >
-                            <X size={14} />
-                          </button>
+                          <>
+                            <button
+                              onClick={() => resendAccess(app)}
+                              disabled={resending === app.id}
+                              title="Reenviar dados de acesso pra Acessos (fornecedor/foto)"
+                              className="p-1.5 rounded-full bg-blue-50 text-blue-600 hover:bg-blue-100 disabled:opacity-40 transition shrink-0"
+                            >
+                              <RefreshCw size={14} className={resending === app.id ? 'animate-spin' : ''} />
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (confirm(`Remover ${app.freelancer.name} desta vaga?`)) {
+                                  updateStatus(app.id, 'rejected');
+                                }
+                              }}
+                              disabled={busy}
+                              title="Remover freelancer"
+                              className="p-1.5 rounded-full bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-40 transition shrink-0"
+                            >
+                              <X size={14} />
+                            </button>
+                          </>
                         )}
                         {app.status === 'rejected' && (
                           <button
