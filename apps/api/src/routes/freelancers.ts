@@ -699,7 +699,7 @@ export async function freelancerRoutes(app: FastifyInstance) {
         take: limit,
         select: {
           id: true, name: true, email: true, cpf: true, phone: true,
-          birthDate: true, status: true, strikeCount: true,
+          birthDate: true, status: true, strikeCount: true, fotoBase64: true,
           createdAt: true, updatedAt: true,
           services: { include: { service: true } },
           _count: { select: { penalties: true, applications: { where: { status: 'approved' } } } },

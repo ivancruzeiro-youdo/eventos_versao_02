@@ -9,6 +9,7 @@ interface Service { id: string; name: string; hourlyRate: number; description?: 
 interface FreelancerItem {
   id: string; name: string; email: string; cpf: string; phone: string | null;
   birthDate: string | null; status: 'active' | 'suspended';
+  fotoBase64: string | null;
   services: { service: Service }[];
   _count: { penalties: number; applications: number };
 }
@@ -398,7 +399,18 @@ export default function FreelancersPage() {
                 return (
                   <tr key={f.id} className="hover:bg-muted/30 transition">
                     <td className="px-4 py-3 text-muted-foreground text-xs">{(page - 1) * limit + idx + 1}</td>
-                    <td className="px-4 py-3 font-medium">{f.name}</td>
+                    <td className="px-4 py-3 font-medium">
+                      <div className="flex items-center gap-2.5">
+                        {f.fotoBase64 ? (
+                          <img src={f.fotoBase64} alt={f.name} className="w-8 h-8 rounded-full object-cover shrink-0 border" />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center shrink-0 border">
+                            <User size={14} className="text-muted-foreground" />
+                          </div>
+                        )}
+                        <span>{f.name}</span>
+                      </div>
+                    </td>
                     <td className="px-4 py-3 text-muted-foreground">{f.email}</td>
                     <td className="px-4 py-3 text-muted-foreground">{fmtCpf(f.cpf)}</td>
                     <td className="px-4 py-3 text-muted-foreground">{f.phone || '—'}</td>
