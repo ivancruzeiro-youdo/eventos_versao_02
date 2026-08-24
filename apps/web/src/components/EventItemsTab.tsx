@@ -63,7 +63,7 @@ interface EventItem {
 
 interface Props {
   eventId: string;
-  category: 'ab' | 'infra';
+  category: 'ab' | 'infra' | 'entretenimento';
   /** Só pra pré-preencher o dia no editor de horário de serviço dos itens de A&B. */
   eventStartAt?: string | null;
 }

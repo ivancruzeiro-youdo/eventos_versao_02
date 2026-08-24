@@ -26,7 +26,7 @@ import {
   MessageCircle, FileText, Clock, CheckSquare, Users,
   ClipboardList, Briefcase, UtensilsCrossed, HardHat, Trash2, ChevronDown,
   Calendar, MapPin, Pencil, Check, X, Copy, UserCog, ChefHat, LogOut, Star, Plus,
-  GripVertical, Printer, Mail, Phone, CreditCard, FileSignature, Receipt, ListTodo, LayoutGrid, AlertTriangle, Camera, MonitorPlay, Music, Wine
+  GripVertical, Printer, Mail, Phone, CreditCard, FileSignature, Receipt, ListTodo, LayoutGrid, AlertTriangle, Camera, MonitorPlay, Music, Wine, PartyPopper
 } from 'lucide-react';
 
 interface EventContract {
@@ -96,6 +96,7 @@ const tabs = [
   { id: 'mao-de-obra', label: 'Mão de Obra', icon: Briefcase },
   { id: 'food', label: 'A&B', icon: UtensilsCrossed },
   { id: 'infra', label: 'Infraestrutura', icon: HardHat },
+  { id: 'entretenimento', label: 'Entretenimento', icon: PartyPopper },
   { id: 'kitchen', label: 'Cozinha', icon: ChefHat },
   { id: 'team', label: 'Pessoas', icon: UserCog },
   { id: 'professionals', label: 'Profissionais', icon: Camera },
@@ -1255,7 +1256,7 @@ export default function EventDetailPage() {
             const hasBadge = (() => {
               if (tab.id === 'checklists') return checklists.some(c => c.items.some(i => !i.done));
               if (tab.id === 'guests') return pendingGuests > 0;
-              return tabBadges[tab.id === 'food' ? 'food' : tab.id === 'infra' ? 'infra' : tab.id === 'mao-de-obra' ? 'maoDeObra' : tab.id === 'team' ? 'team' : tab.id === 'plan' ? 'plan' : tab.id === 'atividades' ? 'atividades' : ''] === true;
+              return tabBadges[tab.id === 'food' ? 'food' : tab.id === 'infra' ? 'infra' : tab.id === 'entretenimento' ? 'entretenimento' : tab.id === 'mao-de-obra' ? 'maoDeObra' : tab.id === 'team' ? 'team' : tab.id === 'plan' ? 'plan' : tab.id === 'atividades' ? 'atividades' : ''] === true;
             })();
             const isActive = activeTab === tab.id;
             return (
@@ -1511,6 +1512,15 @@ export default function EventDetailPage() {
             Infraestrutura
           </h3>
           <EventItemsTab eventId={eventId} category="infra" />
+        </div>
+      )}
+      {activeTab === 'entretenimento' && (
+        <div>
+          <h3 className="font-medium mb-4 flex items-center gap-2 text-sm">
+            <PartyPopper className="size-4" />
+            Entretenimento
+          </h3>
+          <EventItemsTab eventId={eventId} category="entretenimento" />
         </div>
       )}
       {activeTab === 'kitchen' && (

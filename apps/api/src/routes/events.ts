@@ -498,6 +498,7 @@ export async function eventRoutes(app: FastifyInstance) {
     const [
       abItems,
       infraItems,
+      entretenimentoItems,
       staffSlots,
       teamCount,
       planItems,
@@ -520,6 +521,16 @@ export async function eventRoutes(app: FastifyInstance) {
         select: {
           id: true,
           choices: { where: { chosen: { isEmpty: false } }, select: { id: true } },
+        },
+      }),
+      // Entretenimento items: mesmo critério do A&B — pode ter perguntas de configuração
+      // (ex.: repertório de banda), não só subitens.
+      (prisma as any).eventItem.findMany({
+        where: { eventId, category: 'entretenimento' },
+        select: {
+          id: true,
+          choices: { where: { chosen: { isEmpty: false } }, select: { id: true } },
+          answers: { select: { id: true } },
         },
       }),
       // Mão de obra: slots where filledCount < quantity
@@ -553,6 +564,7 @@ export async function eventRoutes(app: FastifyInstance) {
 
     const abPending = abItems.filter((i: any) => i.choices.length === 0 && i.answers.length === 0).length;
     const infraPending = infraItems.filter((i: any) => i.choices.length === 0).length;
+    const entretenimentoPending = entretenimentoItems.filter((i: any) => i.choices.length === 0 && i.answers.length === 0).length;
     const staffPending = (staffSlots as any[]).some((s: any) => s.filledCount < s.quantity);
 
     // Compute plan completeness
@@ -577,6 +589,7 @@ export async function eventRoutes(app: FastifyInstance) {
     return {
       food: abPending > 0,
       infra: infraPending > 0,
+      entretenimento: entretenimentoPending > 0,
       maoDeObra: staffPending,
       team: teamCount === 0,
       plan: totalQ > 0 && answeredQ < totalQ,

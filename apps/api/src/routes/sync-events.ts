@@ -80,12 +80,13 @@ async function fetchContratos(token: string, baseUrl: string): Promise<any[]> {
 }
 
 // Determine category from product categoryName
-function mapCategory(categoryName: string | null): 'ab' | 'infra' | 'staff' | 'venue' | null {
+function mapCategory(categoryName: string | null): 'ab' | 'infra' | 'staff' | 'venue' | 'entretenimento' | null {
   if (!categoryName) return null;
   const n = categoryName.toLowerCase();
   if (n.includes('alimento') || n.includes('bebida') || n.includes(' a&b') || n.includes('a & b') || n.includes('fornecimento de alimento')) return 'ab';
   if (n.includes('equipe') || n.includes('apoio') || n.includes('staff') || n.includes('fornecimento de equipe')) return 'staff';
   if (n.includes('infraestrutura') || n.includes('infra') || n.includes('loca') || n.includes('equipamento')) return 'infra';
+  if (n.includes('entretenimento')) return 'entretenimento';
   return null;
 }
 
@@ -241,7 +242,7 @@ interface PreviewEventItem {
   unit: string;
   externalProductCode: string | null;
   occurrenceIndex: number;
-  category: 'ab' | 'infra' | 'staff' | 'venue' | 'unknown';
+  category: 'ab' | 'infra' | 'staff' | 'venue' | 'entretenimento' | 'unknown';
   productId: string | null;
   productName: string | null;
   venueId: string | null;
