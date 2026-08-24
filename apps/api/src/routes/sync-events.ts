@@ -284,6 +284,21 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     return { status: res.status, total: raw.total, filters: raw.filters, firstItem: raw.items?.[0] ?? null };
   });
 
+  // DEBUG: detalhe cru de UM contrato (mesma chamada que fetchContratoDetails já faz) — pra
+  // inspecionar campos novos que a Userp passou a devolver (ex.: usuário(s) do contrato) antes
+  // de decidir onde/como parsear e persistir.
+  app.get('/events/debug-contract-details/:codlocacontrato', { preHandler: requireAuth }, async (request, reply) => {
+    const { codlocacontrato } = request.params as { codlocacontrato: string };
+    let token: string, baseUrl: string;
+    try { ({ token, baseUrl } = await getUserpToken()); } catch (e: any) { return reply.status(400).send({ error: e.message }); }
+    const url = `${baseUrl}/api/userp-satelite/experience/contracts-details.php?codlocacontrato=${codlocacontrato}`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+    const raw = await res.text();
+    let parsed: any = null;
+    try { parsed = JSON.parse(raw); } catch { /* corpo não-JSON — devolve cru mesmo */ }
+    return { url, status: res.status, ok: res.ok, parsed, rawText: parsed ? undefined : raw.slice(0, 3000) };
+  });
+
   // DEBUG: probe Userp experience-specific endpoints
   app.get('/events/debug-probe-endpoints', { preHandler: requireAuth }, async (_request, reply) => {
     let token: string, baseUrl: string;
