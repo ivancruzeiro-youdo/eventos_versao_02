@@ -1144,9 +1144,36 @@ model EventContract {
   createdAt       DateTime @default(now())
 
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  users EventContractUser[]
 
   @@index([eventId])
   @@index([clientCode, startDate])
+}
+
+// Usuário vinculado ao contrato no Userp (tb_loca_contrato_usuarios + tb_usuarios) — não é
+// staff nem convidado do evento, é um contato/acesso do lado do cliente (ex.: cônjuge com
+// acesso ao app). Vem do endpoint de LISTAGEM de contratos (contratos/index.php), não do
+// endpoint de detalhe usado pelo resto do sync — por isso é sincronizado à parte, em
+// syncContractUsers() (sync-events.ts). Exibido na aba "Pessoas" do evento, só leitura.
+model EventContractUser {
+  id               String   @id @default(uuid())
+  eventContractId  String
+  usuarioId        Int      // tb_usuarios.usr_id
+  contUserId       Int      // tb_loca_contrato_usuarios.contuser_id — id do vínculo em si
+  nome             String
+  telefone         String?
+  email            String?
+  documento        String?
+  acessaApp        Boolean  @default(false)
+  acessaUnidade    Boolean  @default(false)
+  acessoConsultivo Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  eventContract EventContract @relation(fields: [eventContractId], references: [id], onDelete: Cascade)
+
+  @@unique([eventContractId, usuarioId])
+  @@index([eventContractId])
 }
 
 // Item contratado dentro de um evento (A&B, Infraestrutura, Equipe, Locação)

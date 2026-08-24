@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, UserPlus, X, Pencil, Trash2, User, Camera } from 'lucide-react';
+import { Search, UserPlus, X, Pencil, Trash2, User, Camera, Mail, Phone, FileText, Smartphone } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -19,6 +19,21 @@ interface EventMember {
   eventId: string;
   role: string;
   person: Person;
+}
+
+// Usuário vinculado ao(s) contrato(s) do evento no Userp — só leitura, não é gerenciado aqui
+// (vem do sync). Distinto de EventMember: não é staff/equipe, é um contato do lado do cliente
+// (ex.: cônjuge com acesso ao app).
+interface ContractUser {
+  usuarioId: number;
+  nome: string;
+  telefone: string | null;
+  email: string | null;
+  documento: string | null;
+  acessaApp: boolean;
+  acessaUnidade: boolean;
+  acessoConsultivo: boolean;
+  contracts: string[];
 }
 
 interface Props {
@@ -364,6 +379,8 @@ export default function EventTeamTab({ eventId }: Props) {
   const [editRoleId, setEditRoleId] = useState<string | null>(null);
   const [roleValue, setRoleValue] = useState('');
   const [saving, setSaving] = useState(false);
+  const [contractUsers, setContractUsers] = useState<ContractUser[]>([]);
+  const [loadingContractUsers, setLoadingContractUsers] = useState(true);
 
   async function load() {
     setLoading(true);
@@ -376,7 +393,18 @@ export default function EventTeamTab({ eventId }: Props) {
     }
   }
 
-  useEffect(() => { load(); }, [eventId]);
+  async function loadContractUsers() {
+    setLoadingContractUsers(true);
+    try {
+      const r = await fetch(`/api/v2/events/${eventId}/contract-users`, { credentials: 'include' });
+      const d = await r.json();
+      setContractUsers(d.users || []);
+    } finally {
+      setLoadingContractUsers(false);
+    }
+  }
+
+  useEffect(() => { load(); loadContractUsers(); }, [eventId]);
 
   async function removeMember(personId: string) {
     if (!confirm('Remover essa pessoa do evento?')) return;
@@ -496,6 +524,54 @@ export default function EventTeamTab({ eventId }: Props) {
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Usuários do Contrato (Userp) — só leitura, vem da sincronização do contrato */}
+      {!loadingContractUsers && contractUsers.length > 0 && (
+        <div className="pt-2">
+          <div className="mb-2">
+            <h3 className="font-semibold text-sm">Usuários do Contrato</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Contatos vinculados ao contrato no Userp — sincronizados automaticamente, não editáveis aqui.
+            </p>
+          </div>
+          <div className="space-y-2">
+            {contractUsers.map(u => (
+              <div key={u.usuarioId} className="flex items-center gap-3 p-3 border rounded-xl bg-muted/20">
+                <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center shrink-0">
+                  <User size={16} className="text-muted-foreground" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{u.nome}</p>
+                  <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                    {u.telefone && (
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Phone size={11} /> {u.telefone}
+                      </span>
+                    )}
+                    {u.email && (
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Mail size={11} /> {u.email}
+                      </span>
+                    )}
+                    {u.documento && (
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <FileText size={11} /> {u.documento}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="shrink-0 flex items-center gap-1.5">
+                  {u.acessaApp && (
+                    <span title="Acessa o app" className="flex items-center gap-1 text-xs font-medium text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
+                      <Smartphone size={11} /> App
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

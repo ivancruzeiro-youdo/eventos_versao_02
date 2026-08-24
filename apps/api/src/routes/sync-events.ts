@@ -39,6 +39,54 @@ async function fetchContratoDetails(token: string, baseUrl: string, codlocacontr
   return data?.contracts ?? null;
 }
 
+// Usuários vinculados ao contrato (tb_loca_contrato_usuarios) — vem do endpoint de LISTAGEM
+// de contratos (contratos/index.php?codlocacontrato=X), não do endpoint de detalhe usado pelo
+// resto do sync (experience/contracts-details.php), que não tem esse campo. `null` = falha de
+// rede/auth (estado inconclusivo — NUNCA deve ser tratado como "lista vazia", senão o prune em
+// syncContractUsers apagaria vínculos reais por causa de uma falha passageira).
+async function fetchContratoUsuarios(token: string, baseUrl: string, codlocacontrato: number): Promise<any[] | null> {
+  const res = await fetch(`${baseUrl}/api/userp-satelite/contratos/index.php?codlocacontrato=${codlocacontrato}`, {
+    headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return null;
+  let data: any;
+  try { data = await res.json(); } catch { return null; }
+  const usuarios = data?.items?.[0]?.usuarios;
+  return Array.isArray(usuarios) ? usuarios : [];
+}
+
+// Upsert dos usuários de UM contrato já persistido localmente (EventContractUser), e remove os
+// que não vieram mais na resposta (usuário desvinculado do contrato no Userp).
+async function syncContractUsers(eventContractId: string, codlocacontrato: number, token: string, baseUrl: string): Promise<void> {
+  const usuarios = await fetchContratoUsuarios(token, baseUrl, codlocacontrato);
+  if (usuarios === null) return; // falha ao consultar — não mexe no que já está salvo
+
+  const seenIds: number[] = [];
+  for (const u of usuarios) {
+    const usuarioId = Number(u.usuario_id);
+    if (!usuarioId) continue;
+    seenIds.push(usuarioId);
+    const data = {
+      contUserId: Number(u.contuser_id) || 0,
+      nome: u.usr_nome || '(sem nome)',
+      telefone: u.usr_fones || null,
+      email: u.usr_email || null,
+      documento: u.usr_documento || null,
+      acessaApp: !!u.acessa_app,
+      acessaUnidade: !!u.acessa_unidade,
+      acessoConsultivo: !!u.acesso_consultivo,
+    };
+    await (prisma as any).eventContractUser.upsert({
+      where: { eventContractId_usuarioId: { eventContractId, usuarioId } },
+      create: { eventContractId, usuarioId, ...data },
+      update: data,
+    });
+  }
+  await (prisma as any).eventContractUser.deleteMany({
+    where: { eventContractId, usuarioId: { notIn: seenIds } },
+  });
+}
+
 // Distinguish a confirmed "contract no longer exists" (safe to act on) from a transient/other
 // error (inconclusive — must never be treated as evidence the contract was removed).
 async function contratoStatus(token: string, baseUrl: string, codlocacontrato: number): Promise<'found' | 'not_found' | 'error'> {
@@ -605,6 +653,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
         const extId = String(rc.codlocacontrato || '');
         if (!extId) continue;
         const exists = await (prisma as any).eventContract.findFirst({ where: { externalId: extId } });
+        let contractId: string;
         if (exists) {
           // Reescreve também clientCode/startDate: antes só o rawJson era atualizado, então
           // um evento remarcado no UERP ficava com o startDate antigo pra sempre e a chave
@@ -613,27 +662,38 @@ export async function syncEventsRoutes(app: FastifyInstance) {
             where: { id: exists.id },
             data: { rawJson: rc, clientCode, startDate },
           });
+          contractId = exists.id;
         } else {
-          await (prisma as any).eventContract.create({
+          const created = await (prisma as any).eventContract.create({
             data: { eventId, externalId: extId, clientCode, startDate, rawJson: rc },
           });
+          contractId = created.id;
         }
+        // Usuários vinculados ao contrato (Pessoas do contrato no Userp) — endpoint separado
+        // do detalhe usado acima, então roda à parte, tanto no import quanto em toda
+        // atualização (sync roda de novo pra todo evento já importado).
+        await syncContractUsers(contractId, Number(extId), token, baseUrl);
+
         // Also upsert secondary contracts — they don't appear in the paginated list and
         // can't be fetched individually, so they must be tracked via their parent's details.
         for (const sec of (rc._secondary || [])) {
           const secExtId = String(sec.codlocacontrato || '');
           if (!secExtId) continue;
           const secExists = await (prisma as any).eventContract.findFirst({ where: { externalId: secExtId } });
+          let secContractId: string;
           if (secExists) {
             await (prisma as any).eventContract.update({
               where: { id: secExists.id },
               data: { rawJson: sec, clientCode, startDate },
             });
+            secContractId = secExists.id;
           } else {
-            await (prisma as any).eventContract.create({
+            const createdSec = await (prisma as any).eventContract.create({
               data: { eventId, externalId: secExtId, clientCode, startDate, rawJson: sec },
             });
+            secContractId = createdSec.id;
           }
+          await syncContractUsers(secContractId, Number(secExtId), token, baseUrl);
         }
       }
 
@@ -1430,6 +1490,42 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       orderBy: { syncedAt: 'desc' },
     });
     return { success: true, logs };
+  });
+
+  // GET /events/:id/contract-users — usuários vinculados aos contratos do evento no Userp
+  // (tb_loca_contrato_usuarios), exibidos na aba Pessoas. Um mesmo usuário pode aparecer em
+  // mais de um contrato (principal + secundários) — dedupe por usuarioId, mantendo a lista de
+  // contratos em que ele aparece pra dar contexto.
+  app.get('/events/:id/contract-users', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const contracts = await (prisma as any).eventContract.findMany({
+      where: { eventId: id },
+      select: { id: true, externalId: true, users: true },
+    });
+
+    const byUsuarioId = new Map<number, any>();
+    for (const c of contracts) {
+      for (const u of c.users) {
+        const existing = byUsuarioId.get(u.usuarioId);
+        if (existing) {
+          existing.contracts.push(c.externalId);
+        } else {
+          byUsuarioId.set(u.usuarioId, {
+            usuarioId: u.usuarioId,
+            nome: u.nome,
+            telefone: u.telefone,
+            email: u.email,
+            documento: u.documento,
+            acessaApp: u.acessaApp,
+            acessaUnidade: u.acessaUnidade,
+            acessoConsultivo: u.acessoConsultivo,
+            contracts: [c.externalId],
+          });
+        }
+      }
+    }
+
+    return { success: true, users: [...byUsuarioId.values()] };
   });
 
   // GET /events/:id/items — items contratados
