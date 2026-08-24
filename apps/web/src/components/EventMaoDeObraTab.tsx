@@ -123,6 +123,10 @@ export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
   const [applications, setApplications] = useState<Application[]>([]);
   const [updating, setUpdating] = useState<string | null>(null);
   const [resending, setResending] = useState<string | null>(null);
+  // Confirmação de aprovar/remover candidatura — inline em vez de window.confirm(): o dialog
+  // nativo é bloqueado ou some silenciosamente em alguns navegadores in-app (WhatsApp,
+  // Instagram) no mobile, fazendo o clique "não evoluir" mesmo funcionando perfeito no desktop.
+  const [pendingConfirm, setPendingConfirm] = useState<{ appId: string; status: 'approved' | 'rejected'; message: string } | null>(null);
 
   // Briefing state
   const [eventChecklists, setEventChecklists] = useState<{ id: string; title: string }[]>([]);
@@ -343,6 +347,38 @@ export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
     } finally {
       setUpdating(null);
     }
+  }
+
+  function askConfirm(appId: string, status: 'approved' | 'rejected', message: string) {
+    setPendingConfirm({ appId, status, message });
+  }
+
+  function confirmPending() {
+    if (!pendingConfirm) return;
+    const { appId, status } = pendingConfirm;
+    setPendingConfirm(null);
+    updateStatus(appId, status);
+  }
+
+  function renderConfirm(appId: string, size: 'sm' | 'xs' = 'sm') {
+    if (pendingConfirm?.appId !== appId) return null;
+    const pad = size === 'sm' ? 'px-3 py-2' : 'px-2.5 py-1.5';
+    return (
+      <div className="flex items-center gap-2 shrink-0">
+        <button
+          onClick={confirmPending}
+          className={`${pad} rounded bg-destructive text-destructive-foreground text-xs font-semibold hover:opacity-90 transition`}
+        >
+          Confirmar
+        </button>
+        <button
+          onClick={() => setPendingConfirm(null)}
+          className={`${pad} rounded border text-xs text-muted-foreground hover:bg-muted transition`}
+        >
+          Cancelar
+        </button>
+      </div>
+    );
   }
 
   async function resendAccess(app: Application) {
@@ -652,14 +688,16 @@ export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
                                 </span>
                               )}
                               <span className="text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded-full shrink-0">Confirmado</span>
-                              <button
-                                onClick={() => { if (confirm(`Remover ${app.freelancer.name} desta vaga?`)) updateStatus(app.id, 'rejected'); }}
-                                disabled={updating === app.id}
-                                title="Remover"
-                                className="p-1.5 rounded-full bg-red-50 text-red-500 hover:bg-red-100 disabled:opacity-40 transition shrink-0"
-                              >
-                                <X size={13} />
-                              </button>
+                              {pendingConfirm?.appId === app.id ? renderConfirm(app.id, 'xs') : (
+                                <button
+                                  onClick={() => askConfirm(app.id, 'rejected', `Remover ${app.freelancer.name} desta vaga?`)}
+                                  disabled={updating === app.id}
+                                  title="Remover"
+                                  className="p-2 rounded-full bg-red-50 text-red-500 hover:bg-red-100 disabled:opacity-40 transition shrink-0"
+                                >
+                                  <X size={14} />
+                                </button>
+                              )}
                             </div>
                           ))}
                           {pendingApps.map(app => (
@@ -676,22 +714,26 @@ export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
                                 )}
                               </div>
                               <span className="text-xs font-medium text-yellow-700 bg-yellow-100 px-2 py-0.5 rounded-full shrink-0">Pendente</span>
-                              <button
-                                onClick={() => { if (confirm(`Aprovar ${app.freelancer.name} para esta vaga?`)) updateStatus(app.id, 'approved'); }}
-                                disabled={updating === app.id}
-                                title="Aprovar"
-                                className="p-1.5 rounded-full bg-green-50 text-green-600 hover:bg-green-100 disabled:opacity-40 transition shrink-0"
-                              >
-                                <Check size={13} />
-                              </button>
-                              <button
-                                onClick={() => { if (confirm(`Rejeitar ${app.freelancer.name}?`)) updateStatus(app.id, 'rejected'); }}
-                                disabled={updating === app.id}
-                                title="Rejeitar"
-                                className="p-1.5 rounded-full bg-red-50 text-red-500 hover:bg-red-100 disabled:opacity-40 transition shrink-0"
-                              >
-                                <X size={13} />
-                              </button>
+                              {pendingConfirm?.appId === app.id ? renderConfirm(app.id, 'xs') : (
+                                <>
+                                  <button
+                                    onClick={() => askConfirm(app.id, 'approved', `Aprovar ${app.freelancer.name} para esta vaga?`)}
+                                    disabled={updating === app.id}
+                                    title="Aprovar"
+                                    className="p-2 rounded-full bg-green-50 text-green-600 hover:bg-green-100 disabled:opacity-40 transition shrink-0"
+                                  >
+                                    <Check size={14} />
+                                  </button>
+                                  <button
+                                    onClick={() => askConfirm(app.id, 'rejected', `Rejeitar ${app.freelancer.name}?`)}
+                                    disabled={updating === app.id}
+                                    title="Rejeitar"
+                                    className="p-2 rounded-full bg-red-50 text-red-500 hover:bg-red-100 disabled:opacity-40 transition shrink-0"
+                                  >
+                                    <X size={14} />
+                                  </button>
+                                </>
+                              )}
                             </div>
                           ))}
                           {!hasAny && (
@@ -913,95 +955,93 @@ export default function EventMaoDeObraTab({ eventId, eventStartAt }: Props) {
                     const cfg = applicationStatusConfig[app.status];
                     const busy = updating === app.id;
                     return (
-                      <div key={app.id} className={`flex items-center gap-4 px-5 py-4 ${app.status === 'rejected' ? 'opacity-50' : ''}`}>
-                        {/* Avatar */}
-                        <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0 font-semibold text-primary text-sm">
-                          {app.freelancer.name.charAt(0).toUpperCase()}
-                        </div>
-
-                        {/* Info */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="font-medium text-sm">{app.freelancer.name}</p>
-                            {app.freelancer.strikeCount > 0 && (
-                              <span title={`${app.freelancer.strikeCount} penalidade(s)`}
-                                className="flex items-center gap-0.5 text-xs text-orange-600">
-                                <AlertTriangle size={11} /> {app.freelancer.strikeCount}
-                              </span>
-                            )}
+                      <div key={app.id} className={`flex flex-wrap items-center gap-3 px-5 py-4 ${app.status === 'rejected' ? 'opacity-50' : ''}`}>
+                        {/* Avatar + Info — agrupados pra quebrar juntos em telas estreitas */}
+                        <div className="flex items-center gap-3 flex-1 min-w-[220px]">
+                          <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0 font-semibold text-primary text-sm">
+                            {app.freelancer.name.charAt(0).toUpperCase()}
                           </div>
-                          <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-                            <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                              <Mail size={11} /> {app.freelancer.email}
-                            </span>
-                            {app.freelancer.phone && (
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="font-medium text-sm">{app.freelancer.name}</p>
+                              {app.freelancer.strikeCount > 0 && (
+                                <span title={`${app.freelancer.strikeCount} penalidade(s)`}
+                                  className="flex items-center gap-0.5 text-xs text-orange-600">
+                                  <AlertTriangle size={11} /> {app.freelancer.strikeCount}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                               <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                                <Phone size={11} /> {app.freelancer.phone}
+                                <Mail size={11} /> {app.freelancer.email}
                               </span>
-                            )}
-                            <span className="text-xs text-muted-foreground">
-                              {new Date(app.appliedAt).toLocaleDateString('pt-BR', {
-                                day: '2-digit', month: '2-digit',
-                                hour: '2-digit', minute: '2-digit',
-                              })}
-                            </span>
+                              {app.freelancer.phone && (
+                                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                                  <Phone size={11} /> {app.freelancer.phone}
+                                </span>
+                              )}
+                              <span className="text-xs text-muted-foreground">
+                                {new Date(app.appliedAt).toLocaleDateString('pt-BR', {
+                                  day: '2-digit', month: '2-digit',
+                                  hour: '2-digit', minute: '2-digit',
+                                })}
+                              </span>
+                            </div>
                           </div>
                         </div>
 
-                        {/* Status badge */}
-                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium shrink-0 ${cfg?.color ?? 'bg-muted text-muted-foreground'}`}>
-                          {cfg?.label ?? app.status}
-                        </span>
+                        {/* Status badge + ações — agrupados, podem quebrar pra linha de baixo
+                            em telas estreitas sem espremer contra o nome/e-mail */}
+                        <div className="flex items-center gap-2 shrink-0 ml-auto">
+                          <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium shrink-0 ${cfg?.color ?? 'bg-muted text-muted-foreground'}`}>
+                            {cfg?.label ?? app.status}
+                          </span>
 
-                        {/* Actions */}
-                        {app.status === 'pending' && (
-                          <button
-                            onClick={() => {
-                              if (confirm(`Aprovar ${app.freelancer.name} para esta vaga?`)) {
-                                updateStatus(app.id, 'approved');
-                              }
-                            }}
-                            disabled={busy}
-                            title="Aprovar freelancer"
-                            className="p-1.5 rounded-full bg-green-50 text-green-600 hover:bg-green-100 disabled:opacity-40 transition shrink-0"
-                          >
-                            <Check size={14} />
-                          </button>
-                        )}
-                        {app.status === 'approved' && (
-                          <>
+                          {app.status === 'pending' && (
+                            pendingConfirm?.appId === app.id ? renderConfirm(app.id) : (
+                              <button
+                                onClick={() => askConfirm(app.id, 'approved', `Aprovar ${app.freelancer.name} para esta vaga?`)}
+                                disabled={busy}
+                                title="Aprovar freelancer"
+                                className="p-2.5 rounded-full bg-green-50 text-green-600 hover:bg-green-100 disabled:opacity-40 transition shrink-0"
+                              >
+                                <Check size={16} />
+                              </button>
+                            )
+                          )}
+                          {app.status === 'approved' && (
+                            pendingConfirm?.appId === app.id ? renderConfirm(app.id) : (
+                              <>
+                                <button
+                                  onClick={() => resendAccess(app)}
+                                  disabled={resending === app.id}
+                                  title="Reenviar dados de acesso pra Acessos (fornecedor/foto)"
+                                  className="p-2.5 rounded-full bg-blue-50 text-blue-600 hover:bg-blue-100 disabled:opacity-40 transition shrink-0"
+                                >
+                                  <RefreshCw size={16} className={resending === app.id ? 'animate-spin' : ''} />
+                                </button>
+                                <button
+                                  onClick={() => askConfirm(app.id, 'rejected', `Remover ${app.freelancer.name} desta vaga?`)}
+                                  disabled={busy}
+                                  title="Remover freelancer"
+                                  className="p-2.5 rounded-full bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-40 transition shrink-0"
+                                >
+                                  <X size={16} />
+                                </button>
+                              </>
+                            )
+                          )}
+                          {app.status === 'rejected' && (
                             <button
-                              onClick={() => resendAccess(app)}
-                              disabled={resending === app.id}
-                              title="Reenviar dados de acesso pra Acessos (fornecedor/foto)"
-                              className="p-1.5 rounded-full bg-blue-50 text-blue-600 hover:bg-blue-100 disabled:opacity-40 transition shrink-0"
-                            >
-                              <RefreshCw size={14} className={resending === app.id ? 'animate-spin' : ''} />
-                            </button>
-                            <button
-                              onClick={() => {
-                                if (confirm(`Remover ${app.freelancer.name} desta vaga?`)) {
-                                  updateStatus(app.id, 'rejected');
-                                }
-                              }}
+                              onClick={() => updateStatus(app.id, 'approved')}
                               disabled={busy}
-                              title="Remover freelancer"
-                              className="p-1.5 rounded-full bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-40 transition shrink-0"
+                              title="Restaurar"
+                              className="px-3 py-2 rounded border text-xs text-muted-foreground hover:bg-muted disabled:opacity-40 transition shrink-0"
                             >
-                              <X size={14} />
+                              Restaurar
                             </button>
-                          </>
-                        )}
-                        {app.status === 'rejected' && (
-                          <button
-                            onClick={() => updateStatus(app.id, 'approved')}
-                            disabled={busy}
-                            title="Restaurar"
-                            className="px-2.5 py-1 rounded border text-xs text-muted-foreground hover:bg-muted disabled:opacity-40 transition shrink-0"
-                          >
-                            Restaurar
-                          </button>
-                        )}
+                          )}
+                        </div>
                       </div>
                     );
                   })}
