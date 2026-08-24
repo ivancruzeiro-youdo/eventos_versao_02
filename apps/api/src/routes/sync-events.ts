@@ -1012,6 +1012,10 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     for (const ec of eventContracts) {
       const detail = await fetchContratoDetails(token, baseUrl, Number(ec.externalId));
       detailByExternalId.set(ec.externalId, detail);
+      // Não é o único lugar que dispara isso (sync-import também sincroniza), mas é o que roda
+      // sempre que a página do evento é aberta — sem isso, "Usuários do Contrato" só atualizava
+      // depois de uma importação manual, e o operador nunca reimporta um evento já criado.
+      await syncContractUsers(ec.id, Number(ec.externalId), token, baseUrl);
       if (!detail?.secondary?.length) continue;
       for (const sec of detail.secondary) {
         const secId = String(sec.codlocacontrato || '');
