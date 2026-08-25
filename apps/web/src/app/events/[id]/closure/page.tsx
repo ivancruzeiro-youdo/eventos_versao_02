@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
 import { closureApi } from '@/lib/api';
-import { Copy, CheckCircle, FileText, AlertTriangle, Star } from 'lucide-react';
+import { Copy, CheckCircle, FileText, AlertTriangle, Star, Car } from 'lucide-react';
 
 function NpsScore({ score }: { score: number }) {
   let colorClass = 'text-red-600 bg-red-50 border-red-200';
@@ -25,6 +25,7 @@ export default function ClosurePage() {
   const eventId = params.id as string;
   const [closure, setClosure] = useState<any>(null);
   const [npsUrl, setNpsUrl] = useState('');
+  const [parkingEntries, setParkingEntries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
@@ -35,9 +36,13 @@ export default function ClosurePage() {
 
   async function load() {
     try {
-      const res = await closureApi.getClosure(eventId);
+      const [res, parkingRes] = await Promise.all([
+        closureApi.getClosure(eventId),
+        closureApi.getParkingEntries(eventId).catch(() => ({ entries: [] })),
+      ]);
       setClosure(res.closure);
       setNpsUrl(res.npsUrl || '');
+      setParkingEntries(parkingRes.entries || []);
     } catch (err: any) {
       setError(err.message || 'Erro ao carregar encerramento');
     } finally {
@@ -181,6 +186,24 @@ export default function ClosurePage() {
               <h2 className="font-semibold">Situações Reportadas</h2>
             </div>
             <p className="text-sm whitespace-pre-wrap text-muted-foreground">{closure.situacoesReportadas}</p>
+          </div>
+        )}
+
+        {/* Veículos Estacionados */}
+        {parkingEntries.length > 0 && (
+          <div className="bg-card border rounded-xl p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <Car size={16} className="text-slate-500" />
+              <h2 className="font-semibold">Veículos Estacionados ({parkingEntries.length})</h2>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {parkingEntries.map((p: any) => (
+                <div key={p.id} className="border rounded-lg overflow-hidden bg-muted/50">
+                  <img src={p.photoUrl} alt={p.guestName} className="w-full h-32 object-cover" />
+                  <p className="text-xs font-medium truncate px-2 py-1.5" title={p.guestName}>{p.guestName}</p>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

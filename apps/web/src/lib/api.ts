@@ -181,6 +181,7 @@ export const closureApi = {
   getClosure: (eventId: string) => fetchApi(`/api/v2/events/${eventId}/closure`),
   getAttachment: (id: string) => fetchApi(`/api/v2/closure/attachments/${id}`),
   getNps: (eventId: string) => fetchApi(`/api/v2/events/${eventId}/nps-org`),
+  getParkingEntries: (eventId: string) => fetchApi(`/api/v2/events/${eventId}/parking-entries`),
 };
 
 // Public NPS API (no auth)
