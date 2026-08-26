@@ -26,7 +26,8 @@ import {
   MessageCircle, FileText, Clock, CheckSquare, Users,
   ClipboardList, Briefcase, UtensilsCrossed, HardHat, Trash2, ChevronDown,
   Calendar, MapPin, Pencil, Check, X, Copy, UserCog, ChefHat, LogOut, Star, Plus,
-  GripVertical, Printer, Mail, Phone, CreditCard, FileSignature, Receipt, ListTodo, LayoutGrid, AlertTriangle, Camera, MonitorPlay, Music, Wine, PartyPopper
+  GripVertical, Printer, Mail, Phone, CreditCard, FileSignature, Receipt, ListTodo, LayoutGrid, AlertTriangle, Camera, MonitorPlay, Music, Wine, PartyPopper,
+  ExternalLink, Loader2,
 } from 'lucide-react';
 
 interface EventContract {
@@ -66,7 +67,7 @@ interface Event {
   degustacao?: {
     visibility: string;
     maxGuests: number;
-    links: { id: string; token: string; nome: string; userpEntidadeId: number; enrolledEventId: string | null; enrolledGuestNames: string[]; notes: string | null }[];
+    links: { id: string; token: string; nome: string; userpEntidadeId: number; email: string | null; enrolledEventId: string | null; enrolledGuestNames: string[]; notes: string | null }[];
   } | null;
 }
 
@@ -170,6 +171,9 @@ export default function EventDetailPage() {
   const [notesDraft, setNotesDraft] = useState('');
   const [savingNotes, setSavingNotes] = useState(false);
   const [notesError, setNotesError] = useState('');
+  const [leadInfoByLink, setLeadInfoByLink] = useState<Record<string, { simulacoes: any[]; contratos: any[] }>>({});
+  const [loadingLeadInfoId, setLoadingLeadInfoId] = useState<string | null>(null);
+  const [leadInfoError, setLeadInfoError] = useState<Record<string, string>>({});
 
   function toLocalInput(iso: string | null): string {
     if (!iso) return '';
@@ -612,6 +616,19 @@ export default function EventDetailPage() {
     }
   }
 
+  async function loadLeadInfo(linkId: string) {
+    setLoadingLeadInfoId(linkId);
+    setLeadInfoError(prev => ({ ...prev, [linkId]: '' }));
+    try {
+      const res = await degustacoesApi.getLeadInfo(eventId, linkId);
+      setLeadInfoByLink(prev => ({ ...prev, [linkId]: { simulacoes: res.simulacoes || [], contratos: res.contratos || [] } }));
+    } catch (err: any) {
+      setLeadInfoError(prev => ({ ...prev, [linkId]: err.message || 'Erro ao buscar simulações e contratos' }));
+    } finally {
+      setLoadingLeadInfoId(null);
+    }
+  }
+
   function startEditNotes(linkId: string, current: string | null) {
     setEditingNotesLinkId(linkId);
     setNotesDraft(current || '');
@@ -984,6 +1001,67 @@ export default function EventDetailPage() {
                                 </button>
                               </div>
                             )}
+                          </div>
+
+                          {/* Simulações e contratos do lead na Userp — busca sob demanda (não
+                              automática, pra não gerar chamadas desnecessárias) por e-mail. */}
+                          <div className="border-t pt-2">
+                            {leadInfoByLink[link.id] ? (
+                              <div className="space-y-2">
+                                {leadInfoByLink[link.id].simulacoes.length === 0 && leadInfoByLink[link.id].contratos.length === 0 ? (
+                                  <p className="text-xs text-muted-foreground italic">Nenhuma simulação ou contrato encontrado para este e-mail.</p>
+                                ) : (
+                                  <>
+                                    {leadInfoByLink[link.id].simulacoes.map((s: any) => (
+                                      <div key={`sim-${s.id}`} className="flex items-center gap-2 text-xs">
+                                        <Receipt size={12} className="text-amber-600 shrink-0" />
+                                        <span className="flex-1 truncate">
+                                          Simulação {s.simNumero || s.id}
+                                          {s.empreendimento ? ` · ${s.empreendimento}` : ''}
+                                          {s.valor ? ` · R$ ${Number(s.valor).toLocaleString('pt-BR')}` : ''}
+                                          {s.cancelada ? ' · Cancelada' : s.anulada ? ' · Anulada' : ''}
+                                        </span>
+                                        {s.urlSimulacao && (
+                                          <a href={s.urlSimulacao} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center gap-0.5 shrink-0">
+                                            Ver <ExternalLink size={10} />
+                                          </a>
+                                        )}
+                                      </div>
+                                    ))}
+                                    {leadInfoByLink[link.id].contratos.map((c: any) => (
+                                      <div key={`cont-${c.codlocacontrato}`} className="flex items-center gap-2 text-xs">
+                                        <FileSignature size={12} className="text-emerald-600 shrink-0" />
+                                        <span className="flex-1 truncate">
+                                          Contrato #{c.codlocacontrato} · {c.status}
+                                          {c.empreendimento ? ` · ${c.empreendimento}` : ''}
+                                          {c.valor ? ` · R$ ${Number(c.valor).toLocaleString('pt-BR')}` : ''}
+                                        </span>
+                                        {c.urlAceite && (
+                                          <a href={c.urlAceite} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center gap-0.5 shrink-0">
+                                            Ver <ExternalLink size={10} />
+                                          </a>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </>
+                                )}
+                              </div>
+                            ) : link.email ? (
+                              <button
+                                onClick={() => loadLeadInfo(link.id)}
+                                disabled={loadingLeadInfoId === link.id}
+                                className="text-xs text-primary flex items-center gap-1 hover:underline disabled:opacity-50"
+                              >
+                                {loadingLeadInfoId === link.id ? (
+                                  <><Loader2 size={11} className="animate-spin" /> Buscando...</>
+                                ) : (
+                                  <><Receipt size={11} /> Ver simulações e contratos na Userp</>
+                                )}
+                              </button>
+                            ) : (
+                              <p className="text-xs text-muted-foreground italic">Sem e-mail cadastrado — não é possível buscar simulações/contratos.</p>
+                            )}
+                            {leadInfoError[link.id] && <p className="text-xs text-destructive mt-1">{leadInfoError[link.id]}</p>}
                           </div>
 
                           {enrolled && (

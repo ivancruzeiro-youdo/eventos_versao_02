@@ -76,6 +76,8 @@ export const degustacoesApi = {
     fetchApi(`/api/v2/degustacoes/${id}/links/${linkId}/guests`, { method: 'PATCH', body: JSON.stringify({ nomes }) }),
   updateLinkNotes: (id: string, linkId: string, notes: string | null) =>
     fetchApi(`/api/v2/degustacoes/${id}/links/${linkId}/notes`, { method: 'PATCH', body: JSON.stringify({ notes }) }),
+  getLeadInfo: (id: string, linkId: string) =>
+    fetchApi(`/api/v2/degustacoes/${id}/links/${linkId}/lead-info`),
 };
 
 // Link público de degustação (sem sessão — o token na URL é a credencial)

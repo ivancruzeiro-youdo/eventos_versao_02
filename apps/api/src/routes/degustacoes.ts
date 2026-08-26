@@ -592,6 +592,59 @@ export async function degustacaoRoutes(app: FastifyInstance) {
     return { success: true, link: updated };
   });
 
+  // Simulações e contratos do lead na Userp — busca por e-mail (o mesmo já salvo no link na
+  // criação, direto da entidade), sem precisar resolver lead_id à parte. Só faz sentido pra
+  // degustação modo "público": o convidado ainda não tem EventContract vinculado ao evento, e
+  // isso mostra pro staff o histórico comercial (propostas simuladas / contratos já fechados)
+  // desse lead na Userp, direto da tela de convite.
+  app.get('/degustacoes/:id/links/:linkId/lead-info', { preHandler: [requireAuth, requireRole(WRITE_ROLES)] }, async (request, reply) => {
+    const { id, linkId } = request.params as { id: string; linkId: string };
+
+    const degustacao = await (prisma as any).degustacao.findUnique({ where: { eventId: id } });
+    if (!degustacao) return reply.status(404).send({ error: 'Degustação não encontrada.' });
+
+    const link = await (prisma as any).degustacaoLink.findFirst({ where: { id: linkId, degustacaoId: degustacao.id } });
+    if (!link) return reply.status(404).send({ error: 'Link não encontrado.' });
+    if (!link.email) return reply.status(400).send({ error: 'Este link não tem e-mail cadastrado na Userp — não é possível buscar simulações/contratos.' });
+
+    try {
+      const [simRes, contRes] = await Promise.all([
+        userpFetch(`/api/userp-satelite/simulacoes/index.php?email=${encodeURIComponent(link.email)}&limit=20`, { headers: { Accept: 'application/json' } }),
+        userpFetch(`/api/userp-satelite/contratos/index.php?email=${encodeURIComponent(link.email)}`, { headers: { Accept: 'application/json' } }),
+      ]);
+      if (!simRes.ok || !contRes.ok) {
+        throw new UserpUpstreamError(`Falha ao consultar Userp (simulações ${simRes.status}, contratos ${contRes.status}).`);
+      }
+      const simData: any = await simRes.json();
+      const contData: any = await contRes.json();
+
+      return {
+        success: true,
+        simulacoes: (simData.items ?? []).map((s: any) => ({
+          id: s.id,
+          simNumero: s.sim_numero,
+          data: s.sim_data,
+          valor: s.sim_valor,
+          empreendimento: s.empreendimento,
+          urlSimulacao: s.url_simulacao || null,
+          cancelada: s.sim_cancelada === '1' || s.sim_cancelada === 1,
+          anulada: s.sim_anulada === '1' || s.sim_anulada === 1,
+        })),
+        contratos: (contData.items ?? []).map((c: any) => ({
+          codlocacontrato: c.codlocacontrato,
+          status: c.status,
+          dataInicio: c.data_inicio,
+          empreendimento: c.nome_empreendimento,
+          valor: c.ultima_vigencia?.vlr ?? null,
+          urlAceite: c.url_aceite || null,
+        })),
+      };
+    } catch (err) {
+      if (err instanceof UserpUpstreamError) return reply.status(502).send({ error: err.message });
+      throw err;
+    }
+  });
+
   // --- Link público: sem auth de staff nem de cliente — o token É a credencial ---
 
   // Resolve e devolve a ocorrência atual do link: a próxima aberta da série, ou a confirmada
