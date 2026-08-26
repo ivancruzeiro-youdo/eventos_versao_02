@@ -65,6 +65,9 @@ export async function guestRoutes(app: FastifyInstance) {
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
+        // Degustação: cada convidado veio de um link de convite (userpEntidadeId) específico —
+        // o front agrupa por isso quando presente; convidado sem link (add manual/CSV) vem null.
+        include: { degustacaoLink: { select: { id: true, nome: true } } },
       }),
       prisma.guest.count({ where }),
     ]);

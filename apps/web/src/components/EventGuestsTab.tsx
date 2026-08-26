@@ -1,19 +1,20 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { 
-  Users, 
-  Plus, 
-  Upload, 
-  QrCode, 
-  Link as LinkIcon, 
-  CheckCircle, 
+import {
+  Users,
+  Plus,
+  Upload,
+  QrCode,
+  Link as LinkIcon,
+  CheckCircle,
   XCircle,
   Search,
   Trash2,
   Download,
   Copy,
-  CheckCheck
+  CheckCheck,
+  Ticket,
 } from 'lucide-react';
 
 interface Guest {
@@ -24,6 +25,7 @@ interface Guest {
   cpf?: string;
   status: 'pending' | 'confirmed' | 'checked_in' | 'declined';
   rsvpToken?: string;
+  degustacaoLink?: { id: string; nome: string } | null;
 }
 
 interface EventGuestsTabProps {
@@ -236,11 +238,106 @@ export default function EventGuestsTab({ eventId }: EventGuestsTabProps) {
     }
   }
 
-  const filteredGuests = guests.filter(g => 
+  const filteredGuests = guests.filter(g =>
     g.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     g.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     g.cpf?.includes(searchTerm)
   );
+
+  // Degustação: convidado vem de um link de convite específico (userpEntidadeId). Só agrupa
+  // quando pelo menos um convidado tem link — evento normal (sem degustação) continua na
+  // lista simples de sempre, sem seção nenhuma a mais.
+  const hasLinkGroups = filteredGuests.some(g => g.degustacaoLink);
+  const guestGroups = hasLinkGroups
+    ? (() => {
+        const byLink = new Map<string, { label: string; guests: Guest[] }>();
+        for (const g of filteredGuests) {
+          const key = g.degustacaoLink?.id ?? '__none__';
+          const label = g.degustacaoLink?.nome ?? 'Outros convidados';
+          if (!byLink.has(key)) byLink.set(key, { label, guests: [] });
+          byLink.get(key)!.guests.push(g);
+        }
+        const groups = [...byLink.entries()].map(([key, v]) => ({ key, ...v }));
+        groups.sort((a, b) => {
+          if (a.key === '__none__') return 1;
+          if (b.key === '__none__') return -1;
+          return a.label.localeCompare(b.label, 'pt-BR');
+        });
+        return groups;
+      })()
+    : null;
+
+  function renderGuestRow(guest: Guest) {
+    return (
+      <div key={guest.id} className="p-4 flex items-center gap-4 hover:bg-accent/50">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <p className="font-medium truncate">{guest.name}</p>
+            {getStatusBadge(guest.status)}
+          </div>
+          <div className="text-sm text-muted-foreground space-x-3">
+            {guest.email && <span>{guest.email}</span>}
+            {guest.phone && <span>{guest.phone}</span>}
+            {guest.cpf && <span className="font-mono">{guest.cpf}</span>}
+          </div>
+        </div>
+        <div className="flex items-center gap-1">
+          {guest.status !== 'confirmed' && guest.status !== 'checked_in' && (
+            <button
+              onClick={() => setGuestStatus(guest.id, 'confirmed')}
+              className="p-2 hover:bg-green-100 text-green-600 rounded-lg"
+              title="Marcar como confirmado"
+            >
+              <CheckCircle className="size-4" />
+            </button>
+          )}
+          {guest.status !== 'declined' && guest.status !== 'checked_in' && (
+            <button
+              onClick={() => setGuestStatus(guest.id, 'declined')}
+              className="p-2 hover:bg-red-100 text-red-600 rounded-lg"
+              title="Marcar como recusado"
+            >
+              <XCircle className="size-4" />
+            </button>
+          )}
+          {guest.status !== 'checked_in' && (
+            <button
+              onClick={() => checkInGuest(guest.id)}
+              className="p-2 hover:bg-blue-100 text-blue-600 rounded-lg"
+              title="Check-in"
+            >
+              <CheckCheck className="size-4" />
+            </button>
+          )}
+          <button
+            onClick={() => generateRSVP(guest)}
+            className="p-2 hover:bg-blue-100 text-blue-600 rounded-lg"
+            title="Copiar link RSVP"
+          >
+            {copiedLink === guest.id ? (
+              <CheckCircle className="size-4" />
+            ) : (
+              <LinkIcon className="size-4" />
+            )}
+          </button>
+          <button
+            onClick={() => generateQR(guest)}
+            className="p-2 hover:bg-purple-100 text-purple-600 rounded-lg"
+            title="QR Code"
+          >
+            <QrCode className="size-4" />
+          </button>
+          <button
+            onClick={() => deleteGuest(guest.id)}
+            className="p-2 hover:bg-red-100 text-red-600 rounded-lg"
+            title="Remover"
+          >
+            <Trash2 className="size-4" />
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   function getStatusBadge(status: string) {
     switch (status) {
@@ -449,90 +546,37 @@ export default function EventGuestsTab({ eventId }: EventGuestsTabProps) {
       )}
 
       {/* Guests List */}
-      <div className="bg-card rounded-lg border">
-        {loading ? (
-          <div className="p-8 text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          </div>
-        ) : filteredGuests.length === 0 ? (
-          <div className="p-8 text-center text-muted-foreground">
-            <Users className="size-12 mx-auto mb-4" />
-            <p>Nenhum convidado encontrado</p>
-          </div>
-        ) : (
-          <div className="divide-y">
-            {filteredGuests.map((guest) => (
-              <div key={guest.id} className="p-4 flex items-center gap-4 hover:bg-accent/50">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="font-medium truncate">{guest.name}</p>
-                    {getStatusBadge(guest.status)}
-                  </div>
-                  <div className="text-sm text-muted-foreground space-x-3">
-                    {guest.email && <span>{guest.email}</span>}
-                    {guest.phone && <span>{guest.phone}</span>}
-                    {guest.cpf && <span className="font-mono">{guest.cpf}</span>}
-                  </div>
-                </div>
-                <div className="flex items-center gap-1">
-                  {guest.status !== 'confirmed' && guest.status !== 'checked_in' && (
-                    <button
-                      onClick={() => setGuestStatus(guest.id, 'confirmed')}
-                      className="p-2 hover:bg-green-100 text-green-600 rounded-lg"
-                      title="Marcar como confirmado"
-                    >
-                      <CheckCircle className="size-4" />
-                    </button>
-                  )}
-                  {guest.status !== 'declined' && guest.status !== 'checked_in' && (
-                    <button
-                      onClick={() => setGuestStatus(guest.id, 'declined')}
-                      className="p-2 hover:bg-red-100 text-red-600 rounded-lg"
-                      title="Marcar como recusado"
-                    >
-                      <XCircle className="size-4" />
-                    </button>
-                  )}
-                  {guest.status !== 'checked_in' && (
-                    <button
-                      onClick={() => checkInGuest(guest.id)}
-                      className="p-2 hover:bg-blue-100 text-blue-600 rounded-lg"
-                      title="Check-in"
-                    >
-                      <CheckCheck className="size-4" />
-                    </button>
-                  )}
-                  <button
-                    onClick={() => generateRSVP(guest)}
-                    className="p-2 hover:bg-blue-100 text-blue-600 rounded-lg"
-                    title="Copiar link RSVP"
-                  >
-                    {copiedLink === guest.id ? (
-                      <CheckCircle className="size-4" />
-                    ) : (
-                      <LinkIcon className="size-4" />
-                    )}
-                  </button>
-                  <button
-                    onClick={() => generateQR(guest)}
-                    className="p-2 hover:bg-purple-100 text-purple-600 rounded-lg"
-                    title="QR Code"
-                  >
-                    <QrCode className="size-4" />
-                  </button>
-                  <button
-                    onClick={() => deleteGuest(guest.id)}
-                    className="p-2 hover:bg-red-100 text-red-600 rounded-lg"
-                    title="Remover"
-                  >
-                    <Trash2 className="size-4" />
-                  </button>
-                </div>
+      {loading ? (
+        <div className="bg-card rounded-lg border p-8 text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+        </div>
+      ) : filteredGuests.length === 0 ? (
+        <div className="bg-card rounded-lg border p-8 text-center text-muted-foreground">
+          <Users className="size-12 mx-auto mb-4" />
+          <p>Nenhum convidado encontrado</p>
+        </div>
+      ) : guestGroups ? (
+        <div className="space-y-4">
+          {guestGroups.map(group => (
+            <div key={group.key} className="bg-card rounded-lg border overflow-hidden">
+              <div className="flex items-center gap-2 px-4 py-2.5 bg-muted/50 border-b">
+                <Ticket className="size-4 text-amber-600 shrink-0" />
+                <p className="font-medium text-sm truncate">{group.label}</p>
+                <span className="text-xs text-muted-foreground shrink-0">
+                  ({group.guests.length} convidado{group.guests.length !== 1 ? 's' : ''})
+                </span>
               </div>
-            ))}
-          </div>
-        )}
-      </div>
+              <div className="divide-y">
+                {group.guests.map(renderGuestRow)}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="bg-card rounded-lg border divide-y">
+          {filteredGuests.map(renderGuestRow)}
+        </div>
+      )}
     </div>
   );
 }
