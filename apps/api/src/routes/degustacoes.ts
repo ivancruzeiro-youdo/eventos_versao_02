@@ -575,6 +575,23 @@ export async function degustacaoRoutes(app: FastifyInstance) {
     return { success: true, link: updatedLink };
   });
 
+  // Observação interna da equipe sobre um link — NUNCA exposta na rota pública abaixo. Não
+  // exige enrolledEventId: faz sentido anotar mesmo num link ainda pendente.
+  app.patch('/degustacoes/:id/links/:linkId/notes', { preHandler: [requireAuth, requireRole(WRITE_ROLES)] }, async (request, reply) => {
+    const { id, linkId } = request.params as { id: string; linkId: string };
+    const { notes } = request.body as { notes?: string | null };
+
+    const degustacao = await (prisma as any).degustacao.findUnique({ where: { eventId: id } });
+    if (!degustacao) return reply.status(404).send({ error: 'Degustação não encontrada.' });
+
+    const link = await (prisma as any).degustacaoLink.findFirst({ where: { id: linkId, degustacaoId: degustacao.id } });
+    if (!link) return reply.status(404).send({ error: 'Link não encontrado.' });
+
+    const clean = (notes ?? '').trim() || null;
+    const updated = await (prisma as any).degustacaoLink.update({ where: { id: linkId }, data: { notes: clean } });
+    return { success: true, link: updated };
+  });
+
   // --- Link público: sem auth de staff nem de cliente — o token É a credencial ---
 
   // Resolve e devolve a ocorrência atual do link: a próxima aberta da série, ou a confirmada

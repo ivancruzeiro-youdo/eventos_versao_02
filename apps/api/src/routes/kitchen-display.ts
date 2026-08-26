@@ -491,12 +491,18 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
         ? {
             id: plan.id, intervalMinutes: plan.intervalMinutes, anchorAt: plan.anchorAt, endAt: plan.endAt,
             notes: plan.notes, updatedAt: plan.updatedAt, entries,
+            // null cobre tanto "nunca pausou" quanto "pausa já expirou" — comparado contra
+            // atDate (mesmo instante-base do headcount) em vez de new Date() direto, pra ficar
+            // consistente com o resto da resposta. Sem cron: o fim automático é só lido aqui.
+            pause: plan.pauseUntil && plan.pauseUntil.getTime() > atDate.getTime()
+              ? { reason: plan.pauseReason ?? '', pausedAt: plan.pausedAt, pauseUntil: plan.pauseUntil }
+              : null,
             logs: plan.logs.map(l => ({
               id: l.id, action: l.action, detail: l.detail,
               userName: l.userName, createdAt: l.createdAt,
             })),
           }
-        : { id: null, intervalMinutes: 15, anchorAt: null, endAt: null, notes: null, updatedAt: null, entries: [], logs: [] },
+        : { id: null, intervalMinutes: 15, anchorAt: null, endAt: null, notes: null, updatedAt: null, entries: [], logs: [], pause: null },
       schedule: {
         activities: activities.map(a => ({
           ...a,
@@ -656,6 +662,102 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
         const deltaMin = Math.round(delta / 60_000);
         await logPlan(plan.id, 'shift', `Horário do serviço mudou — sequência deslocada em ${deltaMin >= 0 ? '+' : ''}${deltaMin} min`, user);
       }
+    }
+
+    const fresh = await prisma.kitchenServicePlan.findUnique({ where: { id: plan.id } });
+    return { success: true, plan: fresh };
+  });
+
+  const PAUSE_MINUTES = [5, 10, 15, 20, 30] as const;
+
+  // ── Pausa do serviço ───────────────────────────────────────────────────────
+  // Reagenda a sequência inteira automaticamente: em vez de "rodar" durante a pausa, desloca
+  // TODA entrada pendente pra frente uma única vez, na criação — por isso não precisa de job.
+  app.post('/kitchen/display/events/:eventId/pause', { preHandler: [requireAuth, requireRole(WRITE_ROLES)] }, async (request, reply) => {
+    const user = (request as any).user;
+    const { eventId } = request.params as { eventId: string };
+    if (!(await allowEvent(request, eventId))) return reply.status(403).send({ error: 'Access denied' });
+
+    const { minutes, reason } = request.body as { minutes?: number; reason?: string };
+    if (typeof minutes !== 'number' || !PAUSE_MINUTES.includes(minutes as any)) {
+      return reply.status(400).send({ error: `Duração inválida. Use um dos valores: ${PAUSE_MINUTES.join(', ')} min.` });
+    }
+    const trimmedReason = (reason ?? '').trim();
+    if (!trimmedReason) return reply.status(400).send({ error: 'Informe o motivo da pausa.' });
+
+    // ensurePlan não bloqueia se o plano ainda não existir — mesma decisão já tomada por
+    // addItem/addStation: pausar antes de a sequência estar montada não deve travar o operador.
+    const plan = await ensurePlan(eventId);
+
+    if (plan.pauseUntil && plan.pauseUntil.getTime() > Date.now()) {
+      return reply.status(409).send({ error: 'Serviço já está em pausa.' });
+    }
+
+    const now = new Date();
+    const pauseUntil = new Date(now.getTime() + minutes * 60_000);
+
+    const pending = await prisma.kitchenServicePlanEntry.findMany({
+      where: { planId: plan.id, status: 'pending' },
+      select: { id: true, serveAt: true },
+    });
+
+    // Atômico de propósito: se o deslocamento das entradas for salvo mas pauseUntil não, a
+    // retomada antecipada não teria como calcular o tempo não usado corretamente.
+    await prisma.$transaction([
+      ...pending.map(e => prisma.kitchenServicePlanEntry.update({
+        where: { id: e.id },
+        data: { serveAt: new Date(e.serveAt.getTime() + minutes * 60_000) },
+      })),
+      prisma.kitchenServicePlan.update({
+        where: { id: plan.id },
+        data: { pausedAt: now, pauseUntil, pauseReason: trimmedReason },
+      }),
+    ]);
+
+    await logPlan(plan.id, 'pause', `Serviço pausado por ${minutes} min até ${fmtBrtLog(pauseUntil)} — motivo: ${trimmedReason}`, user);
+
+    const fresh = await prisma.kitchenServicePlan.findUnique({ where: { id: plan.id } });
+    return { success: true, plan: fresh };
+  });
+
+  app.post('/kitchen/display/events/:eventId/resume', { preHandler: [requireAuth, requireRole(WRITE_ROLES)] }, async (request, reply) => {
+    const user = (request as any).user;
+    const { eventId } = request.params as { eventId: string };
+    if (!(await allowEvent(request, eventId))) return reply.status(403).send({ error: 'Access denied' });
+
+    const plan = await prisma.kitchenServicePlan.findUnique({ where: { eventId }, select: { id: true, pauseUntil: true } });
+    if (!plan || !plan.pauseUntil) return reply.status(409).send({ error: 'Serviço não está pausado.' });
+
+    const now = new Date();
+    const remainingMs = plan.pauseUntil.getTime() - now.getTime();
+
+    if (remainingMs > 0) {
+      // Retomada ANTECIPADA: devolve só o tempo não usado — as entradas voltam pelo tanto que
+      // faltava, não pela duração cheia da pausa.
+      const pending = await prisma.kitchenServicePlanEntry.findMany({
+        where: { planId: plan.id, status: 'pending' },
+        select: { id: true, serveAt: true },
+      });
+      await prisma.$transaction([
+        ...pending.map(e => prisma.kitchenServicePlanEntry.update({
+          where: { id: e.id },
+          data: { serveAt: new Date(e.serveAt.getTime() - remainingMs) },
+        })),
+        prisma.kitchenServicePlan.update({
+          where: { id: plan.id },
+          data: { pausedAt: null, pauseUntil: null, pauseReason: null },
+        }),
+      ]);
+      await logPlan(plan.id, 'resume', `Retomado manualmente ${Math.round(remainingMs / 60_000)} min antes do fim — sequência antecipada nesse tanto`, user);
+    } else {
+      // O timer já tinha esgotado (cliente demorou a apertar, ou outra aba nem chegou a
+      // mostrar o botão) — o deslocamento cheio já está aplicado desde a criação da pausa,
+      // nada a devolver.
+      await prisma.kitchenServicePlan.update({
+        where: { id: plan.id },
+        data: { pausedAt: null, pauseUntil: null, pauseReason: null },
+      });
+      await logPlan(plan.id, 'resume', 'Pausa encerrada (tempo já havia esgotado)', user);
     }
 
     const fresh = await prisma.kitchenServicePlan.findUnique({ where: { id: plan.id } });

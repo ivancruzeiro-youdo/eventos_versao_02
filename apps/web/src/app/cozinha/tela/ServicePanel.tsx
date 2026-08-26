@@ -4,11 +4,13 @@ import { useState } from 'react';
 import {
   Users, ChevronUp, ChevronDown, Copy, Trash2, Check, Plus, Wand2,
   MessageSquare, AlertTriangle, UtensilsCrossed, CalendarClock, GripVertical,
-  Wine, History, LayoutGrid, Volume2, Clock,
+  Wine, History, LayoutGrid, Volume2, Clock, PauseCircle,
 } from 'lucide-react';
 import { fmtTime, fmtDateTimeShort, withTimeInSaoPaulo } from './lib';
 import type { ServiceCommands } from './useServiceCommands';
 import { fmtLate, type LateItem } from './useLateAlerts';
+import PausedBanner from './PausedBanner';
+import PauseServiceModal from './PauseServiceModal';
 
 export interface ServiceEntry {
   id: string;
@@ -47,6 +49,7 @@ export interface ServiceData {
   hiddenDrinks: string[];
   plan: {
     id: string | null; intervalMinutes: number; anchorAt: string | null; endAt: string | null; entries: ServiceEntry[];
+    pause: { reason: string; pausedAt: string; pauseUntil: string } | null;
     logs: { id: string; action: string; detail: string; userName: string | null; createdAt: string }[];
   };
   schedule: {
@@ -76,11 +79,13 @@ interface Props {
   };
   audioOn: boolean;
   onEnableAudio: () => void;
+  onMutate: () => void;
 }
 
-export default function ServicePanel({ data, cmd, lateAlerts, audioOn, onEnableAudio }: Props) {
+export default function ServicePanel({ data, cmd, lateAlerts, audioOn, onEnableAudio, onMutate }: Props) {
   const [showAdd, setShowAdd] = useState(false);
   const [showLog, setShowLog] = useState(false);
+  const [showPauseModal, setShowPauseModal] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
   const [editingTimeId, setEditingTimeId] = useState<string | null>(null);
   const [timeDraft, setTimeDraft] = useState('');
@@ -154,6 +159,17 @@ export default function ServicePanel({ data, cmd, lateAlerts, audioOn, onEnableA
 
   return (
     <div className="space-y-3">
+      {/* PAUSA acima de tudo, inclusive do atraso: pausar já reagenda pra depois da pausa tudo
+          que estava atrasado, então as duas faixas não deveriam coexistir na prática. */}
+      {data.plan.pause && (
+        <PausedBanner
+          pause={data.plan.pause}
+          onResume={cmd.resumeService}
+          onExpire={onMutate}
+          working={working}
+        />
+      )}
+
       {/* ATRASO no topo de tudo, acima até das observações: é a única informação da tela que
           exige ação AGORA. */}
       {lateAlerts.late.length > 0 && (
@@ -271,7 +287,23 @@ export default function ServicePanel({ data, cmd, lateAlerts, audioOn, onEnableA
           <h3 className="flex items-center gap-1.5 text-sm font-bold text-slate-700">
             <UtensilsCrossed className="size-4" /> Sequência de serviço
           </h3>
+          {!data.plan.pause && (
+            <button
+              onClick={() => setShowPauseModal(true)}
+              disabled={working}
+              className="flex items-center gap-1 rounded border border-sky-300 bg-white px-2 py-1.5 text-xs font-medium text-sky-700 shadow-sm hover:bg-sky-50 disabled:opacity-40"
+            >
+              <PauseCircle className="size-3.5" /> pausar serviço
+            </button>
+          )}
         </div>
+
+        {showPauseModal && (
+          <PauseServiceModal
+            onConfirm={(minutes, reason) => cmd.pauseService(minutes, reason)}
+            onClose={() => setShowPauseModal(false)}
+          />
+        )}
 
         {/* Início/fim do serviço — mudar o início desloca em cascata toda a sequência já
             gerada, pelo mesmo delta, em vez de reajustar item por item. */}

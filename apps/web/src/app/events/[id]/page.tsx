@@ -66,7 +66,7 @@ interface Event {
   degustacao?: {
     visibility: string;
     maxGuests: number;
-    links: { id: string; token: string; nome: string; userpEntidadeId: number; enrolledEventId: string | null; enrolledGuestNames: string[] }[];
+    links: { id: string; token: string; nome: string; userpEntidadeId: number; enrolledEventId: string | null; enrolledGuestNames: string[]; notes: string | null }[];
   } | null;
 }
 
@@ -166,6 +166,10 @@ export default function EventDetailPage() {
   const [editGuestNames, setEditGuestNames] = useState<string[]>([]);
   const [savingGuests, setSavingGuests] = useState(false);
   const [editGuestsError, setEditGuestsError] = useState('');
+  const [editingNotesLinkId, setEditingNotesLinkId] = useState<string | null>(null);
+  const [notesDraft, setNotesDraft] = useState('');
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [notesError, setNotesError] = useState('');
 
   function toLocalInput(iso: string | null): string {
     if (!iso) return '';
@@ -608,6 +612,33 @@ export default function EventDetailPage() {
     }
   }
 
+  function startEditNotes(linkId: string, current: string | null) {
+    setEditingNotesLinkId(linkId);
+    setNotesDraft(current || '');
+    setNotesError('');
+  }
+
+  function cancelEditNotes() {
+    setEditingNotesLinkId(null);
+    setNotesDraft('');
+    setNotesError('');
+  }
+
+  async function saveNotes(linkId: string) {
+    setSavingNotes(true);
+    setNotesError('');
+    try {
+      await degustacoesApi.updateLinkNotes(eventId, linkId, notesDraft.trim() || null);
+      await loadEvent();
+      setEditingNotesLinkId(null);
+      setNotesDraft('');
+    } catch (err: any) {
+      setNotesError(err.message || 'Erro ao salvar observação');
+    } finally {
+      setSavingNotes(false);
+    }
+  }
+
   async function saveReservationNumber() {
     if (!reservationInput.trim()) return;
     setSavingReservation(true);
@@ -875,8 +906,8 @@ export default function EventDetailPage() {
                   return (
                     <div key={link.id} className="bg-background">
                       <button
-                        onClick={() => enrolled && setExpandedLinkId(isExpanded ? null : link.id)}
-                        className={`w-full flex items-center gap-3 px-3 py-2 text-left ${enrolled ? 'cursor-pointer hover:bg-muted/40' : 'cursor-default'}`}
+                        onClick={() => setExpandedLinkId(isExpanded ? null : link.id)}
+                        className="w-full flex items-center gap-3 px-3 py-2 text-left cursor-pointer hover:bg-muted/40"
                       >
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium truncate">{link.nome}</p>
@@ -891,7 +922,7 @@ export default function EventDetailPage() {
                             Pendente
                           </span>
                         )}
-                        {enrolled && <ChevronDown size={14} className={`text-muted-foreground shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />}
+                        <ChevronDown size={14} className={`text-muted-foreground shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                         <span
                           role="button"
                           onClick={(e) => { e.stopPropagation(); copyDegustacaoLinkUrl(link.token); }}
@@ -911,9 +942,52 @@ export default function EventDetailPage() {
                           </span>
                         )}
                       </button>
-                      {isExpanded && enrolled && (
-                        <div className="px-3 pb-2.5 pl-4">
-                          {editingLinkId === link.id ? (
+                      {isExpanded && (
+                        <div className="px-3 pb-2.5 pl-4 space-y-2.5">
+                          {/* Observação interna — visível pra equipe mesmo em link pendente,
+                              nunca aparece pro convidado no link público. */}
+                          <div>
+                            {editingNotesLinkId === link.id ? (
+                              <div className="space-y-1.5">
+                                <textarea
+                                  autoFocus
+                                  rows={2}
+                                  value={notesDraft}
+                                  onChange={e => setNotesDraft(e.target.value)}
+                                  placeholder="Observação interna (só a equipe vê)"
+                                  className="w-full px-2.5 py-1.5 border rounded-lg text-xs bg-background"
+                                />
+                                {notesError && <p className="text-xs text-destructive">{notesError}</p>}
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => saveNotes(link.id)}
+                                    disabled={savingNotes}
+                                    className="px-3 py-1 bg-primary text-primary-foreground rounded-lg text-xs font-medium disabled:opacity-50"
+                                  >
+                                    {savingNotes ? 'Salvando...' : 'Salvar'}
+                                  </button>
+                                  <button onClick={cancelEditNotes} disabled={savingNotes} className="px-3 py-1 border rounded-lg text-xs">
+                                    Cancelar
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-start gap-2">
+                                <p className="flex-1 text-xs text-muted-foreground italic">
+                                  {link.notes || 'Sem observações.'}
+                                </p>
+                                <button
+                                  onClick={() => startEditNotes(link.id, link.notes)}
+                                  className="text-xs text-primary flex items-center gap-1 hover:underline shrink-0"
+                                >
+                                  <Pencil size={11} /> Editar
+                                </button>
+                              </div>
+                            )}
+                          </div>
+
+                          {enrolled && (
+                          editingLinkId === link.id ? (
                             <div className="space-y-1.5">
                               {editGuestNames.map((name, i) => (
                                 <div key={i} className="flex items-center gap-2">
@@ -969,6 +1043,7 @@ export default function EventDetailPage() {
                                 <Pencil size={11} /> Editar convidados
                               </button>
                             </div>
+                          )
                           )}
                         </div>
                       )}

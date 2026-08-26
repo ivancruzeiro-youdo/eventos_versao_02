@@ -165,6 +165,7 @@ export default function VenueColumn({
             lateAlerts={lateAlerts}
             audioOn={audioOn}
             onEnableAudio={enableAudio}
+            onMutate={onMutate}
           />
         ) : (
           <p className="py-8 text-center text-sm text-slate-400">

@@ -1539,6 +1539,17 @@ model KitchenServicePlan {
   anchorAt        DateTime? // horário de início do serviço — base pra gerar a sequência
   endAt           DateTime? // horário de fim do serviço — só exibido, não gera itens
   notes           String?
+  // PAUSA DE SERVIÇO — motivo obrigatório + duração pré-determinada (5/10/15/20/30 min). Ao
+  // pausar, toda entrada `status='pending'` é deslocada pra frente pela duração inteira (mesmo
+  // delta-shift do bloco `anchorAt` acima) — a pausa não "roda" enquanto ativa, só desloca a
+  // sequência uma vez, na criação. `pauseUntil` nunca é reajustado durante a pausa: é ele que
+  // permite calcular, na retomada antecipada, quanto tempo não foi usado (`pauseUntil - now`)
+  // pra devolver esse tanto à sequência. Sem cron/job: o fim automático é lido, não observado —
+  // GET /service trata pauseUntil no passado como "sem pausa", mesmo que estas 3 colunas
+  // continuem preenchidas até a próxima escrita (novo /pause, /resume, ou qualquer /plan) limpar.
+  pausedAt        DateTime?
+  pauseUntil      DateTime?
+  pauseReason     String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -1692,6 +1703,10 @@ model DegustacaoLink {
   // nos Guest rows porque várias entidades podem se inscrever na MESMA ocorrência; sem isso não
   // dava pra saber quais Guest vieram deste link especificamente. Vazio enquanto "Pendente".
   enrolledGuestNames String[] @default([])
+  // Observação interna da equipe sobre este convidado/link (ex.: "VIP, avisar recepção") —
+  // NUNCA exposta na rota pública GET /degustacao-link/:token (que monta a resposta campo a
+  // campo, sem spread do registro) nem na página pública do convidado.
+  notes           String?
   createdById     String?
   createdAt       DateTime  @default(now())
 
