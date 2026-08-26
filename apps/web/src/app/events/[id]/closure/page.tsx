@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
 import { closureApi } from '@/lib/api';
-import { Copy, CheckCircle, FileText, AlertTriangle, Star, Car } from 'lucide-react';
+import { Copy, CheckCircle, FileText, AlertTriangle, Star, Car, Download, X, Loader2 } from 'lucide-react';
 
 function NpsScore({ score }: { score: number }) {
   let colorClass = 'text-red-600 bg-red-50 border-red-200';
@@ -29,6 +29,9 @@ export default function ClosurePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [loadingAttachmentId, setLoadingAttachmentId] = useState<string | null>(null);
+  const [viewingAttachment, setViewingAttachment] = useState<{ filename: string; mimeType: string; dataBase64: string } | null>(null);
+  const [attachmentError, setAttachmentError] = useState('');
 
   useEffect(() => {
     load();
@@ -54,6 +57,33 @@ export default function ClosurePage() {
     navigator.clipboard.writeText(npsUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  }
+
+  async function openAttachment(a: { id: string; filename: string; mimeType: string }) {
+    setAttachmentError('');
+    setLoadingAttachmentId(a.id);
+    try {
+      const res = await closureApi.getAttachment(a.id);
+      const full = res.attachment;
+      if (full.mimeType.startsWith('image/')) {
+        setViewingAttachment(full);
+      } else {
+        downloadAttachment(full);
+      }
+    } catch (err: any) {
+      setAttachmentError(err.message || 'Erro ao carregar anexo');
+    } finally {
+      setLoadingAttachmentId(null);
+    }
+  }
+
+  function downloadAttachment(a: { filename: string; mimeType: string; dataBase64: string }) {
+    const link = document.createElement('a');
+    link.href = `data:${a.mimeType};base64,${a.dataBase64}`;
+    link.download = a.filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   }
 
   if (loading) {
@@ -211,16 +241,64 @@ export default function ClosurePage() {
         {closure.attachments?.length > 0 && (
           <div className="bg-card border rounded-xl p-5">
             <h2 className="font-semibold mb-3">Anexos ({closure.attachments.length})</h2>
+            {attachmentError && <p className="text-xs text-destructive mb-2">{attachmentError}</p>}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {closure.attachments.map((a: any) => (
-                <div key={a.id} className="border rounded-lg p-3 text-center bg-muted/50">
+                <button
+                  key={a.id}
+                  onClick={() => openAttachment(a)}
+                  disabled={loadingAttachmentId === a.id}
+                  className="border rounded-lg p-3 text-center bg-muted/50 hover:bg-muted transition disabled:opacity-60"
+                >
                   <div className="text-2xl mb-1">
-                    {a.mimeType.startsWith('image/') ? '🖼️' : '📄'}
+                    {loadingAttachmentId === a.id ? (
+                      <Loader2 size={22} className="mx-auto animate-spin text-muted-foreground" />
+                    ) : a.mimeType.startsWith('image/') ? '🖼️' : '📄'}
                   </div>
                   <p className="text-xs font-medium truncate" title={a.filename}>{a.filename}</p>
                   <p className="text-xs text-muted-foreground">{(a.sizeBytes / 1024).toFixed(0)} KB</p>
-                </div>
+                  <p className="text-xs text-primary mt-1">
+                    {a.mimeType.startsWith('image/') ? 'Ver' : 'Baixar'}
+                  </p>
+                </button>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* Modal de visualização de imagem */}
+        {viewingAttachment && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+            onClick={(e) => e.target === e.currentTarget && setViewingAttachment(null)}
+          >
+            <div className="bg-background w-full max-w-2xl overflow-hidden rounded-2xl shadow-xl">
+              <div className="flex items-center justify-between border-b px-5 py-3">
+                <p className="text-sm font-medium truncate pr-2">{viewingAttachment.filename}</p>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => downloadAttachment(viewingAttachment)}
+                    className="p-1.5 rounded hover:bg-accent"
+                    title="Baixar"
+                  >
+                    <Download size={16} />
+                  </button>
+                  <button
+                    onClick={() => setViewingAttachment(null)}
+                    className="p-1.5 rounded hover:bg-accent"
+                    title="Fechar"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              </div>
+              <div className="max-h-[75vh] overflow-auto bg-black/5 flex items-center justify-center p-2">
+                <img
+                  src={`data:${viewingAttachment.mimeType};base64,${viewingAttachment.dataBase64}`}
+                  alt={viewingAttachment.filename}
+                  className="max-w-full max-h-[70vh] object-contain"
+                />
+              </div>
             </div>
           </div>
         )}
