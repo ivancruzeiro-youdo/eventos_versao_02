@@ -673,10 +673,41 @@ export async function freelancerRoutes(app: FastifyInstance) {
       return reply.status(403).send({ error: 'Access denied' });
     }
 
-    const updated = await prisma.freelancerApplication.update({
-      where: { id },
-      data: { status },
-    });
+    // Aprovação manual (staff) precisa do MESMO limite de vagas que a auto-candidatura já
+    // respeita (linha ~454 acima) — sem isso dava pra aprovar candidatura manualmente à vontade
+    // e passar do maxSlots do serviço sem nenhum aviso (bug real: evento com Bartender maxSlots=3
+    // acabou com 4 aprovados). Só verifica ao MUDAR pra approved — reprovar/cancelar não precisa.
+    let updated;
+    if (status === 'approved' && application.status !== 'approved') {
+      const slot = await prisma.eventService.findFirst({
+        where: { eventId: application.eventId, service: { name: application.role } },
+      });
+      try {
+        updated = await prisma.$transaction(async (tx) => {
+          if (slot) {
+            const approvedCount = await tx.freelancerApplication.count({
+              where: { eventId: application.eventId, role: application.role, status: 'approved' },
+            });
+            if (approvedCount >= slot.maxSlots) {
+              throw new Error('SLOT_FULL');
+            }
+          }
+          return tx.freelancerApplication.update({ where: { id }, data: { status } });
+        });
+      } catch (err: any) {
+        if (err.message === 'SLOT_FULL') {
+          return reply.status(409).send({
+            error: `As ${slot!.maxSlots} vaga(s) de ${application.role} já estão preenchidas. Aumente o número de vagas no evento antes de aprovar mais alguém.`,
+          });
+        }
+        throw err;
+      }
+    } else {
+      updated = await prisma.freelancerApplication.update({
+        where: { id },
+        data: { status },
+      });
+    }
 
     // Integração com sistema de acessos (fire-and-forget)
     if (status === 'approved') {
