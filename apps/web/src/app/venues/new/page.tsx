@@ -4,7 +4,9 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
+import VenueColorPicker from '@/components/VenueColorPicker';
 import { venuesApi } from '@/lib/api';
+import { VENUE_COLOR_PRESETS } from '@/lib/venueColors';
 import { MapPin, ArrowLeft } from 'lucide-react';
 
 export default function NewVenuePage() {
@@ -18,6 +20,7 @@ export default function NewVenuePage() {
     contactName: '',
     contactPhone: '',
   });
+  const [color, setColor] = useState<string>(VENUE_COLOR_PRESETS[0]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -30,6 +33,7 @@ export default function NewVenuePage() {
       await venuesApi.create({
         ...formData,
         capacity: formData.capacity ? parseInt(formData.capacity) : undefined,
+        color,
       });
       router.push('/venues');
     } catch (err: any) {
@@ -137,6 +141,16 @@ export default function NewVenuePage() {
                 placeholder="200"
                 min={1}
               />
+            </div>
+
+            <div className="border-t pt-4">
+              <label className="block text-sm font-medium mb-2">
+                Cor no Calendário
+              </label>
+              <p className="text-xs text-muted-foreground mb-3">
+                Aparece como borda dos eventos deste local na visão de calendário.
+              </p>
+              <VenueColorPicker value={color} onChange={setColor} />
             </div>
 
             <div className="border-t pt-4">

@@ -274,6 +274,9 @@ model Venue {
   capacity       Int?
   contactName    String?
   contactPhone   String?
+  // Cor do local no calendário de eventos (hex, ex. "#3b82f6") — mostrada como borda do evento;
+  // evento com 2+ locais mostra a borda dividida entre as cores de cada um.
+  color          String?
   employerId     String
   floorPlanS3Key        String?
   floorPlanWidthMeters  Float?

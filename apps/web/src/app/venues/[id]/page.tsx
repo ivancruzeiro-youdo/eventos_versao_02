@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
 import VenueSpotifyCard from '@/components/VenueSpotifyCard';
+import VenueColorPicker from '@/components/VenueColorPicker';
 import { venuesApiExtended } from '@/lib/api';
 import { MapPin, Users, Phone, User, ArrowLeft, Edit2, Trash2, Plus, HelpCircle, X, Check, GripVertical, Upload, Image, Package, Save, Loader2, LayoutGrid, RotateCw, AlertCircle, Clock, ListChecks } from 'lucide-react';
 import { ELEMENT_ICONS } from '@/components/layout-element-icons';
@@ -45,6 +46,7 @@ interface Venue {
   capacity: number | null;
   contactName: string | null;
   contactPhone: string | null;
+  color: string | null;
   floorPlanWidthMeters: number | null;
   floorPlanHeightMeters: number | null;
   layoutStock: Record<string, number> | null;
@@ -114,6 +116,8 @@ export default function VenueDetailPage() {
   const [stockElements, setStockElements] = useState<LayoutElementConfig[]>([]);
   const [savingStock, setSavingStock] = useState(false);
   const [stockMsg, setStockMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [savingColor, setSavingColor] = useState(false);
+  const [colorMsg, setColorMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   // Calibration state
   const [calMode, setCalMode] = useState<'off' | 'p1' | 'p2' | 'confirm'>('off');
@@ -271,6 +275,28 @@ export default function VenueDetailPage() {
     } finally {
       setSavingStock(false);
       setTimeout(() => setStockMsg(null), 3000);
+    }
+  }
+
+  async function saveColor(color: string) {
+    if (!venue) return;
+    setSavingColor(true);
+    setColorMsg(null);
+    try {
+      const res = await fetch(`${API_URL}/api/v2/venues/${venueId}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ color }),
+      });
+      if (!res.ok) throw new Error();
+      setVenue({ ...venue, color });
+      setColorMsg({ ok: true, text: 'Cor salva!' });
+    } catch {
+      setColorMsg({ ok: false, text: 'Erro ao salvar.' });
+    } finally {
+      setSavingColor(false);
+      setTimeout(() => setColorMsg(null), 3000);
     }
   }
 
@@ -700,6 +726,24 @@ export default function VenueDetailPage() {
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* Cor no Calendário */}
+          <div className="bg-card rounded-lg border shadow-sm">
+            <div className="px-6 py-4 border-b flex items-center justify-between">
+              <h2 className="text-lg font-medium text-card-foreground">Cor no Calendário</h2>
+              {colorMsg && (
+                <span className={`text-xs ${colorMsg.ok ? 'text-green-600' : 'text-destructive'}`}>{colorMsg.text}</span>
+              )}
+            </div>
+            <div className="p-6">
+              <p className="text-xs text-muted-foreground mb-3">
+                Aparece como borda dos eventos deste local na visão de calendário. Evento com mais
+                de um local mostra a borda dividida entre as cores de cada um.
+              </p>
+              <VenueColorPicker value={venue.color} onChange={saveColor} />
+              {savingColor && <p className="text-xs text-muted-foreground mt-2">Salvando...</p>}
             </div>
           </div>
 

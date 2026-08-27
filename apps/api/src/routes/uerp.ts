@@ -338,16 +338,17 @@ export async function uerpRoutes(app: FastifyInstance) {
   // Create venue
   app.post('/venues', { preHandler: requireAuth }, async (request, reply) => {
     const user = (request as any).user;
-    const { name, address, city, capacity, contactName, contactPhone } = request.body as {
+    const { name, address, city, capacity, contactName, contactPhone, color } = request.body as {
       name: string;
       address?: string;
       city?: string;
       capacity?: number;
       contactName?: string;
       contactPhone?: string;
+      color?: string;
     };
 
-    const employerId = user.role === 'admin' 
+    const employerId = user.role === 'admin'
       ? (request.body as any).employerId || user.employerId
       : user.employerId;
 
@@ -359,6 +360,7 @@ export async function uerpRoutes(app: FastifyInstance) {
         capacity,
         contactName,
         contactPhone,
+        color,
         employerId,
       },
     });
@@ -417,6 +419,7 @@ export async function uerpRoutes(app: FastifyInstance) {
       capacity?: number;
       contactName?: string;
       contactPhone?: string;
+      color?: string | null;
       floorPlanWidthMeters?: number;
       floorPlanHeightMeters?: number;
       layoutStock?: Record<string, number>;

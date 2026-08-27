@@ -6,6 +6,7 @@ import Link from 'next/link';
 import Layout from '@/components/Layout';
 import { eventsApi } from '@/lib/api';
 import { formatDate, formatDateTime, getStatusColor, getStatusLabel, getEventDisplayStatus } from '@/lib/utils';
+import { venueBorderStyle } from '@/lib/venueColors';
 import { 
   Calendar as CalendarIcon, 
   List, 
@@ -36,7 +37,7 @@ interface Event {
   setupAt: string | null;
   teardownAt: string | null;
   checkoutAt: string | null;
-  venues: { venue: { name: string } }[];
+  venues: { venue: { name: string; color: string | null } }[];
   _count?: { guests: number };
 }
 
@@ -151,6 +152,18 @@ export default function EventsPage() {
       setLoading(false);
     }
   }
+
+  // Legenda de cor por local, pra visão de calendário — só locais com cor definida, dedupe por
+  // nome, calculado a partir de todos os eventos carregados (não só os filtrados/do mês atual)
+  // pra não sumir/reaparecer ao navegar entre meses ou filtrar.
+  const venueLegend = Array.from(
+    new Map(
+      events
+        .flatMap(e => e.venues.map(v => v.venue))
+        .filter(v => v.color)
+        .map(v => [v.name, v.color as string])
+    ).entries()
+  ).sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'));
 
   const filteredEvents = events.filter(event => {
     const matchesSearch = 
@@ -435,6 +448,21 @@ export default function EventsPage() {
             </div>
           </div>
 
+          {/* Legenda de cor por local */}
+          {venueLegend.length > 0 && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mb-4 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1 font-medium text-foreground/70">
+                <MapPin className="size-3.5" /> Locais:
+              </span>
+              {venueLegend.map(([name, color]) => (
+                <span key={name} className="flex items-center gap-1.5">
+                  <span className="size-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                  {name}
+                </span>
+              ))}
+            </div>
+          )}
+
           {/* Calendar Grid */}
           <div className="grid grid-cols-7 gap-px bg-border rounded-lg overflow-hidden">
             {['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map((day) => (
@@ -462,6 +490,7 @@ export default function EventsPage() {
                         key={event.id}
                         href={`/events/${event.id}`}
                         className={`block text-xs p-1 rounded truncate ${getStatusColor(getEventDisplayStatus(event))}`}
+                        style={venueBorderStyle(event.venues.map(v => v.venue.color).filter((c): c is string => !!c))}
                       >
                         {event.name}
                       </Link>
