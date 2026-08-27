@@ -253,7 +253,25 @@ export async function layoutRoutes(app: FastifyInstance) {
 
   // PUT /admin/layout-config — update element type + combo configuration (admin only)
   app.put('/admin/layout-config', { preHandler: [requireAuth, requireRole(['admin'])] }, async (request, reply) => {
-    const { elements, combos = [] } = request.body as { elements: any[]; combos?: any[] };
+    const { elements, combos = [], confirmClearCombos } = request.body as { elements: any[]; combos?: any[]; confirmClearCombos?: boolean };
+
+    // Trava contra apagar combos sem querer: este PUT reescreve o array inteiro (sem merge), e
+    // um estado de front vazio (ex.: combo em edição incompleto, sem satélite escolhido, some
+    // silenciosamente do array local) sobrescreve qualquer combo já salvo sem aviso nenhum — já
+    // aconteceu em produção uma vez, sem log e sem forma de recuperar. Bloqueia por padrão;
+    // exige confirmação explícita do front pra realmente zerar os combos.
+    if (combos.length === 0 && !confirmClearCombos) {
+      const current = await (prisma as any).eventLayoutConfig.findUnique({ where: { id: 'default' } });
+      const currentCombosCount = current?.config?.combos?.length ?? 0;
+      if (currentCombosCount > 0) {
+        return reply.status(409).send({
+          error: `Isso apagaria ${currentCombosCount} combo(s) já cadastrado(s). Confirme se é intencional.`,
+          requiresConfirmation: true,
+          existingCombosCount: currentCombosCount,
+        });
+      }
+    }
+
     const toSaveElements = elements.map(({ iconUrl, photoUrl, ...rest }: any) => rest);
     const toSaveCombos = combos.map(({ iconUrl, ...rest }: any) => rest);
     await (prisma as any).eventLayoutConfig.upsert({

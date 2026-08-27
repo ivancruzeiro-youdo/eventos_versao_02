@@ -138,11 +138,24 @@ export default function AdminLayoutElementsPage() {
     setSaving(true);
     setMsg(null);
     try {
-      await fetchWithCreds(`${API_URL}/api/v2/admin/layout-config`, {
-        method: 'PUT',
+      let res = await fetch(`${API_URL}/api/v2/admin/layout-config`, {
+        method: 'PUT', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ elements, combos }),
       });
+      if (res.status === 409) {
+        const data = await res.json().catch(() => ({} as any));
+        if (data.requiresConfirmation) {
+          const ok = confirm(data.error || `Isso vai apagar ${data.existingCombosCount ?? ''} combo(s) já cadastrado(s). Continuar?`);
+          if (!ok) { setMsg({ ok: false, text: 'Salvamento cancelado.' }); return; }
+          res = await fetch(`${API_URL}/api/v2/admin/layout-config`, {
+            method: 'PUT', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ elements, combos, confirmClearCombos: true }),
+          });
+        }
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setMsg({ ok: true, text: 'Configuração salva!' });
     } catch {
       setMsg({ ok: false, text: 'Erro ao salvar.' });
