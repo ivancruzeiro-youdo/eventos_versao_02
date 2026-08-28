@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../server.js';
 import { requireAuth } from '../middleware/auth.js';
-import { createUploadPresignedUrl, deleteS3Object, sanitizeFilenameForKey } from '../lib/s3.js';
+import { createUploadPresignedUrl, createDownloadPresignedUrl, deleteS3Object, sanitizeFilenameForKey } from '../lib/s3.js';
 
 const presignSchema = z.object({
   filename: z.string().min(1),
@@ -127,6 +127,30 @@ export async function eventMediaRoutes(app: FastifyInstance) {
     });
 
     return reply.status(201).send({ success: true, asset });
+  });
+
+  // Download — mesmo padrão de /files/:id/download (files.ts): URL presignada de leitura,
+  // o front abre em nova aba. Precisa do mesmo checkEventAccess das demais rotas daqui, já
+  // que esse asset é o mesmo arquivo que o painel de LED baixa (devices.ts), só que ali a
+  // autenticação é por sessão de dispositivo, não por login de staff.
+  app.get('/events/:id/media/:assetId/download', { preHandler: requireAuth }, async (request, reply) => {
+    const { id: eventId, assetId } = request.params as { id: string; assetId: string };
+    const user = (request as any).user;
+    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
+
+    const asset = await (prisma as any).eventMediaAsset.findFirst({ where: { id: assetId, eventId } });
+    if (!asset) return reply.status(404).send({ error: 'Mídia não encontrada' });
+    if (asset.deletedAt) return reply.status(400).send({ error: 'Esta mídia já foi excluída (retenção de 4 dias) e não está mais disponível.' });
+
+    let downloadUrl: string;
+    try {
+      downloadUrl = await createDownloadPresignedUrl(asset.s3Key, asset.name);
+    } catch (s3Error) {
+      console.error('S3 download presign error:', s3Error);
+      return reply.status(502).send({ error: 'Falha ao gerar link de download.' });
+    }
+
+    return { success: true, downloadUrl, filename: asset.name, mimeType: asset.mimeType };
   });
 
   // Rename / reorder

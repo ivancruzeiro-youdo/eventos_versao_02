@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Upload, Trash2, Pencil, Check, X, Video, Image as ImageIcon, Music, ArrowUp, ArrowDown, MonitorPlay, Ban } from 'lucide-react';
+import { Upload, Trash2, Pencil, Check, X, Video, Image as ImageIcon, Music, ArrowUp, ArrowDown, MonitorPlay, Ban, Download } from 'lucide-react';
 
 interface MediaAsset {
   id: string;
@@ -55,6 +55,7 @@ export default function EventMediaTab({ eventId }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editComment, setEditComment] = useState('');
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { load(); }, [eventId]);
@@ -155,6 +156,21 @@ export default function EventMediaTab({ eventId }: Props) {
     });
     setEditingId(null);
     load();
+  }
+
+  async function download(assetId: string) {
+    setDownloadingId(assetId);
+    try {
+      const res = await fetch(`/api/v2/events/${eventId}/media/${assetId}/download`, { credentials: 'include' });
+      const data = await res.json();
+      if (res.ok && data.downloadUrl) {
+        window.open(data.downloadUrl, '_blank');
+      } else {
+        alert(data.error || 'Erro ao gerar link de download.');
+      }
+    } finally {
+      setDownloadingId(null);
+    }
   }
 
   async function remove(assetId: string, name: string) {
@@ -269,6 +285,14 @@ export default function EventMediaTab({ eventId }: Props) {
               <div className="flex items-center gap-1 shrink-0">
                 <button onClick={() => move(i, -1)} disabled={i === 0} className="p-1.5 text-muted-foreground hover:text-foreground disabled:opacity-30 rounded"><ArrowUp size={14} /></button>
                 <button onClick={() => move(i, 1)} disabled={i === assets.length - 1} className="p-1.5 text-muted-foreground hover:text-foreground disabled:opacity-30 rounded"><ArrowDown size={14} /></button>
+                <button
+                  onClick={() => download(asset.id)}
+                  disabled={downloadingId === asset.id}
+                  title="Baixar"
+                  className="p-1.5 text-muted-foreground hover:text-primary disabled:opacity-40 rounded"
+                >
+                  <Download size={14} />
+                </button>
                 <button onClick={() => openRename(asset)} className="p-1.5 text-muted-foreground hover:text-primary rounded"><Pencil size={14} /></button>
                 <button onClick={() => remove(asset.id, asset.name)} className="p-1.5 text-muted-foreground hover:text-destructive rounded"><Trash2 size={14} /></button>
               </div>
