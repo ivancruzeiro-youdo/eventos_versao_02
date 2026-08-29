@@ -2,20 +2,26 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '../server.js';
 import { requireAuth } from '../middleware/auth.js';
 import { applyVenueActivityTemplates } from '../lib/venue-activity-templates.js';
-import { getUserpToken } from '../lib/userp-auth.js';
+import { getUserpToken, userpFetch } from '../lib/userp-auth.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+//
+// Todas as chamadas à Userp aqui passam por userpFetch() (userp-auth.ts) em vez de fetch()
+// cru: sessão única por conta na Userp — um login concorrente (nosso ou de fora) invalida o
+// token cacheado, e sem retry isso vira um 401 espúrio ("Erro ao listar contratos: 401")
+// mesmo com credenciais corretas. userpFetch já refaz a chamada 1x com token novo nesse caso
+// (mesmo fix já aplicado em degustacoes.ts/fetchUserpEntidade).
 
-// Fetch paginated list of contract IDs from the satelite experience API (Bearer auth; includes real start/end times)
-async function fetchContratoIds(token: string, baseUrl: string): Promise<number[]> {
+// Fetch paginated list of contract IDs from the satelite experience API (includes real start/end times)
+async function fetchContratoIds(): Promise<number[]> {
   const all: number[] = [];
   let start = 0;
   const limit = 200;
   while (true) {
-    const res = await fetch(`${baseUrl}/api/userp-satelite/experience/contracts-paginated.php?start=${start}&limit=${limit}&order_by=contrato_desc`, {
-      headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+    const res = await userpFetch(`/api/userp-satelite/experience/contracts-paginated.php?start=${start}&limit=${limit}&order_by=contrato_desc`, {
+      headers: { Accept: 'application/json' },
     });
     if (!res.ok) throw new Error(`Erro ao listar contratos: ${res.status}`);
     const data: any = await res.json();
@@ -28,9 +34,9 @@ async function fetchContratoIds(token: string, baseUrl: string): Promise<number[
 }
 
 // Fetch full contract details (has inicio_evento/fim_evento/data_checkin with real time, and produtos)
-async function fetchContratoDetails(token: string, baseUrl: string, codlocacontrato: number): Promise<any | null> {
-  const res = await fetch(`${baseUrl}/api/userp-satelite/experience/contracts-details.php?codlocacontrato=${codlocacontrato}`, {
-    headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+async function fetchContratoDetails(codlocacontrato: number): Promise<any | null> {
+  const res = await userpFetch(`/api/userp-satelite/experience/contracts-details.php?codlocacontrato=${codlocacontrato}`, {
+    headers: { Accept: 'application/json' },
   });
   if (!res.ok) return null;
   let data: any;
@@ -44,9 +50,9 @@ async function fetchContratoDetails(token: string, baseUrl: string, codlocacontr
 // resto do sync (experience/contracts-details.php), que não tem esse campo. `null` = falha de
 // rede/auth (estado inconclusivo — NUNCA deve ser tratado como "lista vazia", senão o prune em
 // syncContractUsers apagaria vínculos reais por causa de uma falha passageira).
-async function fetchContratoUsuarios(token: string, baseUrl: string, codlocacontrato: number): Promise<any[] | null> {
-  const res = await fetch(`${baseUrl}/api/userp-satelite/contratos/index.php?codlocacontrato=${codlocacontrato}`, {
-    headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+async function fetchContratoUsuarios(codlocacontrato: number): Promise<any[] | null> {
+  const res = await userpFetch(`/api/userp-satelite/contratos/index.php?codlocacontrato=${codlocacontrato}`, {
+    headers: { Accept: 'application/json' },
   });
   if (!res.ok) return null;
   let data: any;
@@ -57,8 +63,8 @@ async function fetchContratoUsuarios(token: string, baseUrl: string, codlocacont
 
 // Upsert dos usuários de UM contrato já persistido localmente (EventContractUser), e remove os
 // que não vieram mais na resposta (usuário desvinculado do contrato no Userp).
-async function syncContractUsers(eventContractId: string, codlocacontrato: number, token: string, baseUrl: string): Promise<void> {
-  const usuarios = await fetchContratoUsuarios(token, baseUrl, codlocacontrato);
+async function syncContractUsers(eventContractId: string, codlocacontrato: number): Promise<void> {
+  const usuarios = await fetchContratoUsuarios(codlocacontrato);
   if (usuarios === null) return; // falha ao consultar — não mexe no que já está salvo
 
   const seenIds: number[] = [];
@@ -89,11 +95,11 @@ async function syncContractUsers(eventContractId: string, codlocacontrato: numbe
 
 // Distinguish a confirmed "contract no longer exists" (safe to act on) from a transient/other
 // error (inconclusive — must never be treated as evidence the contract was removed).
-async function contratoStatus(token: string, baseUrl: string, codlocacontrato: number): Promise<'found' | 'not_found' | 'error'> {
+async function contratoStatus(codlocacontrato: number): Promise<'found' | 'not_found' | 'error'> {
   let res: Response;
   try {
-    res = await fetch(`${baseUrl}/api/userp-satelite/experience/contracts-details.php?codlocacontrato=${codlocacontrato}`, {
-      headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+    res = await userpFetch(`/api/userp-satelite/experience/contracts-details.php?codlocacontrato=${codlocacontrato}`, {
+      headers: { Accept: 'application/json' },
     });
   } catch {
     return 'error';
@@ -106,14 +112,14 @@ async function contratoStatus(token: string, baseUrl: string, codlocacontrato: n
 }
 
 // Fetch all contracts with details, filtering to today-or-future by data_checkin (date-only comparison)
-async function fetchContratos(token: string, baseUrl: string): Promise<any[]> {
+async function fetchContratos(): Promise<any[]> {
   const today = new Date().toISOString().slice(0, 10);
-  const ids = await fetchContratoIds(token, baseUrl);
+  const ids = await fetchContratoIds();
   const results: any[] = [];
   // Fetch details in parallel batches of 10
   for (let i = 0; i < ids.length; i += 10) {
     const batch = ids.slice(i, i + 10);
-    const details = await Promise.all(batch.map(id => fetchContratoDetails(token, baseUrl, id)));
+    const details = await Promise.all(batch.map(id => fetchContratoDetails(id)));
     for (const d of details) {
       if (!d) continue;
       const main = d.main;
@@ -383,16 +389,9 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     const employerId: string = user.employerId;
     if (!employerId) return reply.status(400).send({ error: 'Usuário sem employerId.' });
 
-    let token: string, baseUrl: string;
-    try {
-      ({ token, baseUrl } = await getUserpToken());
-    } catch (e: any) {
-      return reply.status(400).send({ error: e.message });
-    }
-
     let rawContracts: any[];
     try {
-      rawContracts = await fetchContratos(token, baseUrl);
+      rawContracts = await fetchContratos();
     } catch (e: any) {
       return reply.status(502).send({ error: e.message });
     }
@@ -559,9 +558,8 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Nenhum evento para importar.' });
     }
 
-    let token: string, baseUrl: string;
     try {
-      ({ token, baseUrl } = await getUserpToken());
+      await getUserpToken();
     } catch (e: any) {
       return reply.status(400).send({ error: e.message });
     }
@@ -584,7 +582,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       const relatedRaw: any[] = [];
       for (const cid of contractIds) {
         if (!cid) continue;
-        const detail = await fetchContratoDetails(token, baseUrl, Number(cid)).catch(() => null);
+        const detail = await fetchContratoDetails(Number(cid)).catch(() => null);
         if (detail?.main) relatedRaw.push({ ...detail.main, _secondary: detail.secondary || [] });
       }
 
@@ -672,7 +670,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
         // Usuários vinculados ao contrato (Pessoas do contrato no Userp) — endpoint separado
         // do detalhe usado acima, então roda à parte, tanto no import quanto em toda
         // atualização (sync roda de novo pra todo evento já importado).
-        await syncContractUsers(contractId, Number(extId), token, baseUrl);
+        await syncContractUsers(contractId, Number(extId));
 
         // Also upsert secondary contracts — they don't appear in the paginated list and
         // can't be fetched individually, so they must be tracked via their parent's details.
@@ -693,7 +691,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
             });
             secContractId = createdSec.id;
           }
-          await syncContractUsers(secContractId, Number(secExtId), token, baseUrl);
+          await syncContractUsers(secContractId, Number(secExtId));
         }
       }
 
@@ -985,9 +983,8 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     });
     const globalImportedIds = new Set(allImportedContracts.map((c: any) => String(c.externalId)));
 
-    let token: string, baseUrl: string;
     try {
-      ({ token, baseUrl } = await getUserpToken());
+      await getUserpToken();
     } catch (e: any) {
       return reply.status(400).send({ error: e.message });
     }
@@ -995,7 +992,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     // 3. Fetch all USERP contract IDs (paginated, only IDs — fast)
     let userpIds: number[];
     try {
-      userpIds = await fetchContratoIds(token, baseUrl);
+      userpIds = await fetchContratoIds();
     } catch (e: any) {
       return reply.status(502).send({ error: e.message });
     }
@@ -1010,12 +1007,12 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     const secondaryPending: { secId: string; mainDetail: any }[] = [];
     const detailByExternalId = new Map<string, any | null>();
     for (const ec of eventContracts) {
-      const detail = await fetchContratoDetails(token, baseUrl, Number(ec.externalId));
+      const detail = await fetchContratoDetails(Number(ec.externalId));
       detailByExternalId.set(ec.externalId, detail);
       // Não é o único lugar que dispara isso (sync-import também sincroniza), mas é o que roda
       // sempre que a página do evento é aberta — sem isso, "Usuários do Contrato" só atualizava
       // depois de uma importação manual, e o operador nunca reimporta um evento já criado.
-      await syncContractUsers(ec.id, Number(ec.externalId), token, baseUrl);
+      await syncContractUsers(ec.id, Number(ec.externalId));
       if (!detail?.secondary?.length) continue;
       for (const sec of detail.secondary) {
         const secId = String(sec.codlocacontrato || '');
@@ -1059,7 +1056,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       if (i === 0 && h.missing) {
         // Primary contract: a direct lookup is meaningful, but double-check via contratoStatus
         // to distinguish a real 404 from a transient error before proposing removal.
-        const status = await contratoStatus(token, baseUrl, Number(h.externalId));
+        const status = await contratoStatus(Number(h.externalId));
         confirmedGone = status === 'not_found';
       } else if (i > 0 && h.unlinkedInUerp) {
         // Secondary contract: already confirmed via the primary's own secondary[] list above —
@@ -1218,7 +1215,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     const pendingContracts: any[] = [];
     for (let i = 0; i < unknownIds.length; i += 10) {
       const batch = unknownIds.slice(i, i + 10);
-      const details = await Promise.all(batch.map(id => fetchContratoDetails(token, baseUrl, id)));
+      const details = await Promise.all(batch.map(id => fetchContratoDetails(id)));
       for (const d of details) {
         if (!d?.main) continue;
         const main = d.main;
@@ -1380,9 +1377,8 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     if (!item) return reply.status(404).send({ error: 'Item não encontrado neste evento.' });
     if (!item.sourceContractId) return reply.status(400).send({ error: 'Este item não tem contrato de origem registrado.' });
 
-    let token: string, baseUrl: string;
     try {
-      ({ token, baseUrl } = await getUserpToken());
+      await getUserpToken();
     } catch (e: any) {
       return reply.status(400).send({ error: e.message });
     }
@@ -1393,7 +1389,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     // risk deleting a product that's actually still live under a different valid contract.
     const eventContracts = await (prisma as any).eventContract.findMany({ where: { eventId }, orderBy: { createdAt: 'asc' } });
     const mainExternalId = eventContracts[0]?.externalId;
-    const mainDetail = mainExternalId ? await fetchContratoDetails(token, baseUrl, Number(mainExternalId)) : null;
+    const mainDetail = mainExternalId ? await fetchContratoDetails(Number(mainExternalId)) : null;
     if (!mainDetail) {
       return reply.status(409).send({ error: 'Não foi possível confirmar o estado atual no Userp — remoção cancelada.' });
     }
@@ -1437,15 +1433,14 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     const contract = await (prisma as any).eventContract.findFirst({ where: { id: contractId, eventId } });
     if (!contract) return reply.status(404).send({ error: 'Contrato não encontrado neste evento.' });
 
-    let token: string, baseUrl: string;
     try {
-      ({ token, baseUrl } = await getUserpToken());
+      await getUserpToken();
     } catch (e: any) {
       return reply.status(400).send({ error: e.message });
     }
 
     // Re-check right before deleting — avoid removing something that came back since the proposal was shown.
-    const status = await contratoStatus(token, baseUrl, Number(contract.externalId));
+    const status = await contratoStatus(Number(contract.externalId));
     if (status !== 'not_found') {
       return reply.status(409).send({ error: 'O contrato voltou a existir no Userp (ou a checagem falhou) — remoção cancelada.' });
     }
