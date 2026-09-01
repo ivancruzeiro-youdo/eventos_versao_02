@@ -80,6 +80,12 @@ export async function registrarCheckoutsUserp(eventId: string, triggeredByUserId
     idFunc = user?.userpCodigo ? parseInt(user.userpCodigo, 10) : null;
   }
 
+  // "Itens Quebrados / Danificados" do encerramento vai no check-out como cobra_obs — campo
+  // opcional de checkouts/create.php, "observação sobre valores a cobrar ao cliente" (doc dá
+  // exatamente "Danos na parede da sala." como exemplo). Só manda quando preenchido.
+  const closure = await (prisma as any).eventClosure.findUnique({ where: { eventId }, select: { itensQuebrados: true } });
+  const cobraObs: string | undefined = closure?.itensQuebrados?.trim() || undefined;
+
   const { token, baseUrl } = await getUserpToken();
   const { date: dataCheckout, time: horaCheckout } = nowBrtParts();
   const lines: string[] = [];
@@ -108,6 +114,7 @@ export async function registrarCheckoutsUserp(eventId: string, triggeredByUserId
           id_func: idFunc,
           data_checkout: dataCheckout,
           hora_checkout: horaCheckout,
+          ...(cobraObs ? { cobra_obs: cobraObs } : {}),
         }),
       });
       if (res.status === 409) {
