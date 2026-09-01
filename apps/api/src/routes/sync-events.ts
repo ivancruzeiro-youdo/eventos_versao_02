@@ -1095,6 +1095,28 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     for (const set of liveNamesByContract.values()) for (const n of set) allLiveNames.add(n);
     const validExternalIds = [...liveNamesByContract.keys()];
 
+    // Quantidade líquida por produto somando TODOS os contratos válidos (principal +
+    // secundários) — mesmo critério aditivo do buildItemsSnapshot usado pelo sync principal.
+    // Sem isso, um produto descontratado via contrato secundário (qtde negativa lá, cujo saldo
+    // com o principal já fica <= 0 e por isso o sync diário remove o EventItem corretamente)
+    // era reimportado aqui pela quantidade CRUA de um único contrato (o principal, sempre
+    // iterado primeiro) — desfazendo a remoção certa todo santo dia, sempre que alguém abria a
+    // página do evento. Bug real de produção: "Pacote de Bebidas 2" oscilando removido/
+    // reimportado diariamente num evento com descontratação parcial via contrato secundário.
+    const nettedQtyByName = new Map<string, number>();
+    for (let i = 0; i < contractHealth.length; i++) {
+      const h = contractHealth[i];
+      if (!liveNamesByContract.has(h.externalId)) continue;
+      const liveProducts: any[] = i === 0
+        ? detailByExternalId.get(h.externalId)?.main?.produtos ?? []
+        : (mainDetail?.secondary ?? []).find((s: any) => String(s.codlocacontrato || '') === String(h.externalId))?.produtos ?? [];
+      for (const p of liveProducts) {
+        const key = String(p.name || p.details?.description || '').trim().toLowerCase();
+        if (!key) continue;
+        nettedQtyByName.set(key, (nettedQtyByName.get(key) ?? 0) + Number(p.qtde || 1));
+      }
+    }
+
     // Reconciliation: a live product in a still-valid contract with no matching EventItem
     // anywhere in the event (by name) is imported right now — purely additive, so unlike
     // removal this needs no confirmation step, same as a normal periodic sync would do.
@@ -1125,8 +1147,12 @@ export async function syncEventsRoutes(app: FastifyInstance) {
           const product = productByName.get(pname.toLowerCase());
           if (!product) continue; // not in our catalog — nothing we can safely auto-create
 
+          // Saldo líquido entre todos os contratos, não a quantidade crua desta única linha —
+          // ver comentário em nettedQtyByName acima. Saldo <= 0 = descontratado, não reimporta.
+          const qty = nettedQtyByName.get(pname.toLowerCase()) ?? Number(p.qtde || 1);
+          if (qty <= 0) continue;
+
           const category = mapCategory(product.categoryName) || 'other';
-          const qty = Number(p.qtde || 1);
           await (prisma as any).eventItem.create({
             data: {
               eventId, productId: product.id, sourceContractId: h.externalId,
