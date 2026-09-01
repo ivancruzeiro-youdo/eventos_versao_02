@@ -37,7 +37,7 @@ interface Event {
   setupAt: string | null;
   teardownAt: string | null;
   checkoutAt: string | null;
-  venues: { venue: { name: string; color: string | null } }[];
+  venues: { venue: { id: string; name: string; color: string | null } }[];
   _count?: { guests: number };
 }
 
@@ -88,6 +88,9 @@ export default function EventsPage() {
   
   // Calendar state
   const [currentMonth, setCurrentMonth] = useState(new Date());
+  // Locais ocultos no calendário — vazio por padrão (todos visíveis), clique numa etiqueta
+  // esconde/mostra aquele local, igual à lista de agendas do Google Calendar.
+  const [hiddenVenueIds, setHiddenVenueIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadEvents();
@@ -153,17 +156,20 @@ export default function EventsPage() {
     }
   }
 
-  // Legenda de cor por local, pra visão de calendário — só locais com cor definida, dedupe por
-  // nome, calculado a partir de todos os eventos carregados (não só os filtrados/do mês atual)
-  // pra não sumir/reaparecer ao navegar entre meses ou filtrar.
-  const venueLegend = Array.from(
-    new Map(
-      events
-        .flatMap(e => e.venues.map(v => v.venue))
-        .filter(v => v.color)
-        .map(v => [v.name, v.color as string])
-    ).entries()
-  ).sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'));
+  // Legenda + filtro de local, pra visão de calendário — dedupe por id, todos os locais (com
+  // ou sem cor), calculado a partir de TODOS os eventos carregados (não só os filtrados/do mês
+  // atual) pra não sumir/reaparecer ao navegar entre meses ou digitar na busca.
+  const calendarVenues = Array.from(
+    new Map(events.flatMap(e => e.venues.map(v => [v.venue.id, v.venue] as const))).values()
+  ).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+
+  function toggleVenueFilter(venueId: string) {
+    setHiddenVenueIds(prev => {
+      const next = new Set(prev);
+      next.has(venueId) ? next.delete(venueId) : next.add(venueId);
+      return next;
+    });
+  }
 
   const filteredEvents = events.filter(event => {
     const matchesSearch = 
@@ -206,7 +212,11 @@ export default function EventsPage() {
     return filteredEvents.filter(event => {
       if (!event.startAt) return false;
       const eventDate = new Date(event.startAt);
-      return eventDate.toDateString() === day.toDateString();
+      if (eventDate.toDateString() !== day.toDateString()) return false;
+      // Evento sem local nunca é escondido (nada pra filtrar); com 2+ locais, basta UM
+      // continuar visível pro evento aparecer — esconder exige apagar todos os locais dele.
+      if (event.venues.length === 0) return true;
+      return event.venues.some(v => !hiddenVenueIds.has(v.venue.id));
     });
   };
 
@@ -448,18 +458,33 @@ export default function EventsPage() {
             </div>
           </div>
 
-          {/* Legenda de cor por local */}
-          {venueLegend.length > 0 && (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mb-4 text-xs text-muted-foreground">
+          {/* Legenda + filtro de local: clique numa etiqueta esconde/mostra os eventos dela */}
+          {calendarVenues.length > 0 && (
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 mb-4 text-xs">
               <span className="flex items-center gap-1 font-medium text-foreground/70">
                 <MapPin className="size-3.5" /> Locais:
               </span>
-              {venueLegend.map(([name, color]) => (
-                <span key={name} className="flex items-center gap-1.5">
-                  <span className="size-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                  {name}
-                </span>
-              ))}
+              {calendarVenues.map(v => {
+                const hidden = hiddenVenueIds.has(v.id);
+                return (
+                  <button
+                    key={v.id}
+                    onClick={() => toggleVenueFilter(v.id)}
+                    title={hidden ? `Mostrar ${v.name}` : `Ocultar ${v.name}`}
+                    className={`flex items-center gap-1.5 px-2 py-1 rounded-md border transition ${
+                      hidden
+                        ? 'border-transparent text-muted-foreground/50 line-through hover:bg-muted'
+                        : 'border-border text-foreground hover:bg-muted'
+                    }`}
+                  >
+                    <span
+                      className="size-2.5 rounded-full shrink-0"
+                      style={{ backgroundColor: v.color || '#94a3b8' }}
+                    />
+                    {v.name}
+                  </button>
+                );
+              })}
             </div>
           )}
 
