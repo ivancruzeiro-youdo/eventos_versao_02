@@ -26,12 +26,24 @@ async function fetchJson(url: string, token: string): Promise<any> {
   return res.json();
 }
 
-export async function registrarCheckinsUserp(eventId: string, triggeredByUserId: string | null): Promise<void> {
+export interface CheckinResult {
+  ok: boolean;
+  /** Uma mensagem por contrato que falhou de verdade — "sem pendente" e "já feito" (409) não
+   *  contam como falha, só erro de rede/auth ou resposta não-ok da Userp. */
+  failures: string[];
+}
+
+// Retorna resultado (em vez de void) pra quem inicia o evento poder BLOQUEAR a transição de
+// status se o check-in de espaço falhar — ao contrário do check-out (sempre fire-and-forget,
+// nunca trava o encerramento), aqui o pedido foi explícito: se travar, mostra o motivo pro
+// operador e NÃO inicia o evento, em vez de deixar iniciar e só logar o erro escondido.
+export async function registrarCheckinsUserp(eventId: string, triggeredByUserId: string | null): Promise<CheckinResult> {
   const contracts = await (prisma as any).eventContract.findMany({ where: { eventId } });
-  if (contracts.length === 0) return;
+  if (contracts.length === 0) return { ok: true, failures: [] };
 
   const { token, baseUrl } = await getUserpToken();
   const lines: string[] = [];
+  const failures: string[] = [];
 
   for (const contract of contracts) {
     try {
@@ -56,18 +68,24 @@ export async function registrarCheckinsUserp(eventId: string, triggeredByUserId:
         lines.push(`Contrato ${contract.externalId} (${item.unidade_nome}): check-in já estava registrado na Userp.`);
       } else if (!res.ok) {
         const body = await res.text().catch(() => '');
-        lines.push(`Contrato ${contract.externalId} (${item.unidade_nome}): falha ao registrar check-in (${res.status}) — ${body}`);
+        const msg = `Contrato ${contract.externalId} (${item.unidade_nome}): falha ao registrar check-in (${res.status}) — ${body}`;
+        lines.push(msg);
+        failures.push(msg);
       } else {
         lines.push(`Contrato ${contract.externalId} (${item.unidade_nome}): check-in registrado na Userp.`);
       }
     } catch (err: any) {
-      lines.push(`Contrato ${contract.externalId}: erro ao consultar/registrar check-in na Userp — ${err.message}`);
+      const msg = `Contrato ${contract.externalId}: erro ao consultar/registrar check-in na Userp — ${err.message}`;
+      lines.push(msg);
+      failures.push(msg);
     }
   }
 
   await prisma.eventComment.create({
     data: { eventId, userId: triggeredByUserId, isSystem: true, content: `Check-in Userp (início do evento):\n${lines.join('\n')}` },
   });
+
+  return { ok: failures.length === 0, failures };
 }
 
 export async function registrarCheckoutsUserp(eventId: string, triggeredByUserId: string | null): Promise<void> {

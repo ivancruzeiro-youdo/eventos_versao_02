@@ -251,20 +251,31 @@ export async function eventRoutes(app: FastifyInstance) {
       });
     }
 
+    // Check-in de espaço na Userp: ao contrário do check-out (sempre fire-and-forget), aqui o
+    // pedido foi explícito — se o check-in travar (falha real, não "sem pendente"/já feito),
+    // mostra o motivo pro operador e NÃO inicia o evento, em vez de iniciar e só logar
+    // escondido. Roda ANTES de atualizar o status, exatamente pra poder bloquear a transição.
+    if (status === 'in_progress') {
+      try {
+        const result = await registrarCheckinsUserp(id, user.id);
+        if (!result.ok) {
+          return reply.status(502).send({
+            error: `Falha ao registrar check-in na Userp — evento não iniciado. ${result.failures.join(' | ')}`,
+          });
+        }
+      } catch (err: any) {
+        return reply.status(502).send({
+          error: `Falha ao registrar check-in na Userp — evento não iniciado. ${err.message}`,
+        });
+      }
+    }
+
     const updated = await prisma.event.update({
       where: { id },
       data: { status: status as EventStatus },
     });
 
     // TODO: Log to AuditLog with reason
-
-    // Registra o check-in de espaço na Userp ao iniciar o evento — fire-and-forget, não
-    // atrasa a resposta pro operador nem trava a mudança de status se a Userp estiver fora.
-    if (status === 'in_progress') {
-      registrarCheckinsUserp(id, user.id).catch((err: any) =>
-        console.error(`[userp-checkin] evento ${id}: ${err.message}`),
-      );
-    }
 
     return { success: true, event: updated };
   });
