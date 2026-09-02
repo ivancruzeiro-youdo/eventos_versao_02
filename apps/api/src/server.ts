@@ -58,6 +58,10 @@ const logger = pino({
 
 const app = Fastify({
   logger,
+  // Default (1MB) é fino demais pra payloads JSON com foto em base64 (ex.: fotoBase64 de
+  // freelancer/pessoa) — um JPEG comprimido no cliente já cabe bem aqui, mas isso é rede de
+  // segurança pra qualquer envio que escape da compressão do lado do front.
+  bodyLimit: 8 * 1024 * 1024,
 });
 
 // Prisma client is imported from @youdo/db

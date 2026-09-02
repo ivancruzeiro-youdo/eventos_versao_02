@@ -28,6 +28,21 @@ interface Penalty {
 
 const EMPTY_FORM = { name: '', email: '', cpf: '', phone: '', birthDate: '', status: 'active', fotoBase64: '' };
 
+/** Reduz o frame pra um tamanho razoável de foto de identificação antes de virar base64 — sem
+ *  isso um arquivo de câmera cru (facilmente 3-8MB) estoura o limite de corpo da requisição
+ *  (1MB por padrão no Fastify) e o PATCH volta com um "FastifyError" cru pro operador. Mesmo
+ *  helper já usado em freelancer/profile/page.tsx pro próprio freelancer trocar a foto. */
+function drawToJpegDataUrl(source: CanvasImageSource, srcW: number, srcH: number, maxDim = 480): string {
+  const scale = Math.min(1, maxDim / Math.max(srcW, srcH));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(srcW * scale);
+  canvas.height = Math.round(srcH * scale);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+  ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL('image/jpeg', 0.85);
+}
+
 function calcAge(birthDate: string | null) {
   if (!birthDate) return null;
   const d = new Date(birthDate);
@@ -273,7 +288,14 @@ export default function FreelancersPage() {
         body: JSON.stringify({ ...form, cpf: form.cpf.replace(/\D/g, '') }),
       });
       const data = await res.json();
-      if (!res.ok) { setFormError(data.error || 'Erro ao salvar'); return; }
+      if (!res.ok) {
+        // Erros sem tratamento específico na API voltam como { error: error.name, message }
+        // (server.ts) — "FastifyError"/"PrismaClientKnownRequestError" não diz nada pro
+        // operador; prefere a mensagem descritiva quando o "error" é só o nome da exceção.
+        const friendly = /Error$/.test(data.error) && data.message ? data.message : data.error;
+        setFormError(friendly || 'Erro ao salvar');
+        return;
+      }
       setModal(null); load(page, search, statusFilter);
     } finally { setSaving(false); }
   }
@@ -574,10 +596,15 @@ export default function FreelancersPage() {
                       id="foto-upload"
                       onChange={e => {
                         const file = e.target.files?.[0];
+                        e.target.value = '';
                         if (!file) return;
-                        const reader = new FileReader();
-                        reader.onload = (ev) => setForm(f => ({ ...f, fotoBase64: ev.target?.result as string }));
-                        reader.readAsDataURL(file);
+                        const img = new Image();
+                        img.onload = () => {
+                          const dataUrl = drawToJpegDataUrl(img, img.naturalWidth, img.naturalHeight);
+                          if (dataUrl) setForm(f => ({ ...f, fotoBase64: dataUrl }));
+                          URL.revokeObjectURL(img.src);
+                        };
+                        img.src = URL.createObjectURL(file);
                       }}
                     />
                     <label htmlFor="foto-upload"
