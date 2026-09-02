@@ -12,6 +12,53 @@ const FREELANCER_SAFE_SELECT = {
   status: true, strikeCount: true, fotoBase64: true, createdAt: true, updatedAt: true,
 } as const;
 
+// Descanso mínimo entre o fim de um turno e o início do outro — não basta não sobrepor, tem
+// que sobrar pelo menos esse tanto de intervalo corrido entre os dois. Implementado como um
+// teste de sobreposição comum, só que com o turno já existente "inflado" em MIN_REST_MS pra
+// cada lado: newStart < existingEnd + MIN_REST_MS && newEnd > existingStart - MIN_REST_MS
+// cobre tanto sobreposição literal (caso G=0) quanto intervalo curto demais entre os dois,
+// nos dois sentidos (novo antes ou depois do existente), numa única checagem.
+const MIN_REST_MS = 10 * 60 * 60 * 1000;
+
+/** Acha um turno (aprovado ou pendente) que o freelancer JÁ tem em qualquer evento e que viola
+ *  o descanso mínimo de 10h corridas contra o novo turno [candidateStart, candidateEnd] —
+ *  usado tanto na auto-candidatura quanto na aprovação manual pelo staff, pra fechar a mesma
+ *  brecha nos dois lugares (mesmo padrão do fix de maxSlots acima). `excludeApplicationId`
+ *  evita a própria candidatura sendo (re)aprovada contar contra si mesma. */
+async function findRestConflict(
+  freelancerId: string,
+  candidateStart: Date,
+  candidateEnd: Date,
+  excludeApplicationId?: string,
+): Promise<{ role: string; startAt: Date } | null> {
+  const activeApps = await prisma.freelancerApplication.findMany({
+    where: {
+      freelancerId,
+      status: { in: ['pending', 'approved'] },
+      ...(excludeApplicationId ? { id: { not: excludeApplicationId } } : {}),
+    },
+    select: { eventId: true, role: true },
+  });
+  if (activeApps.length === 0) return null;
+
+  const eventIds = activeApps.map(a => a.eventId);
+  const roles = [...new Set(activeApps.map(a => a.role))];
+
+  const candidateSlots = await prisma.eventService.findMany({
+    where: {
+      eventId: { in: eventIds },
+      service: { name: { in: roles } },
+      startAt: { lt: new Date(candidateEnd.getTime() + MIN_REST_MS) },
+      endAt: { gt: new Date(candidateStart.getTime() - MIN_REST_MS) },
+    },
+    include: { service: true },
+  });
+
+  const appSet = new Set(activeApps.map(a => `${a.eventId}::${a.role}`));
+  const conflict = candidateSlots.find(s => s.startAt && s.endAt && appSet.has(`${s.eventId}::${s.service.name}`));
+  return conflict ? { role: conflict.service.name, startAt: conflict.startAt! } : null;
+}
+
 // Resultado explícito do que aconteceu — antes a função só devolvia void e engolia tanto o
 // "nem tentei" (sem vaga/mapeamento) quanto o "tentei e falhou", os dois em silêncio total
 // (nem log). Isso é o que fazia 11 candidaturas aprovadas de um evento pra amanhã nunca
@@ -407,38 +454,17 @@ export async function freelancerRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Você já se candidatou para esta vaga' });
     }
 
-    // Block overlapping shifts: A overlaps B if A.start < B.end AND A.end > B.start
+    // Bloqueia sobreposição de turno E descanso menor que 10h corridas entre o fim de um e o
+    // início do outro (findRestConflict cobre os dois casos numa única checagem).
     if (slot.startAt && slot.endAt) {
-      const activeApps = await prisma.freelancerApplication.findMany({
-        where: { freelancerId: user.id, status: { in: ['pending', 'approved'] } },
-        select: { eventId: true, role: true },
-      });
-
-      if (activeApps.length > 0) {
-        const eventIds = activeApps.map(a => a.eventId);
-        const roles = [...new Set(activeApps.map(a => a.role))];
-
-        const conflictingSlots = await prisma.eventService.findMany({
-          where: {
-            eventId: { in: eventIds },
-            service: { name: { in: roles } },
-            startAt: { lt: slot.endAt },
-            endAt: { gt: slot.startAt },
-          },
-          include: { service: true },
+      const conflict = await findRestConflict(user.id, slot.startAt, slot.endAt);
+      if (conflict) {
+        const time = conflict.startAt.toLocaleString('pt-BR', {
+          day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
         });
-
-        const appSet = new Set(activeApps.map(a => `${a.eventId}::${a.role}`));
-        const conflict = conflictingSlots.find(s => appSet.has(`${s.eventId}::${s.service.name}`));
-
-        if (conflict) {
-          const time = new Date(conflict.startAt!).toLocaleString('pt-BR', {
-            day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
-          });
-          return reply.status(400).send({
-            error: `Conflito de horário: você já tem "${conflict.service.name}" agendado às ${time}`,
-          });
-        }
+        return reply.status(400).send({
+          error: `Conflito de horário: você já tem "${conflict.role}" agendado às ${time} — precisa de pelo menos 10h de descanso entre um turno e outro.`,
+        });
       }
     }
 
@@ -682,6 +708,21 @@ export async function freelancerRoutes(app: FastifyInstance) {
       const slot = await prisma.eventService.findFirst({
         where: { eventId: application.eventId, service: { name: application.role } },
       });
+
+      // Mesmo descanso mínimo de 10h exigido na auto-candidatura (findRestConflict acima) —
+      // aprovar manualmente não pode contornar essa regra.
+      if (slot?.startAt && slot?.endAt) {
+        const conflict = await findRestConflict(application.freelancerId, slot.startAt, slot.endAt, application.id);
+        if (conflict) {
+          const time = conflict.startAt.toLocaleString('pt-BR', {
+            day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+          });
+          return reply.status(409).send({
+            error: `Conflito de horário: este freelancer já tem "${conflict.role}" agendado às ${time} — precisa de pelo menos 10h de descanso entre um turno e outro.`,
+          });
+        }
+      }
+
       try {
         updated = await prisma.$transaction(async (tx) => {
           if (slot) {
