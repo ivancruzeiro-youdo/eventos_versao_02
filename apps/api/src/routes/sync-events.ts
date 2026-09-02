@@ -50,22 +50,31 @@ async function fetchContratoDetails(codlocacontrato: number): Promise<any | null
 // resto do sync (experience/contracts-details.php), que não tem esse campo. `null` = falha de
 // rede/auth (estado inconclusivo — NUNCA deve ser tratado como "lista vazia", senão o prune em
 // syncContractUsers apagaria vínculos reais por causa de uma falha passageira).
-async function fetchContratoUsuarios(codlocacontrato: number): Promise<any[] | null> {
+async function fetchContratoUsuarios(codlocacontrato: number): Promise<{ usuarios: any[]; adendo: string | null } | null> {
   const res = await userpFetch(`/api/userp-satelite/contratos/index.php?codlocacontrato=${codlocacontrato}`, {
     headers: { Accept: 'application/json' },
   });
   if (!res.ok) return null;
   let data: any;
   try { data = await res.json(); } catch { return null; }
-  const usuarios = data?.items?.[0]?.usuarios;
-  return Array.isArray(usuarios) ? usuarios : [];
+  const item = data?.items?.[0];
+  const usuarios = item?.usuarios;
+  // Nome do campo replica o typo da própria Userp (tb_loca_simulacoes.adentos_aos_termos).
+  const adendo: string | null = typeof item?.adentos_aos_termos === 'string' && item.adentos_aos_termos.trim()
+    ? item.adentos_aos_termos.trim()
+    : null;
+  return { usuarios: Array.isArray(usuarios) ? usuarios : [], adendo };
 }
 
 // Upsert dos usuários de UM contrato já persistido localmente (EventContractUser), e remove os
-// que não vieram mais na resposta (usuário desvinculado do contrato no Userp).
+// que não vieram mais na resposta (usuário desvinculado do contrato no Userp). Também
+// atualiza EventContract.adendo — mesma chamada, sem custo extra.
 async function syncContractUsers(eventContractId: string, codlocacontrato: number): Promise<void> {
-  const usuarios = await fetchContratoUsuarios(codlocacontrato);
-  if (usuarios === null) return; // falha ao consultar — não mexe no que já está salvo
+  const result = await fetchContratoUsuarios(codlocacontrato);
+  if (result === null) return; // falha ao consultar — não mexe no que já está salvo
+  const { usuarios, adendo } = result;
+
+  await (prisma as any).eventContract.update({ where: { id: eventContractId }, data: { adendo } });
 
   const seenIds: number[] = [];
   for (const u of usuarios) {

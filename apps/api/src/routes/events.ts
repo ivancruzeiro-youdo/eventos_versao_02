@@ -113,7 +113,7 @@ export async function eventRoutes(app: FastifyInstance) {
           select: { guests: true },
         },
         contracts: {
-          select: { id: true, externalId: true, rawJson: true },
+          select: { id: true, externalId: true, rawJson: true, adendo: true },
           orderBy: { createdAt: 'asc' },
         },
         npsOrganizador: { select: { submittedAt: true } },

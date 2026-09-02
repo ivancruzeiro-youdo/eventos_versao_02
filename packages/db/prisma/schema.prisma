@@ -1144,6 +1144,10 @@ model EventContract {
   clientCode      String   // cliente_codigo
   startDate       String   // data_inicio (YYYY-MM-DD) — matches events
   rawJson         Json     // full contract payload snapshot
+  // Adendos aos termos da simulação vinculada (tb_loca_simulacoes.adentos_aos_termos, exposto
+  // como adentos_aos_termos em contratos/index.php) — sincronizado junto com os usuários do
+  // contrato (mesmo endpoint), null quando o contrato não tem simulação vinculada ou sem adendo.
+  adendo          String?
   createdAt       DateTime @default(now())
 
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)

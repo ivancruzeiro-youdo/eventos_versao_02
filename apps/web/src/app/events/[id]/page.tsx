@@ -33,6 +33,7 @@ import {
 interface EventContract {
   id: string;
   externalId: string;
+  adendo: string | null;
   rawJson: {
     cliente_info?: {
       razaosocial?: string;
@@ -1279,6 +1280,19 @@ export default function EventDetailPage() {
                     );
                   })}
                 </div>
+                {event.contracts!.some(c => c.adendo) && (
+                  <div className="mt-1.5 space-y-1">
+                    {event.contracts!.filter(c => c.adendo).map(c => (
+                      <p key={c.id} className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 flex items-start gap-1.5">
+                        <FileSignature size={12} className="shrink-0 mt-0.5" />
+                        <span>
+                          <span className="font-medium">Adendo{event.contracts!.length > 1 ? ` (contrato ${c.externalId})` : ''}:</span>{' '}
+                          {c.adendo}
+                        </span>
+                      </p>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })()}
