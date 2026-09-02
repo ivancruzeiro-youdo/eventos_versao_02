@@ -9,6 +9,7 @@ const serviceSchema = z.object({
   description: z.string().optional().nullable(),
   startOffsetMinutes: z.number().int().default(-60),
   endOffsetMinutes: z.number().int().default(60),
+  minEventIntervalCount: z.number().int().min(0).default(0),
 });
 
 export async function servicesRoutes(app: FastifyInstance) {

@@ -85,6 +85,11 @@ model FreelancerService {
   description         String?
   startOffsetMinutes  Int      @default(-60)
   endOffsetMinutes    Int      @default(60)
+  // Quantos eventos (com vaga deste MESMO serviço, na sequência cronológica por startAt) tem
+  // que existir entre dois eventos em que o mesmo freelancer trabalha nesse serviço. 0 = sem
+  // regra. Ex.: 1 → pegou vaga no evento que é o 1º da fila, só pode pegar de novo a partir do
+  // 3º (pula exatamente 1 no meio) — eventos sem vaga deste serviço nem entram na contagem.
+  minEventIntervalCount Int    @default(0)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 

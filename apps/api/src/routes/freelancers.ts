@@ -59,6 +59,59 @@ async function findRestConflict(
   return conflict ? { role: conflict.service.name, startAt: conflict.startAt! } : null;
 }
 
+/** Intervalo mínimo em NÚMERO DE EVENTOS (não tempo corrido) entre dois eventos onde o mesmo
+ *  freelancer trabalha no mesmo serviço — configurado por serviço em FreelancerService.
+ *  minEventIntervalCount. A "fila" conta só eventos que têm pelo menos uma vaga desse MESMO
+ *  serviço, ordenados por startAt; um evento sem vaga do serviço nem entra na contagem. Ex.:
+ *  intervalo=1, freelancer já trabalha no 1º evento da fila → bloqueado no 2º, liberado no 3º
+ *  (exatamente 1 evento de vaga desse serviço entre os dois). */
+async function findEventIntervalConflict(
+  freelancerId: string,
+  serviceId: string,
+  serviceName: string,
+  candidateEventId: string,
+  excludeApplicationId?: string,
+): Promise<{ minInterval: number; gap: number; conflictEventName: string; conflictEventStartAt: Date } | null> {
+  const service = await prisma.freelancerService.findUnique({ where: { id: serviceId }, select: { minEventIntervalCount: true } });
+  const minInterval = service?.minEventIntervalCount ?? 0;
+  if (minInterval <= 0) return null;
+
+  // Fila cronológica só dos eventos com vaga deste serviço — eventos sem startAt não têm como
+  // entrar numa ordem, ficam de fora (mesmo critério de "inconclusivo, não bloqueia" já usado
+  // em outros pontos deste arquivo).
+  const slots = await prisma.eventService.findMany({
+    where: { serviceId, event: { startAt: { not: null } } },
+    select: { eventId: true },
+    orderBy: { event: { startAt: 'asc' } },
+    distinct: ['eventId'],
+  });
+  const sequence = slots.map(s => s.eventId);
+  const candidateIndex = sequence.indexOf(candidateEventId);
+  if (candidateIndex === -1) return null; // evento candidato sem vaga/startAt — nada a comparar
+
+  const activeApps = await prisma.freelancerApplication.findMany({
+    where: {
+      freelancerId, role: serviceName,
+      status: { in: ['pending', 'approved'] },
+      ...(excludeApplicationId ? { id: { not: excludeApplicationId } } : {}),
+    },
+    select: { eventId: true },
+  });
+
+  let closest: { eventId: string; gap: number } | null = null;
+  for (const app of activeApps) {
+    const idx = sequence.indexOf(app.eventId);
+    if (idx === -1 || idx === candidateIndex) continue;
+    const gap = Math.abs(idx - candidateIndex) - 1; // eventos com vaga deste serviço estritamente entre os dois
+    if (gap < minInterval && (!closest || gap < closest.gap)) closest = { eventId: app.eventId, gap };
+  }
+  if (!closest) return null;
+
+  const conflictEvent = await prisma.event.findUnique({ where: { id: closest.eventId }, select: { name: true, startAt: true } });
+  if (!conflictEvent?.startAt) return null; // não deveria acontecer (estava na sequência), defensivo
+  return { minInterval, gap: closest.gap, conflictEventName: conflictEvent.name, conflictEventStartAt: conflictEvent.startAt };
+}
+
 // Resultado explícito do que aconteceu — antes a função só devolvia void e engolia tanto o
 // "nem tentei" (sem vaga/mapeamento) quanto o "tentei e falhou", os dois em silêncio total
 // (nem log). Isso é o que fazia 11 candidaturas aprovadas de um evento pra amanhã nunca
@@ -468,6 +521,15 @@ export async function freelancerRoutes(app: FastifyInstance) {
       }
     }
 
+    // Intervalo mínimo em número de eventos (config por serviço), independente de horário.
+    const intervalConflict = await findEventIntervalConflict(user.id, slot.serviceId, slot.service.name, slot.eventId);
+    if (intervalConflict) {
+      const date = intervalConflict.conflictEventStartAt.toLocaleDateString('pt-BR');
+      return reply.status(400).send({
+        error: `"${slot.service.name}" exige pelo menos ${intervalConflict.minInterval} evento(s) de intervalo — você já tem esse serviço em "${intervalConflict.conflictEventName}" (${date}), só ${intervalConflict.gap} evento(s) de distância.`,
+      });
+    }
+
     // Conta aprovados e cria/atualiza a candidatura na mesma transação, pra reduzir (não
     // elimina 100%, o Postgres roda em Read Committed aqui) a janela de corrida entre duas
     // candidaturas simultâneas disputando a última vaga.
@@ -719,6 +781,17 @@ export async function freelancerRoutes(app: FastifyInstance) {
           });
           return reply.status(409).send({
             error: `Conflito de horário: este freelancer já tem "${conflict.role}" agendado às ${time} — precisa de pelo menos 10h de descanso entre um turno e outro.`,
+          });
+        }
+      }
+
+      // Mesmo intervalo mínimo em número de eventos exigido na auto-candidatura.
+      if (slot) {
+        const intervalConflict = await findEventIntervalConflict(application.freelancerId, slot.serviceId, application.role, application.eventId, application.id);
+        if (intervalConflict) {
+          const date = intervalConflict.conflictEventStartAt.toLocaleDateString('pt-BR');
+          return reply.status(409).send({
+            error: `"${application.role}" exige pelo menos ${intervalConflict.minInterval} evento(s) de intervalo — este freelancer já tem esse serviço em "${intervalConflict.conflictEventName}" (${date}), só ${intervalConflict.gap} evento(s) de distância.`,
           });
         }
       }

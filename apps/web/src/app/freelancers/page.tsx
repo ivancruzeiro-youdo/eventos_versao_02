@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Layout from '@/components/Layout';
 import { User, Plus, Search, ChevronLeft, ChevronRight, Pencil, Trash2, X, Check, AlertCircle, AlertTriangle, Camera } from 'lucide-react';
 
-interface Service { id: string; name: string; hourlyRate: number; description?: string | null; startOffsetMinutes: number; endOffsetMinutes: number; }
+interface Service { id: string; name: string; hourlyRate: number; description?: string | null; startOffsetMinutes: number; endOffsetMinutes: number; minEventIntervalCount: number; }
 interface FreelancerItem {
   id: string; name: string; email: string; cpf: string; phone: string | null;
   birthDate: string | null; status: 'active' | 'suspended';
@@ -62,7 +62,7 @@ function ServicesTabContent() {
   const [loading, setLoading] = useState(true);
   const [svcModal, setSvcModal] = useState(false);
   const [editSvc, setEditSvc] = useState<Service | null>(null);
-  const [form, setForm] = useState({ name: '', hourlyRate: '', description: '', startOffsetMinutes: '-60', endOffsetMinutes: '60' });
+  const [form, setForm] = useState({ name: '', hourlyRate: '', description: '', startOffsetMinutes: '-60', endOffsetMinutes: '60', minEventIntervalCount: '0' });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
 
@@ -77,8 +77,8 @@ function ServicesTabContent() {
     } finally { setLoading(false); }
   }
 
-  function openCreate() { setEditSvc(null); setForm({ name: '', hourlyRate: '', description: '', startOffsetMinutes: '-60', endOffsetMinutes: '60' }); setErr(''); setSvcModal(true); }
-  function openEdit(s: Service) { setEditSvc(s); setForm({ name: s.name, hourlyRate: String(s.hourlyRate), description: s.description || '', startOffsetMinutes: String(s.startOffsetMinutes ?? -60), endOffsetMinutes: String(s.endOffsetMinutes ?? 60) }); setErr(''); setSvcModal(true); }
+  function openCreate() { setEditSvc(null); setForm({ name: '', hourlyRate: '', description: '', startOffsetMinutes: '-60', endOffsetMinutes: '60', minEventIntervalCount: '0' }); setErr(''); setSvcModal(true); }
+  function openEdit(s: Service) { setEditSvc(s); setForm({ name: s.name, hourlyRate: String(s.hourlyRate), description: s.description || '', startOffsetMinutes: String(s.startOffsetMinutes ?? -60), endOffsetMinutes: String(s.endOffsetMinutes ?? 60), minEventIntervalCount: String(s.minEventIntervalCount ?? 0) }); setErr(''); setSvcModal(true); }
 
   async function save() {
     setSaving(true); setErr('');
@@ -88,7 +88,11 @@ function ServicesTabContent() {
       const res = await fetch(url, {
         method, credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: form.name, hourlyRate: parseFloat(form.hourlyRate) || 0, description: form.description || null, startOffsetMinutes: parseInt(form.startOffsetMinutes) || -60, endOffsetMinutes: parseInt(form.endOffsetMinutes) || 60 }),
+        body: JSON.stringify({
+          name: form.name, hourlyRate: parseFloat(form.hourlyRate) || 0, description: form.description || null,
+          startOffsetMinutes: parseInt(form.startOffsetMinutes) || -60, endOffsetMinutes: parseInt(form.endOffsetMinutes) || 60,
+          minEventIntervalCount: Math.max(0, parseInt(form.minEventIntervalCount) || 0),
+        }),
       });
       const d = await res.json();
       if (!res.ok) { setErr(d.error || 'Erro ao salvar'); return; }
@@ -127,6 +131,9 @@ function ServicesTabContent() {
               <span className="text-xs text-muted-foreground">
                 {s.startOffsetMinutes > 0 ? '+' : ''}{s.startOffsetMinutes}min → +{s.endOffsetMinutes}min
               </span>
+              {s.minEventIntervalCount > 0 && (
+                <span className="text-xs text-amber-600">Intervalo: {s.minEventIntervalCount} evento{s.minEventIntervalCount !== 1 ? 's' : ''}</span>
+              )}
             </div>
             <div className="flex gap-1 shrink-0">
               <button onClick={() => openEdit(s)} className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition"><Pencil size={14} /></button>
@@ -181,6 +188,16 @@ function ServicesTabContent() {
                       className="w-full px-3 py-2 bg-background border border-input rounded-md text-sm focus:ring-2 focus:ring-ring" />
                   </div>
                 </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Intervalo mínimo entre eventos</label>
+                <p className="text-xs text-muted-foreground mb-2">
+                  Quantos eventos com vaga deste serviço precisam existir entre dois em que o mesmo freelancer trabalha aqui (na ordem cronológica). 0 = sem restrição.
+                </p>
+                <input type="number" min="0" value={form.minEventIntervalCount}
+                  onChange={e => setForm(f => ({ ...f, minEventIntervalCount: e.target.value }))}
+                  placeholder="0"
+                  className="w-full px-3 py-2 bg-background border border-input rounded-md text-sm focus:ring-2 focus:ring-ring" />
               </div>
             </div>
             <div className="flex justify-end gap-2 px-6 py-4 border-t">
