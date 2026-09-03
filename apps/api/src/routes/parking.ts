@@ -41,14 +41,18 @@ export async function parkingRoutes(app: FastifyInstance) {
     });
 
     const guestIds = guests.map(g => g.id);
-    const existingEntries = guestIds.length
-      ? await (prisma as any).parkingEntry.findMany({ where: { guestId: { in: guestIds } }, select: { guestId: true } })
-      : [];
+    const [existingEntries, existingGifts] = guestIds.length
+      ? await Promise.all([
+          (prisma as any).parkingEntry.findMany({ where: { guestId: { in: guestIds } }, select: { guestId: true } }),
+          (prisma as any).giftEntry.findMany({ where: { guestId: { in: guestIds } }, select: { guestId: true } }),
+        ])
+      : [[], []];
     const withVehicleSet = new Set(existingEntries.map((e: any) => e.guestId));
+    const withGiftSet = new Set(existingGifts.map((e: any) => e.guestId));
 
     return {
       success: true,
-      guests: guests.map(g => ({ ...g, hasVehicle: withVehicleSet.has(g.id) })),
+      guests: guests.map(g => ({ ...g, hasVehicle: withVehicleSet.has(g.id), hasGift: withGiftSet.has(g.id) })),
     };
   });
 

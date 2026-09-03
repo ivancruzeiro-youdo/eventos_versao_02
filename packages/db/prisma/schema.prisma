@@ -192,6 +192,7 @@ model Event {
   venues       EventVenue[]
   guests       Guest[]
   parkingEntries ParkingEntry[]
+  giftEntries  GiftEntry[]
   professionals EventProfessional[]
   services     EventService[]
   plan         EventPlan?
@@ -525,6 +526,7 @@ model Guest {
   degustacaoLink DegustacaoLink? @relation(fields: [degustacaoLinkId], references: [id], onDelete: SetNull)
   nps       EventNPS?
   parkingEntries ParkingEntry[]
+  giftEntries    GiftEntry[]
 
   @@index([eventId])
   @@index([status])
@@ -542,6 +544,24 @@ model ParkingEntry {
   registeredById      String? // id do freelancer/usuário que registrou (recepção)
   registeredByName   String?
   createdAt          DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  guest Guest @relation(fields: [guestId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+  @@index([guestId])
+}
+
+// Espelha ParkingEntry — mesmo padrão (foto obrigatória, um por convidado, snapshot do nome).
+model GiftEntry {
+  id               String   @id @default(uuid())
+  eventId          String
+  guestId          String
+  guestName        String   // snapshot no momento do registro
+  photoS3Key       String
+  registeredById   String?  // id do freelancer/usuário que registrou (recepção)
+  registeredByName String?
+  createdAt        DateTime @default(now())
 
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
   guest Guest @relation(fields: [guestId], references: [id], onDelete: Cascade)

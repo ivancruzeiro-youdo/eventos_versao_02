@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
 import { closureApi } from '@/lib/api';
-import { Copy, CheckCircle, FileText, AlertTriangle, Star, Car, Download, X, Loader2, Users, Clock } from 'lucide-react';
+import { Copy, CheckCircle, FileText, AlertTriangle, Star, Car, Gift, Download, X, Loader2, Users, Clock } from 'lucide-react';
 
 function NpsScore({ score }: { score: number }) {
   let colorClass = 'text-red-600 bg-red-50 border-red-200';
@@ -27,6 +27,7 @@ export default function ClosurePage() {
   const [npsUrl, setNpsUrl] = useState('');
   const [checkedInGuests, setCheckedInGuests] = useState<{ id: string; name: string; checkedInAt: string }[]>([]);
   const [parkingEntries, setParkingEntries] = useState<any[]>([]);
+  const [giftEntries, setGiftEntries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
@@ -40,14 +41,16 @@ export default function ClosurePage() {
 
   async function load() {
     try {
-      const [res, parkingRes] = await Promise.all([
+      const [res, parkingRes, giftRes] = await Promise.all([
         closureApi.getClosure(eventId),
         closureApi.getParkingEntries(eventId).catch(() => ({ entries: [] })),
+        closureApi.getGiftEntries(eventId).catch(() => ({ entries: [] })),
       ]);
       setClosure(res.closure);
       setNpsUrl(res.npsUrl || '');
       setCheckedInGuests(res.checkedInGuests || []);
       setParkingEntries(parkingRes.entries || []);
+      setGiftEntries(giftRes.entries || []);
     } catch (err: any) {
       setError(err.message || 'Erro ao carregar encerramento');
     } finally {
@@ -253,6 +256,24 @@ export default function ClosurePage() {
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {parkingEntries.map((p: any) => (
+                <div key={p.id} className="border rounded-lg overflow-hidden bg-muted/50">
+                  <img src={p.photoUrl} alt={p.guestName} className="w-full h-32 object-cover" />
+                  <p className="text-xs font-medium truncate px-2 py-1.5" title={p.guestName}>{p.guestName}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Presentes */}
+        {giftEntries.length > 0 && (
+          <div className="bg-card border rounded-xl p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <Gift size={16} className="text-slate-500" />
+              <h2 className="font-semibold">Presentes ({giftEntries.length})</h2>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {giftEntries.map((p: any) => (
                 <div key={p.id} className="border rounded-lg overflow-hidden bg-muted/50">
                   <img src={p.photoUrl} alt={p.guestName} className="w-full h-32 object-cover" />
                   <p className="text-xs font-medium truncate px-2 py-1.5" title={p.guestName}>{p.guestName}</p>

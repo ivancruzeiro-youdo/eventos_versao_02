@@ -38,6 +38,7 @@ import { peopleRoutes } from './routes/people.js';
 import { activitiesRoutes } from './routes/activities.js';
 import { layoutRoutes } from './routes/layout.js';
 import { parkingRoutes } from './routes/parking.js';
+import { giftRoutes } from './routes/gifts.js';
 import { deviceRoutes } from './routes/devices.js';
 import { eventMediaRoutes } from './routes/event-media.js';
 import { spotifyRoutes } from './routes/spotify.js';
@@ -193,6 +194,7 @@ const start = async () => {
   await app.register(activitiesRoutes, { prefix: '/api/v2' });
   await app.register(layoutRoutes, { prefix: '/api/v2' });
   await app.register(parkingRoutes, { prefix: '/api/v2' });
+  await app.register(giftRoutes, { prefix: '/api/v2' });
   await app.register(deviceRoutes, { prefix: '/api/v2' });
   await app.register(eventMediaRoutes, { prefix: '/api/v2' });
   await app.register(spotifyRoutes, { prefix: '/api/v2' });
