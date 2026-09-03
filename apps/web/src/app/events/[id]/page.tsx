@@ -163,6 +163,7 @@ export default function EventDetailPage() {
   const [generatingLink, setGeneratingLink] = useState(false);
   const [linkError, setLinkError] = useState('');
   const [expandedLinkId, setExpandedLinkId] = useState<string | null>(null);
+  const [expandedAdendoIds, setExpandedAdendoIds] = useState<Set<string>>(new Set());
   const [deletingLinkId, setDeletingLinkId] = useState<string | null>(null);
   const [editingLinkId, setEditingLinkId] = useState<string | null>(null);
   const [editGuestNames, setEditGuestNames] = useState<string[]>([]);
@@ -1281,16 +1282,33 @@ export default function EventDetailPage() {
                   })}
                 </div>
                 {event.contracts!.some(c => c.adendo) && (
-                  <div className="mt-1.5 space-y-1">
-                    {event.contracts!.filter(c => c.adendo).map(c => (
-                      <p key={c.id} className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 flex items-start gap-1.5">
-                        <FileSignature size={12} className="shrink-0 mt-0.5" />
-                        <span>
-                          <span className="font-medium">Adendo{event.contracts!.length > 1 ? ` (contrato ${c.externalId})` : ''}:</span>{' '}
-                          {c.adendo}
-                        </span>
-                      </p>
-                    ))}
+                  <div className="mt-1.5 space-y-1.5">
+                    {event.contracts!.filter(c => c.adendo).map(c => {
+                      const isOpen = expandedAdendoIds.has(c.id);
+                      return (
+                        <div key={c.id} className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setExpandedAdendoIds(prev => {
+                              const next = new Set(prev);
+                              next.has(c.id) ? next.delete(c.id) : next.add(c.id);
+                              return next;
+                            })}
+                            className="w-full flex items-start gap-1.5 text-left"
+                          >
+                            <FileSignature size={12} className="shrink-0 mt-0.5" />
+                            <span className="font-medium flex-1">
+                              Adendo{event.contracts!.length > 1 ? ` (contrato ${c.externalId})` : ''}
+                            </span>
+                            <ChevronDown size={12} className={`shrink-0 mt-0.5 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                          </button>
+                          <div
+                            className={`mt-1 pl-[18px] [&_p]:mb-1.5 last:[&_p]:mb-0 ${isOpen ? '' : 'line-clamp-2'}`}
+                            dangerouslySetInnerHTML={{ __html: c.adendo! }}
+                          />
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
