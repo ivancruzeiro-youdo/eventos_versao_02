@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
 import { closureApi } from '@/lib/api';
-import { Copy, CheckCircle, FileText, AlertTriangle, Star, Car, Download, X, Loader2 } from 'lucide-react';
+import { Copy, CheckCircle, FileText, AlertTriangle, Star, Car, Download, X, Loader2, Users, Clock } from 'lucide-react';
 
 function NpsScore({ score }: { score: number }) {
   let colorClass = 'text-red-600 bg-red-50 border-red-200';
@@ -25,6 +25,7 @@ export default function ClosurePage() {
   const eventId = params.id as string;
   const [closure, setClosure] = useState<any>(null);
   const [npsUrl, setNpsUrl] = useState('');
+  const [checkedInGuests, setCheckedInGuests] = useState<{ id: string; name: string; checkedInAt: string }[]>([]);
   const [parkingEntries, setParkingEntries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -45,6 +46,7 @@ export default function ClosurePage() {
       ]);
       setClosure(res.closure);
       setNpsUrl(res.npsUrl || '');
+      setCheckedInGuests(res.checkedInGuests || []);
       setParkingEntries(parkingRes.entries || []);
     } catch (err: any) {
       setError(err.message || 'Erro ao carregar encerramento');
@@ -216,6 +218,29 @@ export default function ClosurePage() {
               <h2 className="font-semibold">Situações Reportadas</h2>
             </div>
             <p className="text-sm whitespace-pre-wrap text-muted-foreground">{closure.situacoesReportadas}</p>
+          </div>
+        )}
+
+        {/* Convidados Presentes */}
+        {checkedInGuests.length > 0 && (
+          <div className="bg-card border rounded-xl p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <Users size={16} className="text-emerald-600" />
+              <h2 className="font-semibold">Convidados Presentes ({checkedInGuests.length})</h2>
+            </div>
+            <div className="divide-y">
+              {checkedInGuests.map(g => (
+                <div key={g.id} className="flex items-center justify-between py-2 text-sm">
+                  <span className="truncate pr-2">{g.name}</span>
+                  <span className="flex items-center gap-1.5 text-xs text-muted-foreground shrink-0">
+                    <Clock size={12} />
+                    {new Date(g.checkedInAt).toLocaleString('pt-BR', {
+                      day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+                    })}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

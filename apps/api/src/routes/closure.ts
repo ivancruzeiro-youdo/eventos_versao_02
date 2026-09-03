@@ -142,7 +142,16 @@ export async function closureRoutes(app: FastifyInstance) {
       ? `${process.env.WEB_URL || 'https://eventos.youdobrasil.com.br'}/nps/org/${closure.npsOrganizador.token}`
       : null;
 
-    return { success: true, closure, npsUrl };
+    // Convidados que realmente fizeram check-in — separado do resto do relatório porque não
+    // vem do EventClosure (preenchido manualmente no encerramento), e sim do check-in em tempo
+    // real feito durante o evento (Guest.checkedInAt).
+    const checkedInGuests = await prisma.guest.findMany({
+      where: { eventId, checkedInAt: { not: null } },
+      select: { id: true, name: true, checkedInAt: true },
+      orderBy: { checkedInAt: 'asc' },
+    });
+
+    return { success: true, closure, npsUrl, checkedInGuests };
   });
 
   // GET /closure/attachments/:id — download a single attachment (base64)
