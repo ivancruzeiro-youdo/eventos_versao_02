@@ -5,7 +5,9 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
 import { closureApi } from '@/lib/api';
-import { Copy, CheckCircle, FileText, AlertTriangle, Star, Car, Gift, Download, X, Loader2, Users, Clock } from 'lucide-react';
+import { Copy, CheckCircle, FileText, AlertTriangle, Star, Car, Gift, Download, X, Loader2, Users, Clock, UserX, FileDown } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 function NpsScore({ score }: { score: number }) {
   let colorClass = 'text-red-600 bg-red-50 border-red-200';
@@ -26,6 +28,7 @@ export default function ClosurePage() {
   const [closure, setClosure] = useState<any>(null);
   const [npsUrl, setNpsUrl] = useState('');
   const [checkedInGuests, setCheckedInGuests] = useState<{ id: string; name: string; checkedInAt: string }[]>([]);
+  const [notCheckedInGuests, setNotCheckedInGuests] = useState<{ id: string; name: string }[]>([]);
   const [parkingEntries, setParkingEntries] = useState<any[]>([]);
   const [giftEntries, setGiftEntries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,6 +52,7 @@ export default function ClosurePage() {
       setClosure(res.closure);
       setNpsUrl(res.npsUrl || '');
       setCheckedInGuests(res.checkedInGuests || []);
+      setNotCheckedInGuests(res.notCheckedInGuests || []);
       setParkingEntries(parkingRes.entries || []);
       setGiftEntries(giftRes.entries || []);
     } catch (err: any) {
@@ -62,6 +66,52 @@ export default function ClosurePage() {
     navigator.clipboard.writeText(npsUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  }
+
+  function exportGuestsPdf() {
+    const doc = new jsPDF();
+    const eventName = closure?.event?.name || 'Evento';
+    let y = 15;
+
+    doc.setFontSize(14);
+    doc.text(`Lista de Convidados — ${eventName}`, 14, y);
+    y += 6;
+    doc.setFontSize(9);
+    doc.setTextColor(120);
+    doc.text(`Gerado em ${new Date().toLocaleString('pt-BR')}`, 14, y);
+    doc.setTextColor(0);
+    y += 8;
+
+    doc.setFontSize(11);
+    doc.text(`Fizeram check-in (${checkedInGuests.length})`, 14, y);
+    y += 3;
+    autoTable(doc, {
+      startY: y,
+      head: [['Nome', 'Horário do check-in']],
+      body: checkedInGuests.map(g => [
+        g.name,
+        new Date(g.checkedInAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }),
+      ]),
+      theme: 'striped',
+      headStyles: { fillColor: [16, 122, 87] },
+      margin: { left: 14, right: 14 },
+    });
+    y = (doc as any).lastAutoTable.finalY + 10;
+
+    if (y > 270) { doc.addPage(); y = 15; }
+    doc.setFontSize(11);
+    doc.text(`Não compareceram (${notCheckedInGuests.length})`, 14, y);
+    y += 3;
+    autoTable(doc, {
+      startY: y,
+      head: [['Nome']],
+      body: notCheckedInGuests.map(g => [g.name]),
+      theme: 'striped',
+      headStyles: { fillColor: [148, 148, 148] },
+      margin: { left: 14, right: 14 },
+    });
+
+    doc.save(`convidados-${eventName.replace(/[^\w-]+/g, '_')}.pdf`);
   }
 
   async function openAttachment(a: { id: string; filename: string; mimeType: string }) {
@@ -128,7 +178,17 @@ export default function ClosurePage() {
           <span className="text-foreground">Encerramento</span>
         </div>
 
-        <h1 className="text-2xl font-bold">Relatório de Encerramento</h1>
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-2xl font-bold">Relatório de Encerramento</h1>
+          {(checkedInGuests.length > 0 || notCheckedInGuests.length > 0) && (
+            <button
+              onClick={exportGuestsPdf}
+              className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-sm font-medium hover:bg-accent transition"
+            >
+              <FileDown size={15} /> Exportar PDF
+            </button>
+          )}
+        </div>
 
         {/* NPS Card */}
         <div className="bg-card border rounded-xl p-5">
@@ -241,6 +301,23 @@ export default function ClosurePage() {
                       day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
                     })}
                   </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Não Compareceram */}
+        {notCheckedInGuests.length > 0 && (
+          <div className="bg-card border rounded-xl p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <UserX size={16} className="text-muted-foreground" />
+              <h2 className="font-semibold">Não Compareceram ({notCheckedInGuests.length})</h2>
+            </div>
+            <div className="divide-y">
+              {notCheckedInGuests.map(g => (
+                <div key={g.id} className="py-2 text-sm text-muted-foreground truncate">
+                  {g.name}
                 </div>
               ))}
             </div>

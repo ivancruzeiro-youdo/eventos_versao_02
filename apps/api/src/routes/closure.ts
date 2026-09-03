@@ -112,6 +112,7 @@ export async function closureRoutes(app: FastifyInstance) {
     const closure = await (prisma as any).eventClosure.findUnique({
       where: { eventId },
       include: {
+        event: { select: { name: true } },
         attachments: {
           select: {
             id: true,
@@ -145,13 +146,20 @@ export async function closureRoutes(app: FastifyInstance) {
     // Convidados que realmente fizeram check-in — separado do resto do relatório porque não
     // vem do EventClosure (preenchido manualmente no encerramento), e sim do check-in em tempo
     // real feito durante o evento (Guest.checkedInAt).
-    const checkedInGuests = await prisma.guest.findMany({
-      where: { eventId, checkedInAt: { not: null } },
-      select: { id: true, name: true, checkedInAt: true },
-      orderBy: { checkedInAt: 'asc' },
-    });
+    const [checkedInGuests, notCheckedInGuests] = await Promise.all([
+      prisma.guest.findMany({
+        where: { eventId, checkedInAt: { not: null } },
+        select: { id: true, name: true, checkedInAt: true },
+        orderBy: { checkedInAt: 'asc' },
+      }),
+      prisma.guest.findMany({
+        where: { eventId, checkedInAt: null },
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+      }),
+    ]);
 
-    return { success: true, closure, npsUrl, checkedInGuests };
+    return { success: true, closure, npsUrl, checkedInGuests, notCheckedInGuests };
   });
 
   // GET /closure/attachments/:id — download a single attachment (base64)
