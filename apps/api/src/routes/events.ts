@@ -57,9 +57,24 @@ export async function eventRoutes(app: FastifyInstance) {
     const user = (request as any).user;
     const data = createEventSchema.parse(request.body);
 
-    const employerId = user.role === 'admin' 
-      ? (request.body as any).employerId || user.employerId 
+    const employerId = user.role === 'admin'
+      ? (request.body as any).employerId || user.employerId
       : user.employerId;
+
+    // Mesma checagem do PATCH — evita criar um evento já nascendo com término antes do início
+    // (ex.: evento de madrugada com a data de término esquecida no dia do início).
+    if (data.startAt && data.teardownAt) {
+      const s = new Date(data.startAt);
+      const t = new Date(data.teardownAt);
+      if (t.getTime() <= s.getTime()) {
+        const suggested = new Date(t.getTime() + 24 * 60 * 60_000);
+        return reply.status(400).send({
+          error:
+            `Término (${t.toISOString()}) não pode ser antes ou igual ao início (${s.toISOString()}). ` +
+            `Se o evento termina de madrugada, ajuste a DATA de término para o dia seguinte — ex.: ${suggested.toISOString()}.`,
+        });
+      }
+    }
 
     const event = await prisma.event.create({
       data: {
@@ -150,6 +165,23 @@ export async function eventRoutes(app: FastifyInstance) {
 
     if (user.role !== 'admin' && eventBefore.employerId !== user.employerId) {
       return reply.status(403).send({ error: 'Access denied' });
+    }
+
+    // Término não pode ficar antes (ou no mesmo instante) do início. Sem essa checagem, um
+    // evento que atravessa a madrugada (ex.: início 22:00, término 06:00) fica fácil de salvar
+    // com a data de término esquecida no mesmo dia do início — o datetime-local tem campo de
+    // data próprio, mas em vários eventos reais ficou parado na data do início porque só o
+    // horário foi ajustado. Isso silenciosamente manda pra Acessos uma janela de acesso físico
+    // que termina antes de começar (achado ao investigar por que o Acessos recebia data errada).
+    const effectiveStartAt = data.startAt ? new Date(data.startAt) : eventBefore.startAt;
+    const effectiveTeardownAt = data.teardownAt ? new Date(data.teardownAt) : eventBefore.teardownAt;
+    if (effectiveStartAt && effectiveTeardownAt && effectiveTeardownAt.getTime() <= effectiveStartAt.getTime()) {
+      const suggested = new Date(effectiveTeardownAt.getTime() + 24 * 60 * 60_000);
+      return reply.status(400).send({
+        error:
+          `Término (${effectiveTeardownAt.toISOString()}) não pode ser antes ou igual ao início (${effectiveStartAt.toISOString()}). ` +
+          `Se o evento termina de madrugada, ajuste a DATA de término para o dia seguinte — ex.: ${suggested.toISOString()}.`,
+      });
     }
 
     const updated = await prisma.event.update({
