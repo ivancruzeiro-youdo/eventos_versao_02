@@ -175,7 +175,10 @@ export default function EventsPage() {
     const matchesSearch = 
       event.name.toLowerCase().includes(search.toLowerCase()) ||
       event.clientName.toLowerCase().includes(search.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || event.status === statusFilter;
+    // "Todos" não inclui cancelados por padrão — um evento cancelado (ex.: contrato principal
+    // removido no Userp) não deveria continuar poluindo a visão geral do calendário/lista;
+    // continua acessível escolhendo "Cancelado" explicitamente no filtro.
+    const matchesStatus = statusFilter === 'all' ? event.status !== 'cancelled' : event.status === statusFilter;
     const matchesDate = (!dateFrom || !event.startAt || new Date(event.startAt) >= new Date(dateFrom)) &&
                        (!dateTo || !event.startAt || new Date(event.startAt) <= new Date(dateTo));
     return matchesSearch && matchesStatus && matchesDate;

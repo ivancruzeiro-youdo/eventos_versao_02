@@ -1489,6 +1489,18 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       await (prisma as any).eventItem.deleteMany({ where: { id: { in: itemIds } } });
     }
 
+    await (prisma as any).eventContract.delete({ where: { id: contractId } });
+
+    // Sem nenhum contrato sobrando, o evento não representa mais nada real no Userp — sem
+    // isso ele ficava "Confirmado" pra sempre e nunca saía do calendário, mesmo depois do
+    // único contrato que o sustentava ser removido (nem por sync automático nem manual: nada
+    // além do EventContract em si era tocado aqui).
+    const remainingContracts = await (prisma as any).eventContract.count({ where: { eventId } });
+    const willCancelEvent = remainingContracts === 0;
+    if (willCancelEvent) {
+      await prisma.event.update({ where: { id: eventId }, data: { status: 'cancelled' as any } });
+    }
+
     const categoryLabel: Record<string, string> = { ab: 'A&B', infra: 'Infraestrutura', staff: 'Mão de Obra', venue: 'Local' };
     const lines = [
       `Contrato ${contract.externalId} não foi mais encontrado no Userp e foi removido por ${user.name || user.email}.`,
@@ -1500,14 +1512,16 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     } else {
       lines.push('Nenhum item vinculado a esse contrato para remover.');
     }
+    if (willCancelEvent) {
+      lines.push('');
+      lines.push('Este era o último contrato do evento — evento marcado como Cancelado automaticamente.');
+    }
 
     await (prisma as any).eventComment.create({
       data: { eventId, userId: user.id || null, isSystem: true, content: lines.join('\n') },
     });
 
-    await (prisma as any).eventContract.delete({ where: { id: contractId } });
-
-    return { success: true, removedItems: items.length };
+    return { success: true, removedItems: items.length, eventCancelled: willCancelEvent };
   });
 
   // GET /events/:id/sync-history
