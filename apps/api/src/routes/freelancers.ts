@@ -122,7 +122,36 @@ type GrantResult =
   | { attempted: false; reason: string }
   | { attempted: true; status: 'granted' | 'error'; reason?: string };
 
-async function handleAcessoGrant(applicationId: string): Promise<GrantResult> {
+/** Menor início e maior fim entre TODOS os turnos aprovados desse freelancer neste evento —
+ *  não só o do serviço/candidatura que disparou a concessão. Uma mesma pessoa pode estar
+ *  aprovada em mais de um turno no mesmo evento (ex.: Emanueli em "Faxina" de manhã e
+ *  "Faxina 2" à tarde); sem unificar, cada candidatura mandava sua própria janela pra Acessos
+ *  e a pessoa ficava sem acesso liberado no intervalo entre o fim do primeiro turno e o
+ *  início do segundo. Unificando, ela entra uma vez só e fica liberada do início do primeiro
+ *  turno até o fim do último. */
+async function computeUnifiedAccessWindow(freelancerId: string, eventId: string): Promise<{ start: Date | null; end: Date | null }> {
+  const approvedApps = await prisma.freelancerApplication.findMany({
+    where: { freelancerId, eventId, status: 'approved' },
+    select: { role: true },
+  });
+  if (approvedApps.length === 0) return { start: null, end: null };
+  const roles = [...new Set(approvedApps.map(a => a.role))];
+
+  const slots = await prisma.eventService.findMany({
+    where: { eventId, service: { name: { in: roles } } },
+    select: { startAt: true, endAt: true },
+  });
+
+  let start: Date | null = null;
+  let end: Date | null = null;
+  for (const s of slots) {
+    if (s.startAt && (!start || s.startAt < start)) start = s.startAt;
+    if (s.endAt && (!end || s.endAt > end)) end = s.endAt;
+  }
+  return { start, end };
+}
+
+async function handleAcessoGrant(applicationId: string, refreshSiblings = true): Promise<GrantResult> {
   const application = await prisma.freelancerApplication.findUnique({
     where: { id: applicationId },
     include: {
@@ -151,10 +180,17 @@ async function handleAcessoGrant(applicationId: string): Promise<GrantResult> {
     return { attempted: false, reason: `O serviço "${application.role}" não tem nenhuma portaria mapeada em Admin → Acessos por Serviço.` };
   }
 
+  // Unifica com os demais turnos aprovados dessa pessoa neste evento — ver
+  // computeUnifiedAccessWindow acima. Cai pro horário deste próprio slot só se, por algum
+  // motivo, a unificação não achar nada (ex.: outra candidatura sem status aprovado ainda).
+  const unified = await computeUnifiedAccessWindow(application.freelancerId, application.eventId);
+  const windowStart = unified.start ?? slot.startAt;
+  const windowEnd = unified.end ?? slot.endAt;
+
   const acessos = slot.service.acessoMappings.map((m: any) => ({
     acesso_id: m.acessoId,
-    data_inicio: slot.startAt ? slot.startAt.toISOString().split('T')[0] : undefined,
-    data_fim: slot.endAt ? slot.endAt.toISOString().split('T')[0] : undefined,
+    data_inicio: windowStart ? windowStart.toISOString().split('T')[0] : undefined,
+    data_fim: windowEnd ? windowEnd.toISOString().split('T')[0] : undefined,
   }));
 
   const payload: any = {
@@ -189,6 +225,33 @@ async function handleAcessoGrant(applicationId: string): Promise<GrantResult> {
       response,
     },
   });
+
+  // A janela unificada acabou de mudar (mais um turno aprovado entrou na conta) — qualquer
+  // outra candidatura aprovada dessa mesma pessoa neste evento que já tinha acesso concedido
+  // ficou com uma janela desatualizada (mais estreita) na Acessos. Reenvia pra cada uma
+  // (refreshSiblings=false trava a recursão — cada uma só atualiza a si mesma, nunca dispara
+  // outra rodada de irmãs).
+  if (refreshSiblings && status === 'granted') {
+    const siblings = await prisma.freelancerApplication.findMany({
+      where: {
+        freelancerId: application.freelancerId,
+        eventId: application.eventId,
+        status: 'approved',
+        id: { not: applicationId },
+      },
+      select: { id: true },
+    });
+    for (const sib of siblings) {
+      const hasGrant = await (prisma as any).acessoLog.findFirst({
+        where: { applicationId: sib.id, status: 'granted' },
+        select: { id: true },
+      });
+      if (!hasGrant) continue;
+      await handleAcessoGrant(sib.id, false).catch(err =>
+        console.error(`[freelancers] Falha ao atualizar janela de acesso da candidatura irmã ${sib.id}:`, err.message),
+      );
+    }
+  }
 
   return status === 'granted'
     ? { attempted: true, status: 'granted' }
