@@ -274,14 +274,15 @@ export default function EventPlanTab({ eventId }: Props) {
           title={item.name}
           badge={`${item.product!.questions.length} perg.`}
         >
-          {/* Horário de serviço — mesmo editor da aba A&B, uma implementação só */}
-          {item.category === 'ab' && (
+          {/* Horário de início/fim — mesmo editor da aba A&B/Entretenimento, uma implementação só */}
+          {(item.category === 'ab' || item.category === 'entretenimento') && (
             <div className="mb-3">
               <AbServiceTimeFields
                 eventId={eventId}
                 itemId={item.id}
                 serviceStartAt={item.serviceStartAt ?? null}
                 serviceEndAt={item.serviceEndAt ?? null}
+                category={item.category === 'entretenimento' ? 'entretenimento' : 'ab'}
                 onSaved={(times) =>
                   setItems(prev => prev.map(i => (i.id === item.id ? { ...i, ...times } : i)))
                 }

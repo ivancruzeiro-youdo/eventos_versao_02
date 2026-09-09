@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Clock, Plus, Trash2, Edit2, FileText, Calendar, Users, History, ChevronDown, ChevronUp, UtensilsCrossed } from 'lucide-react';
+import { Clock, Plus, Trash2, Edit2, FileText, Calendar, Users, History, ChevronDown, ChevronUp, UtensilsCrossed, PartyPopper } from 'lucide-react';
 import { utcToLocalInput } from '@/lib/utils';
 
 interface Team {
@@ -26,13 +26,15 @@ interface Schedule {
   } | null;
 }
 
-// Item de A&B com horário de serviço definido. Vem do mesmo endpoint do cronograma, mas
-// NÃO é um EventSchedule — é exibido junto apenas visualmente, e editado na aba A&B.
+// Item de A&B ou Entretenimento com horário de início/fim definido. Vem do mesmo endpoint do
+// cronograma, mas NÃO é um EventSchedule — é exibido junto apenas visualmente, e editado na
+// própria aba (A&B ou Entretenimento).
 interface AbServiceItem {
   id: string;
   name: string;
   quantity: number;
   unit: string | null;
+  category: 'ab' | 'entretenimento';
   serviceStartAt: string;
   serviceEndAt: string | null;
 }
@@ -364,18 +366,25 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
           <div className="space-y-4">
             {timeline.map((entry) => {
               if (entry.kind === 'schedule') return renderSchedule(entry.schedule);
+              const isAb = entry.item.category === 'ab';
               return (
-              /* Item de A&B — exibido junto por horário, mas não é item de cronograma:
-                 editar/excluir é na aba A&B. Sem botões aqui, de propósito. */
+              /* Item de A&B ou Entretenimento — exibido junto por horário, mas não é item de
+                 cronograma: editar/excluir é na própria aba. Sem botões aqui, de propósito. */
               <div
-                key={`ab-${entry.item.id}`}
-                className="border-l-4 border-dashed border-amber-400 pl-4 py-2 bg-amber-50/40 rounded-r"
+                key={`item-${entry.item.id}`}
+                className={isAb
+                  ? 'border-l-4 border-dashed border-amber-400 pl-4 py-2 bg-amber-50/40 rounded-r'
+                  : 'border-l-4 border-dashed border-purple-400 pl-4 py-2 bg-purple-50/40 rounded-r'}
               >
                 <div className="flex items-center gap-2 mb-1 flex-wrap">
-                  <UtensilsCrossed size={14} className="text-amber-600 shrink-0" />
+                  {isAb
+                    ? <UtensilsCrossed size={14} className="text-amber-600 shrink-0" />
+                    : <PartyPopper size={14} className="text-purple-600 shrink-0" />}
                   <span className="font-medium text-foreground">{entry.item.name}</span>
-                  <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">
-                    A&amp;B
+                  <span className={isAb
+                    ? 'text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold'
+                    : 'text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-semibold'}>
+                    {isAb ? 'A&B' : 'Entretenimento'}
                   </span>
                 </div>
                 <div className="text-sm text-muted-foreground mb-1">
@@ -390,7 +399,7 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {entry.item.quantity} {entry.item.unit || 'pessoas'} · horário definido na aba A&amp;B
+                  {entry.item.quantity} {entry.item.unit || (isAb ? 'pessoas' : 'un')} · horário definido na aba {isAb ? 'A&B' : 'Entretenimento'}
                 </p>
               </div>
               );

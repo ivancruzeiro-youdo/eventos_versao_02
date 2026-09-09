@@ -1705,7 +1705,7 @@ export default function EventDetailPage() {
             <PartyPopper className="size-4" />
             Entretenimento
           </h3>
-          <EventItemsTab eventId={eventId} category="entretenimento" />
+          <EventItemsTab eventId={eventId} category="entretenimento" eventStartAt={event?.startAt ?? null} />
         </div>
       )}
       {activeTab === 'kitchen' && (

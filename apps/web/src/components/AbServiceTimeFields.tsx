@@ -11,18 +11,22 @@ interface AbServiceTimeFieldsProps {
   serviceEndAt: string | null;
   /** Data do evento (ISO) — usada só pra pré-preencher o dia quando ainda não há horário. */
   eventStartAt?: string | null;
+  /** Categoria do item — só muda o texto de rodapé (TELA COZINHA é exclusiva de A&B). */
+  category?: 'ab' | 'entretenimento';
   onSaved?: (item: { serviceStartAt: string | null; serviceEndAt: string | null }) => void;
 }
 
-/** Editor do horário de serviço de um item de A&B. Usado na aba A&B e no Plano do Evento —
- *  uma implementação só, pros dois lugares não divergirem. O horário salvo aparece no
- *  cronograma como linha tracejada (merge visual, sem criar item de cronograma). */
+/** Editor de horário de início/fim de um item de A&B ou Entretenimento. Usado na aba A&B, na
+ *  aba Entretenimento e no Plano do Evento — uma implementação só, pros lugares não divergirem.
+ *  O horário salvo aparece no cronograma como linha tracejada (merge visual, sem criar item de
+ *  cronograma de verdade). */
 export default function AbServiceTimeFields({
   eventId,
   itemId,
   serviceStartAt,
   serviceEndAt,
   eventStartAt,
+  category = 'ab',
   onSaved,
 }: AbServiceTimeFieldsProps) {
   // Pré-preenche o dia com a data do evento pro operador só digitar a hora.
@@ -144,7 +148,7 @@ export default function AbServiceTimeFields({
 
       {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
       <p className="mt-2 text-xs text-muted-foreground">
-        Aparece no cronograma do evento e na TELA COZINHA.
+        {category === 'ab' ? 'Aparece no cronograma do evento e na TELA COZINHA.' : 'Aparece no cronograma do evento.'}
       </p>
     </div>
   );

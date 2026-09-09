@@ -144,14 +144,15 @@ export async function scheduleRoutes(app: FastifyInstance) {
       orderBy: { startAt: 'asc' },
     });
 
-    // Itens de A&B com horário de serviço definido, pra exibir junto no cronograma. São
-    // devolvidos separados (e não como EventSchedule) de propósito: EventSchedule exige
-    // teamId, recusa sobreposição entre times com 409 e dispara WhatsApp — nada disso deve
-    // acontecer ao salvar o horário de um A&B. O merge é só visual, no front.
+    // Itens de A&B/Entretenimento com horário de início/fim definido, pra exibir junto no
+    // cronograma. São devolvidos separados (e não como EventSchedule) de propósito:
+    // EventSchedule exige teamId, recusa sobreposição entre times com 409 e dispara WhatsApp —
+    // nada disso deve acontecer ao salvar o horário de um item desses. O merge é só visual, no
+    // front, que usa `category` pra badge/ícone (A&B vs Entretenimento).
     const abServiceItems = await prisma.eventItem.findMany({
-      where: { eventId, category: 'ab', serviceStartAt: { not: null } },
+      where: { eventId, category: { in: ['ab', 'entretenimento'] }, serviceStartAt: { not: null } },
       select: {
-        id: true, name: true, quantity: true, unit: true,
+        id: true, name: true, quantity: true, unit: true, category: true,
         serviceStartAt: true, serviceEndAt: true,
       },
       orderBy: { serviceStartAt: 'asc' },

@@ -292,7 +292,7 @@ export default function EventItemsTab({ eventId, category, eventStartAt }: Props
   if (loading) return <div className="py-12 text-center text-muted-foreground">Carregando...</div>;
   if (items.length === 0) return (
     <div className="bg-card rounded-lg border p-8 text-center text-muted-foreground">
-      Nenhum item de {category === 'ab' ? 'A&B' : 'infraestrutura'} neste evento.
+      Nenhum item de {category === 'ab' ? 'A&B' : category === 'entretenimento' ? 'entretenimento' : 'infraestrutura'} neste evento.
     </div>
   );
 
@@ -359,14 +359,15 @@ export default function EventItemsTab({ eventId, category, eventStartAt }: Props
             {open && (
               <div className="border-t px-4 py-4 space-y-4 bg-muted/20">
 
-                {/* Horário de serviço — só A&B; aparece no cronograma e na TELA COZINHA */}
-                {category === 'ab' && (
+                {/* Horário de início/fim — A&B e Entretenimento; aparece no cronograma (A&B também na TELA COZINHA) */}
+                {(category === 'ab' || category === 'entretenimento') && (
                   <AbServiceTimeFields
                     eventId={eventId}
                     itemId={item.id}
                     serviceStartAt={item.serviceStartAt ?? null}
                     serviceEndAt={item.serviceEndAt ?? null}
                     eventStartAt={eventStartAt}
+                    category={category === 'entretenimento' ? 'entretenimento' : 'ab'}
                     onSaved={(times) =>
                       setItems(prev => prev.map(i => (i.id === item.id ? { ...i, ...times } : i)))
                     }
