@@ -9,7 +9,7 @@ interface PendingContract {
   startDate: string;
 }
 
-type Status = 'loading' | 'up_to_date' | 'no_contracts' | 'pending' | 'error' | 'importing' | 'imported';
+type Status = 'loading' | 'up_to_date' | 'no_contracts' | 'closed' | 'pending' | 'error' | 'importing' | 'imported';
 
 interface Props {
   eventId: string;
@@ -33,6 +33,7 @@ export default function UserpStatusBanner({ eventId }: Props) {
       if (!res.ok) { setStatus('error'); return; }
       const data = await res.json();
       if (data.status === 'no_contracts') { setStatus('no_contracts'); return; }
+      if (data.status === 'closed') { setStatus('closed'); return; }
       if (data.status === 'up_to_date') { setStatus('up_to_date'); return; }
       if (data.status === 'pending') {
         setPendingContracts(data.pendingContracts || []);
@@ -71,7 +72,7 @@ export default function UserpStatusBanner({ eventId }: Props) {
     }
   }
 
-  if (status === 'no_contracts' || status === 'error') return null;
+  if (status === 'no_contracts' || status === 'closed' || status === 'error') return null;
 
   if (status === 'loading') {
     return (

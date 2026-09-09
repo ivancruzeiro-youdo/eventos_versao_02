@@ -977,6 +977,16 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     const user = (request as any).user;
     const employerId: string = user.employerId;
 
+    // Evento encerrado/cancelado é terminal — não faz sentido oferecer importar contrato novo
+    // nem "confirmar remoção" de um que sumiu da Userp (evento já aconteceu e foi fechado; a
+    // Userp pode até já ter apagado o contrato depois, isso não deve reabrir nada aqui). Sem
+    // essa checagem o evento oferecia "alterar" mesmo encerrado, só porque um contrato antigo
+    // não existia mais lá — nem chega a chamar a Userp nesse caso.
+    const eventStatus = await prisma.event.findUnique({ where: { id: eventId }, select: { status: true } });
+    if (eventStatus?.status === 'encerrado' || eventStatus?.status === 'cancelled') {
+      return { success: true, status: 'closed', pendingRemovals: [], pendingItemRemovals: [], contractHealth: [] };
+    }
+
     // 1. Get this event's already-imported contracts
     const eventContracts = await (prisma as any).eventContract.findMany({
       where: { eventId },
@@ -1423,6 +1433,11 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     const { id: eventId, itemId } = request.params as { id: string; itemId: string };
     const user = (request as any).user;
 
+    const eventForGuard = await prisma.event.findUnique({ where: { id: eventId }, select: { status: true } });
+    if (eventForGuard?.status === 'encerrado' || eventForGuard?.status === 'cancelled') {
+      return reply.status(409).send({ error: 'Evento encerrado — não é mais possível alterar contratos/itens.' });
+    }
+
     const item = await (prisma as any).eventItem.findFirst({ where: { id: itemId, eventId } });
     if (!item) return reply.status(404).send({ error: 'Item não encontrado neste evento.' });
     if (!item.sourceContractId) return reply.status(400).send({ error: 'Este item não tem contrato de origem registrado.' });
@@ -1479,6 +1494,11 @@ export async function syncEventsRoutes(app: FastifyInstance) {
   app.post('/events/:id/contracts/:contractId/confirm-removal', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId, contractId } = request.params as { id: string; contractId: string };
     const user = (request as any).user;
+
+    const eventForGuard = await prisma.event.findUnique({ where: { id: eventId }, select: { status: true } });
+    if (eventForGuard?.status === 'encerrado' || eventForGuard?.status === 'cancelled') {
+      return reply.status(409).send({ error: 'Evento encerrado — não é mais possível alterar contratos/itens.' });
+    }
 
     const contract = await (prisma as any).eventContract.findFirst({ where: { id: contractId, eventId } });
     if (!contract) return reply.status(404).send({ error: 'Contrato não encontrado neste evento.' });
