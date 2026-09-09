@@ -32,6 +32,7 @@ model User {
   employer    Employer?   @relation(fields: [employerId], references: [id])
   auditLogs     AuditLog[]
   checkins      Guest[]     @relation("CheckedInBy")
+  checkouts     Guest[]     @relation("CheckedOutBy")
   penaltiesApplied FreelancerPenalty[] @relation("AppliedBy")
   checklistItems ChecklistItem[] @relation("DoneBy")
   comments         EventComment[]
@@ -511,6 +512,11 @@ model Guest {
   rsvpRespondedAt  DateTime?
   checkedInAt      DateTime?
   checkedInByUserId String?
+  // Saída registrada pela recepção — timestamp separado em vez de um status novo (ex.:
+  // "checked_out") pra não perder o fato de que o convidado chegou (checked_in continua
+  // valendo); é só um segundo carimbo, mesmo padrão do check-in.
+  checkedOutAt      DateTime?
+  checkedOutByUserId String?
   isMinor          Boolean     @default(false)
   responsibleName  String?
   createdAt        DateTime    @default(now())
@@ -523,6 +529,7 @@ model Guest {
 
   event     Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
   checkedInBy User?   @relation("CheckedInBy", fields: [checkedInByUserId], references: [id])
+  checkedOutBy User?  @relation("CheckedOutBy", fields: [checkedOutByUserId], references: [id])
   degustacaoLink DegustacaoLink? @relation(fields: [degustacaoLinkId], references: [id], onDelete: SetNull)
   nps       EventNPS?
   parkingEntries ParkingEntry[]

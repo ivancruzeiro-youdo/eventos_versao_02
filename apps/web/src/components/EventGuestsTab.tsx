@@ -8,7 +8,6 @@ import {
   QrCode,
   Link as LinkIcon,
   CheckCircle,
-  XCircle,
   Search,
   Trash2,
   Download,
@@ -110,20 +109,6 @@ export default function EventGuestsTab({ eventId }: EventGuestsTabProps) {
       loadGuests();
     } catch (err) {
       alert('Erro ao remover convidado');
-    }
-  }
-
-  async function setGuestStatus(guestId: string, status: Guest['status']) {
-    try {
-      await fetch(`/api/v2/guests/${guestId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ status }),
-      });
-      loadGuests();
-    } catch (err) {
-      alert('Erro ao atualizar status do convidado');
     }
   }
 
@@ -282,24 +267,6 @@ export default function EventGuestsTab({ eventId }: EventGuestsTabProps) {
           </div>
         </div>
         <div className="flex items-center gap-1">
-          {guest.status !== 'confirmed' && guest.status !== 'checked_in' && (
-            <button
-              onClick={() => setGuestStatus(guest.id, 'confirmed')}
-              className="p-2 hover:bg-green-100 text-green-600 rounded-lg"
-              title="Marcar como confirmado"
-            >
-              <CheckCircle className="size-4" />
-            </button>
-          )}
-          {guest.status !== 'declined' && guest.status !== 'checked_in' && (
-            <button
-              onClick={() => setGuestStatus(guest.id, 'declined')}
-              className="p-2 hover:bg-red-100 text-red-600 rounded-lg"
-              title="Marcar como recusado"
-            >
-              <XCircle className="size-4" />
-            </button>
-          )}
           {guest.status !== 'checked_in' && (
             <button
               onClick={() => checkInGuest(guest.id)}

@@ -22,6 +22,7 @@ interface Guest {
   phone: string | null;
   status: string;
   checkedInAt: string | null;
+  checkedOutAt: string | null;
 }
 
 interface GuestSearchResult {
@@ -766,6 +767,7 @@ export default function ReceptionistDashboard() {
   const [loadingGuests, setLoadingGuests] = useState(false);
   const [guestQuery, setGuestQuery] = useState('');
   const [checkinLoadingId, setCheckinLoadingId] = useState<string | null>(null);
+  const [checkoutLoadingId, setCheckoutLoadingId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [tab, setTab] = useState<'guests' | 'vehicles' | 'gifts' | 'professionals'>('guests');
 
@@ -920,6 +922,29 @@ export default function ReceptionistDashboard() {
       setError('Erro ao fazer check-in');
     } finally {
       setCheckinLoadingId(null);
+    }
+  }
+
+  async function handleCheckout(guestId: string) {
+    setCheckoutLoadingId(guestId);
+    setError('');
+    try {
+      const res = await fetch(`/api/v2/guests/${guestId}/checkout`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        const msg = data.error;
+        setError(msg && !/^[A-Z][A-Za-z]*Error$/.test(msg) ? msg : 'Erro ao registrar saída');
+        return;
+      }
+      const data = await res.json();
+      setGuests(prev => prev.map(g => g.id === guestId ? data.guest : g));
+    } catch {
+      setError('Erro ao registrar saída');
+    } finally {
+      setCheckoutLoadingId(null);
     }
   }
 
@@ -1192,13 +1217,25 @@ export default function ReceptionistDashboard() {
                         >
                           <Gift size={16} />
                         </button>
-                        {g.status !== 'checked_in' && (
+                        {g.status !== 'checked_in' ? (
                           <button
                             onClick={() => handleCheckin(g.id)}
                             disabled={checkinLoadingId === g.id}
                             className="px-3 py-2 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 transition disabled:opacity-50 shrink-0"
                           >
                             {checkinLoadingId === g.id ? '...' : 'Check-in'}
+                          </button>
+                        ) : g.checkedOutAt ? (
+                          <span className="px-3 py-2 rounded-lg text-xs font-medium bg-gray-100 text-gray-600 shrink-0" title={`Saída às ${new Date(g.checkedOutAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`}>
+                            Saiu
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => handleCheckout(g.id)}
+                            disabled={checkoutLoadingId === g.id}
+                            className="px-3 py-2 bg-orange-600 text-white rounded-lg text-xs font-medium hover:bg-orange-700 transition disabled:opacity-50 shrink-0"
+                          >
+                            {checkoutLoadingId === g.id ? '...' : 'Saída'}
                           </button>
                         )}
                       </div>

@@ -1,0 +1,9 @@
+ALTER TABLE "Guest" ADD COLUMN IF NOT EXISTS "checkedOutAt" TIMESTAMP(3);
+ALTER TABLE "Guest" ADD COLUMN IF NOT EXISTS "checkedOutByUserId" TEXT;
+
+DO $$ BEGIN
+  ALTER TABLE "Guest" ADD CONSTRAINT "Guest_checkedOutByUserId_fkey"
+    FOREIGN KEY ("checkedOutByUserId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;

@@ -232,6 +232,38 @@ export async function guestRoutes(app: FastifyInstance) {
     return { success: true, guest: updated };
   });
 
+  // Check-out guest (saída) — usado na tela de recepção. Não muda `status` (o convidado
+  // continua "checked_in", só ganha um segundo carimbo de saída), mesmo padrão do check-in.
+  app.post('/guests/:id/checkout', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const user = (request as any).user;
+
+    const guest = await prisma.guest.findUnique({ where: { id } });
+
+    if (!guest) {
+      return reply.status(404).send({ error: 'Guest not found' });
+    }
+    if (!(await checkEventAccess(user, guest.eventId))) return reply.status(403).send({ error: 'Access denied' });
+
+    if (guest.status !== 'checked_in') {
+      return reply.status(400).send({ error: 'Guest is not checked in', status: guest.status });
+    }
+    if (guest.checkedOutAt) {
+      return reply.status(400).send({ error: 'Guest already checked out' });
+    }
+
+    const updated = await prisma.guest.update({
+      where: { id },
+      data: {
+        checkedOutAt: new Date(),
+        // Mesma ressalva do checkedInByUserId acima: sessões de freelancer não têm User.id válido.
+        checkedOutByUserId: user.employerId !== undefined ? user.id : null,
+      },
+    });
+
+    return { success: true, guest: updated };
+  });
+
   // Check-in guest (event-scoped path for frontend)
   app.post('/events/:id/guests/:guestId/checkin', { preHandler: requireAuth }, async (request, reply) => {
     const { guestId } = request.params as { id: string; guestId: string };
