@@ -133,8 +133,14 @@ async function fetchContratos(): Promise<any[]> {
       if (!d) continue;
       const main = d.main;
       if (!main) continue;
-      const checkin: string = String(main.data_checkin || '').slice(0, 10);
-      if (checkin < today) continue; // skip past events
+      // data_checkin costuma vir preenchido, mas nem sempre — contrato 5412 (Michele Ribeiro do
+      // Amaral) tinha data_checkin null com inicio_evento futuro (12/09/2026) e sumia da lista
+      // de sincronização porque '' < qualquer_data é sempre true, filtrando como "já passou" um
+      // contrato que nem tinha data de checkin definida ainda. Cai pro inicio_evento nesse caso;
+      // se nenhum dos dois vier preenchido, não filtra (melhor mostrar de mais que sumir sozinho).
+      const checkinRaw = main.data_checkin || main.inicio_evento || '';
+      const checkin: string = String(checkinRaw).slice(0, 10);
+      if (checkin && checkin < today) continue; // skip past events
       // Attach secondary contracts too
       results.push({ ...main, _secondary: d.secondary || [] });
     }
@@ -203,10 +209,14 @@ async function resolveStaffAllocations(
 }
 
 // Group contracts by (cliente, data_checkin) — same event (one main per key already, but keep for merge)
+// data_checkin pode vir null (contrato sem check-in agendado ainda, ex. 5412) — cai pro
+// inicio_evento pra não gerar uma chave com data vazia (evento nasceria com nome tipo
+// "Cliente — ", sem data nenhuma no título).
 function groupContracts(contracts: any[]): Map<string, any[]> {
   const map = new Map<string, any[]>();
   for (const c of contracts) {
-    const key = `${c.cliente}__${String(c.data_checkin || '').slice(0, 10)}`;
+    const dateRaw = c.data_checkin || c.inicio_evento || '';
+    const key = `${c.cliente}__${String(dateRaw).slice(0, 10)}`;
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(c);
   }
