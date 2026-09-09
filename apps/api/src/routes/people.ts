@@ -23,6 +23,7 @@ const personBody = z.object({
   name: z.string().min(1),
   cpf: z.string().min(11).max(14).optional().nullable(),
   whatsapp: z.string().optional().nullable(),
+  email: z.string().email().optional().nullable(),
   photoUrl: z.string().optional().nullable(),
 });
 

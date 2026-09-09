@@ -10,6 +10,7 @@ interface Person {
   name: string;
   cpf: string;
   whatsapp: string | null;
+  email: string | null;
   photoUrl: string | null;
 }
 
@@ -140,6 +141,7 @@ function AddPersonModal({ eventId, onClose, onSaved }: PersonModalProps) {
   const [name, setName] = useState('');
   const [cpf, setCpf] = useState('');
   const [whatsapp, setWhatsapp] = useState('');
+  const [email, setEmail] = useState('');
   const [role, setRole] = useState('');
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
@@ -221,7 +223,7 @@ function AddPersonModal({ eventId, onClose, onSaved }: PersonModalProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ name, cpf: cpfClean, whatsapp: whatsapp.replace(/\D/g, '') || null }),
+        body: JSON.stringify({ name, cpf: cpfClean, whatsapp: whatsapp.replace(/\D/g, '') || null, email: email.trim() || null }),
       });
       const dPerson = await rPerson.json();
       if (!rPerson.ok) throw new Error(dPerson.error || 'Erro ao cadastrar pessoa');
@@ -340,6 +342,11 @@ function AddPersonModal({ eventId, onClose, onSaved }: PersonModalProps) {
               <div>
                 <label className="text-xs font-medium text-muted-foreground mb-1 block">WhatsApp</label>
                 <input value={whatsapp} onChange={e => setWhatsapp(formatWhatsapp(e.target.value))} placeholder="(11) 99999-9999"
+                  className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">E-mail</label>
+                <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="nome@email.com"
                   className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
               </div>
             </div>

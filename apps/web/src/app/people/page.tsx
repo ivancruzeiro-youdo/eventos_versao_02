@@ -40,6 +40,7 @@ interface Person {
   name: string;
   cpf: string | null;
   whatsapp: string | null;
+  email: string | null;
   photoUrl: string | null;
   createdAt: string;
 }
@@ -109,6 +110,7 @@ function EditModal({ person, onClose, onSaved }: { person: Person | null; onClos
   const [name, setName] = useState(person?.name ?? '');
   const [cpf, setCpf] = useState(person?.cpf ? formatCpf(person.cpf) : '');
   const [whatsapp, setWhatsapp] = useState(person?.whatsapp ? formatWa(person.whatsapp) : '');
+  const [email, setEmail] = useState(person?.email ?? '');
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -147,6 +149,7 @@ function EditModal({ person, onClose, onSaved }: { person: Person | null; onClos
         name: name.trim(),
         cpf: cpfDigits || undefined,
         whatsapp: whatsapp.replace(/\D/g, '') || null,
+        email: email.trim() || null,
       };
       const r = isNew
         ? await fetch('/api/v2/people', {
@@ -218,6 +221,12 @@ function EditModal({ person, onClose, onSaved }: { person: Person | null; onClos
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1 block">WhatsApp</label>
             <input value={whatsapp} onChange={e => setWhatsapp(formatWa(e.target.value))} placeholder="(11) 99999-9999"
+              className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">E-mail</label>
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="nome@email.com"
               className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
           </div>
 

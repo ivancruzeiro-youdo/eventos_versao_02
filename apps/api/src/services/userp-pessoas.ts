@@ -46,6 +46,7 @@ export async function registrarPessoaUserp(personId: string, eventId: string, tr
         acessar_app: '0',
         acessar_unidade: '0',
         ...(person.whatsapp ? { fone: person.whatsapp } : {}),
+        ...(person.email ? { email: person.email } : {}),
         ...(usuarioId ? { usuario_id: usuarioId } : {}),
       }),
     });
