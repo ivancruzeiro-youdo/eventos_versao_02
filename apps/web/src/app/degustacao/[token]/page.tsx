@@ -7,6 +7,7 @@ import { CheckCircle, Calendar, MapPin, Wine, Plus, X } from 'lucide-react';
 
 interface LinkData {
   confirmed: boolean;
+  enrollmentClosed: boolean;
   contato: { nome: string; telefone: string | null; email: string | null };
   degustacao: { maxGuests: number; menu: string | null };
   menuChoices: { label: string; chosen: string[] }[];
@@ -98,6 +99,7 @@ export default function DegustacaoLinkPage() {
 
   const isPast = data.event.startAt ? new Date(data.event.startAt) < new Date() : false;
   const confirmed = data.confirmed || submitted;
+  const enrollmentClosed = !confirmed && data.enrollmentClosed;
 
   return (
     <div className="min-h-screen bg-background">
@@ -138,6 +140,11 @@ export default function DegustacaoLinkPage() {
         ) : isPast ? (
           <div className="text-center">
             <p className="text-muted-foreground">Essa data já passou e não há mais ocorrências futuras agendadas.</p>
+            <p className="text-sm text-muted-foreground mt-2">Entre em contato com quem enviou o convite pra saber da próxima.</p>
+          </div>
+        ) : enrollmentClosed ? (
+          <div className="text-center">
+            <p className="text-muted-foreground">Inscrições encerradas — faltam menos de 12h para o início desta data.</p>
             <p className="text-sm text-muted-foreground mt-2">Entre em contato com quem enviou o convite pra saber da próxima.</p>
           </div>
         ) : (

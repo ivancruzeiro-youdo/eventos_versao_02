@@ -8,6 +8,9 @@ import { getUserpToken, verifyUserpToken, userpFetch } from '../lib/userp-auth.j
 const WRITE_ROLES = ['admin', 'event_owner', 'operator'];
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEB_URL = process.env.WEB_URL || 'https://eventos.youdobrasil.com.br';
+// Inscrição por link público fecha 12h antes do início da ocorrência — sem essa margem, dava
+// pra se inscrever até o segundo antes do evento começar, tarde demais pra staff se organizar.
+const ENROLLMENT_CUTOFF_MS = 12 * 60 * 60 * 1000;
 
 // `fones`/`emails` da Userp vêm como listas de OBJETOS ({id, nome, fone, fone_padrao}, idem
 // pra email) — não strings. Pega o marcado como padrão; sem nenhum marcado, usa o primeiro.
@@ -87,8 +90,11 @@ async function resolveLinkOccurrence(link: any) {
     return prisma.event.findUnique({ where: { id: anchor.eventId }, include: OCCURRENCE_INCLUDE });
   }
 
+  // gte agora com a margem de 12h já embutida — uma ocorrência a 3h do início não conta como
+  // "aberta" aqui, então o link pula direto pra próxima de verdade disponível da série, em vez
+  // de mostrar uma data que o POST logo abaixo recusaria de qualquer forma.
   const next = await prisma.event.findFirst({
-    where: { degustacao: { seriesId: anchor.seriesId }, startAt: { gte: new Date() } },
+    where: { degustacao: { seriesId: anchor.seriesId }, startAt: { gte: new Date(Date.now() + ENROLLMENT_CUTOFF_MS) } },
     include: OCCURRENCE_INCLUDE,
     orderBy: { startAt: 'asc' },
   });
@@ -672,9 +678,13 @@ export async function degustacaoRoutes(app: FastifyInstance) {
       .filter((a: any) => a.chosen.length > 0);
     const menuChoices = [...fromChoices, ...fromAnswers];
 
+    const startAt: Date | null = (event as any).startAt;
+    const enrollmentClosed = !link.enrolledEventId && !!startAt && startAt.getTime() - Date.now() < ENROLLMENT_CUTOFF_MS;
+
     return {
       success: true,
       confirmed: !!link.enrolledEventId,
+      enrollmentClosed,
       contato: { nome: link.nome, telefone: link.telefone, email: link.email },
       degustacao: { maxGuests: link.degustacao.maxGuests, menu: link.degustacao.product?.name ?? null },
       menuChoices,
@@ -707,8 +717,15 @@ export async function degustacaoRoutes(app: FastifyInstance) {
 
     const event = await resolveLinkOccurrence(link);
     if (!event) return reply.status(404).send({ error: 'Ocorrência não encontrada.' });
-    if ((event as any).startAt && (event as any).startAt < new Date()) {
-      return reply.status(409).send({ error: 'Essa data já passou — não há mais ocorrências futuras nesta série.' });
+    const startAt: Date | null = (event as any).startAt;
+    if (startAt) {
+      const msUntilStart = startAt.getTime() - Date.now();
+      if (msUntilStart <= 0) {
+        return reply.status(409).send({ error: 'Essa data já passou — não há mais ocorrências futuras nesta série.' });
+      }
+      if (msUntilStart < ENROLLMENT_CUTOFF_MS) {
+        return reply.status(409).send({ error: 'Inscrições encerradas — faltam menos de 12h para o início desta ocorrência.' });
+      }
     }
 
     await prisma.guest.createMany({
