@@ -1009,13 +1009,24 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     // to detect secondaries added after the original import.
     const secondaryPending: { secId: string; mainDetail: any }[] = [];
     const detailByExternalId = new Map<string, any | null>();
-    for (const ec of eventContracts) {
-      const detail = await fetchContratoDetails(Number(ec.externalId));
+    // Um contrato de cada vez, sequencial, era o gargalo real desse endpoint: ele roda sempre
+    // que a página do evento abre, e cada contrato faz 2 chamadas de rede pra Userp (detalhe +
+    // usuários). Um evento com 5+ contratos somava 10+ round-trips em série — 9-16s medidos em
+    // produção, tempo de sobra pro navegador desistir e mostrar "failed to fetch". Em paralelo,
+    // o tempo total cai pra ~1 round-trip (o mais lento dos contratos), não a soma de todos.
+    const detailResults = await Promise.all(eventContracts.map(async (ec: any) => {
+      const [detail] = await Promise.all([
+        fetchContratoDetails(Number(ec.externalId)),
+        // Não é o único lugar que dispara isso (sync-import também sincroniza), mas é o que
+        // roda sempre que a página do evento é aberta — sem isso, "Usuários do Contrato" só
+        // atualizava depois de uma importação manual, e o operador nunca reimporta um evento
+        // já criado.
+        syncContractUsers(ec.id, Number(ec.externalId)),
+      ]);
+      return { ec, detail };
+    }));
+    for (const { ec, detail } of detailResults) {
       detailByExternalId.set(ec.externalId, detail);
-      // Não é o único lugar que dispara isso (sync-import também sincroniza), mas é o que roda
-      // sempre que a página do evento é aberta — sem isso, "Usuários do Contrato" só atualizava
-      // depois de uma importação manual, e o operador nunca reimporta um evento já criado.
-      await syncContractUsers(ec.id, Number(ec.externalId));
       if (!detail?.secondary?.length) continue;
       for (const sec of detail.secondary) {
         const secId = String(sec.codlocacontrato || '');
