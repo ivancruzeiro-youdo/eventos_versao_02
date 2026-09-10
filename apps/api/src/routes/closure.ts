@@ -4,11 +4,24 @@ import { prisma } from '../server.js';
 import { requireAuth } from '../middleware/auth.js';
 import { randomUUID } from 'crypto';
 import { registrarCheckoutsUserp } from '../services/userp-checkin.js';
+import { computeClosureBilling } from '../lib/closure-billing.js';
 
 const closureSchema = z.object({
   itensQuebrados: z.string().optional(),
   situacoesReportadas: z.string().optional(),
   abExcessQty: z.number().min(0).optional(),
+  abExcessUnitValue: z.number().min(0).optional(),
+  // Itens avulsos a cobrar (quebrados/danificados, taxas extra) — descrição + valor
+  // unitário + quantidade; o subtotal de cada um é calculado, nunca recebido do cliente.
+  charges: z
+    .array(
+      z.object({
+        description: z.string().min(1),
+        unitValue: z.number().min(0),
+        quantity: z.number().min(0.01),
+      }),
+    )
+    .optional(),
   // attachments sent as array of base64 objects
   attachments: z
     .array(
@@ -66,6 +79,7 @@ export async function closureRoutes(app: FastifyInstance) {
         abContractedQty,
         abCheckedInCount,
         abExcessQty: body.abExcessQty ?? null,
+        abExcessUnitValue: body.abExcessUnitValue ?? null,
         attachments: body.attachments?.length
           ? {
               create: body.attachments.map((a) => ({
@@ -76,6 +90,9 @@ export async function closureRoutes(app: FastifyInstance) {
               })),
             }
           : undefined,
+        charges: body.charges?.length
+          ? { create: body.charges.map((c) => ({ description: c.description, unitValue: c.unitValue, quantity: c.quantity })) }
+          : undefined,
         npsOrganizador: {
           create: {
             eventId,
@@ -85,6 +102,7 @@ export async function closureRoutes(app: FastifyInstance) {
       },
       include: {
         attachments: true,
+        charges: true,
         npsOrganizador: true,
       },
     });
@@ -123,6 +141,7 @@ export async function closureRoutes(app: FastifyInstance) {
             // omit dataBase64 from list for performance
           },
         },
+        charges: { orderBy: { createdAt: 'asc' } },
         npsOrganizador: {
           select: {
             id: true,
@@ -159,7 +178,11 @@ export async function closureRoutes(app: FastifyInstance) {
       }),
     ]);
 
-    return { success: true, closure, npsUrl, checkedInGuests, notCheckedInGuests };
+    // Mesmo cálculo usado no envio do check-out da Userp (cobra_obs/cobra_valor) — a tela de
+    // relatório mostra exatamente o que foi (ou será, se ainda não foi encerrado) cobrado.
+    const billing = computeClosureBilling(closure);
+
+    return { success: true, closure, npsUrl, checkedInGuests, notCheckedInGuests, billing };
   });
 
   // GET /closure/attachments/:id — download a single attachment (base64)

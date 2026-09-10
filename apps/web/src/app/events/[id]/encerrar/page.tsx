@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
 import { closureApi } from '@/lib/api';
-import { Copy, Upload, X, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Copy, Upload, X, CheckCircle, AlertTriangle, Plus, Trash2 } from 'lucide-react';
 
 interface Attachment {
   filename: string;
@@ -13,6 +13,18 @@ interface Attachment {
   sizeBytes: number;
   dataBase64: string;
   preview?: string;
+}
+
+// Item avulso a cobrar (quebrado/danificado, taxa extra) — rascunho local antes de enviar;
+// valores em string pra input controlado aceitar campo vazio/parcial sem virar NaN.
+interface ChargeDraft {
+  description: string;
+  unitValue: string;
+  quantity: string;
+}
+
+function fmtBrl(v: number): string {
+  return v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf'];
@@ -35,6 +47,11 @@ export default function EncerrarEventoPage() {
   const [abContractedQty, setAbContractedQty] = useState<number | null>(null);
   const [abCheckedInCount, setAbCheckedInCount] = useState<number | null>(null);
   const [abExcessQty, setAbExcessQty] = useState<string>('');
+  const [abExcessUnitValue, setAbExcessUnitValue] = useState<string>('');
+
+  // Itens avulsos a cobrar (quebrados/danificados, taxas extra) — lista livre, uma linha por
+  // item; cada um soma no total enviado à Userp (cobra_valor) junto com o excedente de A&B.
+  const [charges, setCharges] = useState<ChargeDraft[]>([]);
 
   useEffect(() => {
     async function loadAbSummary() {
@@ -47,7 +64,11 @@ export default function EncerrarEventoPage() {
         const evData = await evRes.json();
         const itemsData = await itemsRes.json();
         const guests: { status: string }[] = evData.event?.guests ?? [];
-        const items: { quantity: number }[] = itemsData.items ?? [];
+        // /items não filtra por categoria no servidor (o ?category= é só documentação da
+        // intenção) — filtra aqui, senão um item de outra categoria com quantidade maior
+        // (ex.: equipe) inflava o "contratado" de A&B.
+        const allItems: { category: string; quantity: number; product?: { price: number | null } | null }[] = itemsData.items ?? [];
+        const items = allItems.filter(i => i.category === 'ab');
         const checkedIn = guests.filter(g => g.status === 'checked_in').length;
         const contracted = items.length > 0 ? Math.max(...items.map(i => i.quantity)) : null;
         setAbCheckedInCount(checkedIn);
@@ -55,6 +76,10 @@ export default function EncerrarEventoPage() {
         if (contracted !== null && checkedIn > contracted) {
           setAbExcessQty(String(checkedIn - contracted));
         }
+        // Sugestão de valor unitário: soma do preço cadastrado dos produtos de A&B (pacote
+        // por pessoa) — só um ponto de partida, o operador confere/ajusta antes de enviar.
+        const suggestedUnitValue = items.reduce((sum, i) => sum + (i.product?.price ?? 0), 0);
+        if (suggestedUnitValue > 0) setAbExcessUnitValue(String(suggestedUnitValue));
       } catch { /* silent — não bloqueia o encerramento */ }
     }
     loadAbSummary();
@@ -63,6 +88,20 @@ export default function EncerrarEventoPage() {
   const suggestedExcess = abContractedQty !== null && abCheckedInCount !== null
     ? Math.max(0, abCheckedInCount - abContractedQty)
     : 0;
+
+  const abExcessSubtotal = (Number(abExcessQty) || 0) * (Number(abExcessUnitValue) || 0);
+  const chargesTotal = charges.reduce((sum, c) => sum + (Number(c.quantity) || 0) * (Number(c.unitValue) || 0), 0);
+  const grandTotal = abExcessSubtotal + chargesTotal;
+
+  function addCharge() {
+    setCharges(prev => [...prev, { description: '', unitValue: '', quantity: '1' }]);
+  }
+  function updateCharge(idx: number, patch: Partial<ChargeDraft>) {
+    setCharges(prev => prev.map((c, i) => (i === idx ? { ...c, ...patch } : c)));
+  }
+  function removeCharge(idx: number) {
+    setCharges(prev => prev.filter((_, i) => i !== idx));
+  }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files || []);
@@ -104,10 +143,16 @@ export default function EncerrarEventoPage() {
     setSubmitting(true);
     try {
       const excessNum = abExcessQty.trim() ? Number(abExcessQty) : undefined;
+      const excessUnitNum = abExcessUnitValue.trim() ? Number(abExcessUnitValue) : undefined;
+      const validCharges = charges
+        .filter(c => c.description.trim() && Number(c.unitValue) > 0 && Number(c.quantity) > 0)
+        .map(c => ({ description: c.description.trim(), unitValue: Number(c.unitValue), quantity: Number(c.quantity) }));
       const res = await closureApi.encerrar(eventId, {
         itensQuebrados: form.itensQuebrados || undefined,
         situacoesReportadas: form.situacoesReportadas || undefined,
         abExcessQty: excessNum !== undefined && !isNaN(excessNum) ? excessNum : undefined,
+        abExcessUnitValue: excessUnitNum !== undefined && !isNaN(excessUnitNum) ? excessUnitNum : undefined,
+        charges: validCharges.length > 0 ? validCharges : undefined,
         attachments: attachments.map(({ filename, mimeType, sizeBytes, dataBase64 }) => ({
           filename,
           mimeType,
@@ -200,26 +245,133 @@ export default function EncerrarEventoPage() {
                 Contratado: <strong>{abContractedQty}</strong> · Check-ins realizados: <strong>{abCheckedInCount}</strong> ·
                 {' '}Sugestão de cobrança adicional: <strong>{suggestedExcess}</strong> pessoa{suggestedExcess === 1 ? '' : 's'}.
               </p>
-              <label className="block text-xs font-medium text-amber-900 dark:text-amber-300 mb-1">
-                Quantidade a cobrar como adicional (ajuste se necessário)
-              </label>
-              <input
-                type="number"
-                min={0}
-                step="1"
-                value={abExcessQty}
-                onChange={(e) => setAbExcessQty(e.target.value)}
-                className="w-40 border border-amber-300 dark:border-amber-700 rounded-lg px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-amber-500"
-              />
+              <div className="flex flex-wrap items-end gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-amber-900 dark:text-amber-300 mb-1">
+                    Quantidade a cobrar como adicional (ajuste se necessário)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="1"
+                    value={abExcessQty}
+                    onChange={(e) => setAbExcessQty(e.target.value)}
+                    className="w-40 border border-amber-300 dark:border-amber-700 rounded-lg px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-amber-900 dark:text-amber-300 mb-1">
+                    Valor unitário (por pessoa)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    placeholder="0,00"
+                    value={abExcessUnitValue}
+                    onChange={(e) => setAbExcessUnitValue(e.target.value)}
+                    className="w-32 border border-amber-300 dark:border-amber-700 rounded-lg px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+                {abExcessSubtotal > 0 && (
+                  <p className="text-sm font-semibold text-amber-900 dark:text-amber-300 pb-2">
+                    Subtotal: R$ {fmtBrl(abExcessSubtotal)}
+                  </p>
+                )}
+              </div>
             </div>
           )}
 
+          {/* Itens a cobrar (quebrados/danificados, taxas extra) */}
+          <div className="bg-card border rounded-xl p-5">
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-sm font-semibold">Itens a Cobrar do Cliente</label>
+              <button
+                type="button"
+                onClick={addCharge}
+                className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border hover:bg-accent transition"
+              >
+                <Plus size={13} /> Adicionar item
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground mb-3">
+              Item quebrado/danificado, taxa extra, etc. — descrição, valor unitário e quantidade. Cada linha soma no total enviado no check-out da Userp.
+            </p>
+
+            {charges.length === 0 ? (
+              <p className="text-sm text-muted-foreground italic">Nenhum item cadastrado.</p>
+            ) : (
+              <div className="space-y-2">
+                {charges.map((c, i) => {
+                  const subtotal = (Number(c.quantity) || 0) * (Number(c.unitValue) || 0);
+                  return (
+                    <div key={i} className="flex flex-wrap items-end gap-2 bg-muted/30 rounded-lg p-3">
+                      <div className="flex-1 min-w-[180px]">
+                        <label className="block text-xs text-muted-foreground mb-1">Descrição</label>
+                        <input
+                          type="text"
+                          placeholder="Ex: Taça de cristal quebrada"
+                          value={c.description}
+                          onChange={(e) => updateCharge(i, { description: e.target.value })}
+                          className="w-full border rounded-lg px-2.5 py-1.5 text-sm bg-background"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-muted-foreground mb-1">Valor unitário</label>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          placeholder="0,00"
+                          value={c.unitValue}
+                          onChange={(e) => updateCharge(i, { unitValue: e.target.value })}
+                          className="w-28 border rounded-lg px-2.5 py-1.5 text-sm bg-background"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-muted-foreground mb-1">Quantidade</label>
+                        <input
+                          type="number"
+                          min={0}
+                          step="1"
+                          value={c.quantity}
+                          onChange={(e) => updateCharge(i, { quantity: e.target.value })}
+                          className="w-20 border rounded-lg px-2.5 py-1.5 text-sm bg-background"
+                        />
+                      </div>
+                      <p className="text-sm font-medium text-muted-foreground pb-1.5 min-w-[110px]">
+                        R$ {fmtBrl(subtotal)}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => removeCharge(i)}
+                        className="p-1.5 text-muted-foreground hover:text-destructive transition"
+                        title="Remover"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {grandTotal > 0 && (
+              <p className="text-right text-sm font-semibold mt-3 pt-3 border-t">
+                Total a cobrar: R$ {fmtBrl(grandTotal)}
+              </p>
+            )}
+          </div>
+
           {/* Itens Quebrados */}
           <div className="bg-card border rounded-xl p-5">
-            <label className="block text-sm font-semibold mb-2">Itens Quebrados / Danificados</label>
+            <label className="block text-sm font-semibold mb-2">Observações sobre Itens Quebrados / Danificados</label>
+            <p className="text-xs text-muted-foreground mb-2">
+              Contexto geral, sem valor associado — para cobrar um item específico com valor, use "Itens a Cobrar do Cliente" acima.
+            </p>
             <textarea
               rows={4}
-              placeholder="Liste aqui os itens que foram danificados ou quebrados durante o evento..."
+              placeholder="Descreva o contexto, se necessário..."
               value={form.itensQuebrados}
               onChange={(e) => setForm((f) => ({ ...f, itensQuebrados: e.target.value }))}
               className="w-full border rounded-lg px-3 py-2 text-sm bg-background resize-none focus:outline-none focus:ring-2 focus:ring-primary"

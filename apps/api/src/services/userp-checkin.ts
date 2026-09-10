@@ -1,5 +1,6 @@
 import { prisma } from '../server.js';
 import { getUserpToken } from '../lib/userp-auth.js';
+import { computeClosureBilling } from '../lib/closure-billing.js';
 
 // Check-in/check-out da Userp são registros de "reserva de espaço" (tb_loca_res_reservas /
 // tb_loca_res_desocupacao) por CONTRATO — não por evento. Um evento pode ter mais de um
@@ -98,11 +99,17 @@ export async function registrarCheckoutsUserp(eventId: string, triggeredByUserId
     idFunc = user?.userpCodigo ? parseInt(user.userpCodigo, 10) : null;
   }
 
-  // "Itens Quebrados / Danificados" do encerramento vai no check-out como cobra_obs — campo
-  // opcional de checkouts/create.php, "observação sobre valores a cobrar ao cliente" (doc dá
-  // exatamente "Danos na parede da sala." como exemplo). Só manda quando preenchido.
-  const closure = await (prisma as any).eventClosure.findUnique({ where: { eventId }, select: { itensQuebrados: true } });
-  const cobraObs: string | undefined = closure?.itensQuebrados?.trim() || undefined;
+  // Itens Quebrados + excedente de A&B + itens avulsos a cobrar, tudo somado num único
+  // cobra_obs (descrição) e cobra_valor (total) — campos opcionais de checkouts/create.php
+  // ("observação sobre valores a cobrar ao cliente" / "valor a cobrar ao cliente"). Só manda
+  // quando há algo a cobrar de fato.
+  const closure = await (prisma as any).eventClosure.findUnique({
+    where: { eventId },
+    select: { itensQuebrados: true, abExcessQty: true, abExcessUnitValue: true, charges: true },
+  });
+  const billing = closure ? computeClosureBilling(closure) : { obs: '', valor: 0 };
+  const cobraObs: string | undefined = billing.obs || undefined;
+  const cobraValor: number | undefined = billing.valor > 0 ? billing.valor : undefined;
 
   const { token, baseUrl } = await getUserpToken();
   const { date: dataCheckout, time: horaCheckout } = nowBrtParts();
@@ -133,6 +140,7 @@ export async function registrarCheckoutsUserp(eventId: string, triggeredByUserId
           data_checkout: dataCheckout,
           hora_checkout: horaCheckout,
           ...(cobraObs ? { cobra_obs: cobraObs } : {}),
+          ...(cobraValor !== undefined ? { cobra_valor: cobraValor } : {}),
         }),
       });
       if (res.status === 409) {

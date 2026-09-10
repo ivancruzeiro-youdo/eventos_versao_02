@@ -9,6 +9,10 @@ import { Copy, CheckCircle, FileText, AlertTriangle, Star, Car, Gift, Download, 
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
+function fmtBrl(v: number): string {
+  return v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 function NpsScore({ score }: { score: number }) {
   let colorClass = 'text-red-600 bg-red-50 border-red-200';
   if (score >= 9) colorClass = 'text-green-600 bg-green-50 border-green-200';
@@ -26,6 +30,7 @@ export default function ClosurePage() {
   const params = useParams();
   const eventId = params.id as string;
   const [closure, setClosure] = useState<any>(null);
+  const [billing, setBilling] = useState<{ obs: string; valor: number } | null>(null);
   const [npsUrl, setNpsUrl] = useState('');
   const [checkedInGuests, setCheckedInGuests] = useState<{ id: string; name: string; checkedInAt: string }[]>([]);
   const [notCheckedInGuests, setNotCheckedInGuests] = useState<{ id: string; name: string }[]>([]);
@@ -50,6 +55,7 @@ export default function ClosurePage() {
         closureApi.getGiftEntries(eventId).catch(() => ({ entries: [] })),
       ]);
       setClosure(res.closure);
+      setBilling(res.billing || null);
       setNpsUrl(res.npsUrl || '');
       setCheckedInGuests(res.checkedInGuests || []);
       setNotCheckedInGuests(res.notCheckedInGuests || []);
@@ -257,8 +263,37 @@ export default function ClosurePage() {
               <h2 className="font-semibold">Excedente de A&B confirmado</h2>
             </div>
             <p className="text-sm text-muted-foreground">
-              Contratado: <strong className="text-foreground">{closure.abContractedQty}</strong> · Check-ins: <strong className="text-foreground">{closure.abCheckedInCount}</strong> · Cobrança adicional confirmada: <strong className="text-foreground">{closure.abExcessQty}</strong> pessoa{closure.abExcessQty === 1 ? '' : 's'}.
+              Contratado: <strong className="text-foreground">{closure.abContractedQty}</strong> · Check-ins: <strong className="text-foreground">{closure.abCheckedInCount}</strong> · Cobrança adicional confirmada: <strong className="text-foreground">{closure.abExcessQty}</strong> pessoa{closure.abExcessQty === 1 ? '' : 's'}
+              {!!closure.abExcessUnitValue && (
+                <> × R$ {fmtBrl(closure.abExcessUnitValue)} = <strong className="text-foreground">R$ {fmtBrl(closure.abExcessQty * closure.abExcessUnitValue)}</strong></>
+              )}.
             </p>
+          </div>
+        )}
+
+        {/* Itens cobrados do cliente */}
+        {closure.charges?.length > 0 && (
+          <div className="bg-card border rounded-xl p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <AlertTriangle size={16} className="text-orange-500" />
+              <h2 className="font-semibold">Itens Cobrados do Cliente</h2>
+            </div>
+            <div className="divide-y">
+              {closure.charges.map((c: any) => (
+                <div key={c.id} className="flex items-center justify-between py-2 text-sm">
+                  <span className="text-muted-foreground">{c.description} <span className="text-xs">({c.quantity} × R$ {fmtBrl(c.unitValue)})</span></span>
+                  <span className="font-medium shrink-0 pl-2">R$ {fmtBrl(c.quantity * c.unitValue)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Total geral a cobrar (excedente A&B + itens) */}
+        {billing && billing.valor > 0 && (
+          <div className="bg-orange-50 dark:bg-orange-950/30 border border-orange-300 dark:border-orange-800 rounded-xl p-5 flex items-center justify-between">
+            <h2 className="font-semibold text-orange-900 dark:text-orange-300">Total a cobrar do cliente</h2>
+            <p className="text-xl font-bold text-orange-900 dark:text-orange-300">R$ {fmtBrl(billing.valor)}</p>
           </div>
         )}
 

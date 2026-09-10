@@ -1926,14 +1926,34 @@ model EventClosure {
   abContractedQty     Float?   // quantidade de A&B contratada (snapshot no encerramento)
   abCheckedInCount    Int?     // quantidade de convidados com check-in (snapshot no encerramento)
   abExcessQty         Float?   // excedente confirmado pelo operador para cobrança adicional
+  abExcessUnitValue   Float?   // valor unitário por pessoa excedente — abExcessQty * este valor
+                                // entra no total cobrado (cobra_valor) e na descrição (cobra_obs)
+                                // enviados no check-out da Userp junto com os `charges` abaixo.
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
   event          Event               @relation(fields: [eventId], references: [id])
   attachments    ClosureAttachment[]
+  charges        EventClosureCharge[]
   npsOrganizador EventNPSOrganizador?
 
   @@index([eventId])
+}
+
+// Item avulso a cobrar do cliente no encerramento — item quebrado/danificado, taxa extra, etc.
+// Cada linha soma no total (cobra_valor) e na descrição (cobra_obs) do check-out da Userp,
+// junto com o excedente de A&B (EventClosure.abExcessQty/abExcessUnitValue).
+model EventClosureCharge {
+  id          String   @id @default(uuid())
+  closureId   String
+  description String
+  unitValue   Float
+  quantity    Float    @default(1)
+  createdAt   DateTime @default(now())
+
+  closure EventClosure @relation(fields: [closureId], references: [id], onDelete: Cascade)
+
+  @@index([closureId])
 }
 
 model ClosureAttachment {
