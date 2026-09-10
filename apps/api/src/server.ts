@@ -137,8 +137,26 @@ const start = async () => {
     await app.register(cookie);
 
     await app.register(rateLimit, {
-      max: 100,
+      max: 300,
       timeWindow: '1 minute',
+      // Por padrão a chave é o IP — em qualquer escritório com várias pessoas atrás do mesmo
+      // IP (NAT/proxy corporativo, muito comum aqui), todo mundo dividia a MESMA cota de 100
+      // req/min pro sistema inteiro. Um usuário sozinho navegando (Next.js prefetch de link +
+      // várias chamadas /api/v2 em paralelo por página) já bate perto disso; com 2-3 pessoas
+      // no mesmo IP, qualquer um deles estourava e via "Rate limit exceeded" em coisas que não
+      // tinham nada a ver com o que ele mesmo estava fazendo. Decodifica o JWT (sem validar —
+      // só precisa do sub como identificador estável) pra dar cota POR USUÁRIO logado; sem
+      // cookie de sessão (rotas públicas), cai pro IP como antes.
+      keyGenerator: (request) => {
+        const token = (request as any).cookies?.token;
+        if (token) {
+          try {
+            const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8'));
+            if (payload?.sub) return `user:${payload.sub}`;
+          } catch { /* token ausente/malformado — cai pro IP abaixo */ }
+        }
+        return request.ip;
+      },
     });
 
     // Swagger documentation
