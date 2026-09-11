@@ -1373,6 +1373,15 @@ function PlanTab({ token, jwt, approvals, onToggle, locked }: {
 
 // ── A&B (food & beverage) tab ─────────────────────────────────────────────────
 
+function formatServiceTime(startAt: string, endAt: string | null): string {
+  const start = new Date(startAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
+  if (!endAt) return start;
+  const startDay = new Date(startAt).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  const endDay = new Date(endAt).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  const end = new Date(endAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
+  return startDay === endDay ? `${start} – ${end}` : `${start} – ${end} (${endDay})`;
+}
+
 function FoodTab({ token, jwt, approvals, onToggle, locked }: {
   token: string;
   jwt: string;
@@ -1382,6 +1391,7 @@ function FoodTab({ token, jwt, approvals, onToggle, locked }: {
 }) {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [toggling, setToggling] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     fetch(`/api/v2/client/${token}/plan`, { headers: { 'x-client-auth': jwt } })
@@ -1389,6 +1399,12 @@ function FoodTab({ token, jwt, approvals, onToggle, locked }: {
       .then(d => setData(d.event))
       .finally(() => setLoading(false));
   }, [token, jwt]);
+
+  async function handleToggleTime(itemId: string) {
+    setToggling(t => ({ ...t, [itemId]: true }));
+    await onToggle('ab_time', itemId);
+    setToggling(t => ({ ...t, [itemId]: false }));
+  }
 
   if (loading) return <div className="py-8 text-center text-gray-400">Carregando itens de A&B...</div>;
 
@@ -1424,6 +1440,21 @@ function FoodTab({ token, jwt, approvals, onToggle, locked }: {
                 </span>
               )}
             </div>
+            {item.serviceStartAt && (
+              <div className={`px-4 py-3 flex items-center gap-3 border-t ${approvals.has(`ab_time:${item.id}`) ? 'bg-green-50/60' : ''}`}>
+                <Clock size={14} className="text-gray-400 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-gray-400">Horário de serviço</p>
+                  <p className="text-sm font-medium text-gray-900">{formatServiceTime(item.serviceStartAt, item.serviceEndAt)}</p>
+                </div>
+                <ApproveButton
+                  approved={approvals.has(`ab_time:${item.id}`)}
+                  onToggle={() => handleToggleTime(item.id)}
+                  toggling={!!toggling[item.id]}
+                  locked={locked}
+                />
+              </div>
+            )}
             {qs.length > 0 ? (
               <div className="divide-y">
                 {qs.map((q: any, qi: number) => {
@@ -1565,12 +1596,15 @@ function StatusBanner({ token, jwt, approvals }: { token: string; jwt: string; a
     });
   });
 
+  const abItemsWithTime: any[] = (planData.items || []).filter((i: any) => i.category === 'ab' && i.serviceStartAt);
+
   const unanswered = allQs.filter(q => !q.answered && q.required).length;
   const answeredUnconfirmed = allQs.filter(q => q.answered && !approvals.has(q.key)).length;
   const scheduleUnconfirmed = schedules.filter(s => !approvals.has(`schedule:${s.id}`)).length;
-  const allDone = unanswered === 0 && answeredUnconfirmed === 0 && scheduleUnconfirmed === 0;
+  const abTimeUnconfirmed = abItemsWithTime.filter(i => !approvals.has(`ab_time:${i.id}`)).length;
+  const allDone = unanswered === 0 && answeredUnconfirmed === 0 && scheduleUnconfirmed === 0 && abTimeUnconfirmed === 0;
 
-  if (allQs.length === 0 && schedules.length === 0) return null;
+  if (allQs.length === 0 && schedules.length === 0 && abItemsWithTime.length === 0) return null;
 
   return (
     <div className={`rounded-xl border px-4 py-3.5 mb-5 ${allDone ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
@@ -1605,6 +1639,14 @@ function StatusBanner({ token, jwt, approvals }: { token: string; jwt: string; a
               <Circle size={14} className="shrink-0" />
               <span>
                 <strong>{scheduleUnconfirmed}</strong> atividade{scheduleUnconfirmed > 1 ? 's' : ''} do cronograma para confirmar — veja a aba <strong>Cronograma</strong>
+              </span>
+            </div>
+          )}
+          {abTimeUnconfirmed > 0 && (
+            <div className="flex items-center gap-2 text-sm text-amber-800">
+              <Circle size={14} className="shrink-0" />
+              <span>
+                <strong>{abTimeUnconfirmed}</strong> horário{abTimeUnconfirmed > 1 ? 's' : ''} de serviço de A&amp;B para confirmar — veja a aba <strong>A&amp;B</strong>
               </span>
             </div>
           )}
