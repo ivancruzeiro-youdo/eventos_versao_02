@@ -211,11 +211,17 @@ async function resolveStaffAllocations(
 // Group contracts by (cliente, data_checkin) — same event (one main per key already, but keep for merge)
 // data_checkin pode vir null (contrato sem check-in agendado ainda, ex. 5412) — cai pro
 // inicio_evento pra não gerar uma chave com data vazia (evento nasceria com nome tipo
-// "Cliente — ", sem data nenhuma no título).
+// "Cliente — ", sem data nenhuma no título). Achado real: contrato do "Alexandre Stadnik
+// Peixoto" não tinha NENHUM dos dois preenchidos — a chave ficava com data vazia, e lá na
+// frente `new Date(\`${startDate}T15:00:00.000Z\`)` virava "Invalid Date", derrubando o
+// create() do evento e travando o import em lote inteiro (500 sem nenhum dos selecionados
+// entrar). Último fallback: hoje — evento nasce com data errada mas visível/editável, em vez
+// de quebrar a sincronização de todo mundo por causa de um contrato sem data nenhuma.
 function groupContracts(contracts: any[]): Map<string, any[]> {
   const map = new Map<string, any[]>();
+  const todayFallback = new Date().toISOString().slice(0, 10);
   for (const c of contracts) {
-    const dateRaw = c.data_checkin || c.inicio_evento || '';
+    const dateRaw = c.data_checkin || c.inicio_evento || todayFallback;
     const key = `${c.cliente}__${String(dateRaw).slice(0, 10)}`;
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(c);
@@ -625,12 +631,17 @@ export async function syncEventsRoutes(app: FastifyInstance) {
         // old fixed placeholder (noon-to-7pm BRT) when Userp's hour fields aren't filled in.
         const primaryRaw = relatedRaw[0] || null;
         const setupAtObj = parseBrt(primaryRaw?.data_checkin);
-        const startAtObj = parseBrt(primaryRaw?.inicio_evento) || new Date(`${startDate}T15:00:00.000Z`); // fallback: 12:00 BRT
+        // startDate pode vir vazio (contrato sem data_checkin nem inicio_evento na Userp) — nesse
+        // caso `${startDate}T15:00:00.000Z` vira "Invalid Date" e derruba o create() do evento
+        // (e o import em lote inteiro junto). Segunda trava além do fallback em groupContracts:
+        // usa hoje se a data ficou mesmo assim inválida, em vez de deixar o Prisma explodir.
+        const startDateFallback = /^\d{4}-\d{2}-\d{2}$/.test(startDate) ? startDate : new Date().toISOString().slice(0, 10);
+        const startAtObj = parseBrt(primaryRaw?.inicio_evento) || new Date(`${startDateFallback}T15:00:00.000Z`); // fallback: 12:00 BRT
         const teardownAtObj = parseBrt(primaryRaw?.fim_evento) || new Date(startAtObj.getTime() + 7 * 60 * 60_000); // fallback: +7h
         const checkoutAtObj = parseBrt(primaryRaw?.data_checkout);
         const ev = await (prisma as any).event.create({
           data: {
-            name: `${clientName} — ${startDate}`,
+            name: `${clientName} — ${startDate || startDateFallback}`,
             clientName,
             employerId,
             status: 'confirmed',
