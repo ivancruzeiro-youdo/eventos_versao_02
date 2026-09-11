@@ -211,17 +211,15 @@ async function resolveStaffAllocations(
 // Group contracts by (cliente, data_checkin) — same event (one main per key already, but keep for merge)
 // data_checkin pode vir null (contrato sem check-in agendado ainda, ex. 5412) — cai pro
 // inicio_evento pra não gerar uma chave com data vazia (evento nasceria com nome tipo
-// "Cliente — ", sem data nenhuma no título). Achado real: contrato do "Alexandre Stadnik
-// Peixoto" não tinha NENHUM dos dois preenchidos — a chave ficava com data vazia, e lá na
-// frente `new Date(\`${startDate}T15:00:00.000Z\`)` virava "Invalid Date", derrubando o
-// create() do evento e travando o import em lote inteiro (500 sem nenhum dos selecionados
-// entrar). Último fallback: hoje — evento nasce com data errada mas visível/editável, em vez
-// de quebrar a sincronização de todo mundo por causa de um contrato sem data nenhuma.
+// "Cliente — ", sem data nenhuma no título). Quando os DOIS vierem null (achado real: contrato
+// do "Alexandre Stadnik Peixoto"), a chave fica mesmo com a data vazia de propósito — não dá
+// pra saber a data do evento, e decidimos NÃO adivinhar (nem "hoje" nem qualquer outra): o
+// preview abaixo detecta esse caso pelo startDate vazio e bloqueia a importação, mostrando o
+// motivo pro operador em vez de criar um evento com data errada.
 function groupContracts(contracts: any[]): Map<string, any[]> {
   const map = new Map<string, any[]>();
-  const todayFallback = new Date().toISOString().slice(0, 10);
   for (const c of contracts) {
-    const dateRaw = c.data_checkin || c.inicio_evento || todayFallback;
+    const dateRaw = c.data_checkin || c.inicio_evento || '';
     const key = `${c.cliente}__${String(dateRaw).slice(0, 10)}`;
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(c);
@@ -480,6 +478,15 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       const blockingReasons: string[] = [];
       const previewItems: PreviewEventItem[] = [];
 
+      // Sem data_checkin nem inicio_evento em NENHUM contrato do grupo — não dá pra saber
+      // quando o evento acontece. Bloqueia a importação em vez de adivinhar uma data (ver
+      // groupContracts acima); o operador precisa corrigir isso direto na Userp primeiro.
+      if (!startDate) {
+        blockingReasons.push(
+          'Contrato sem data de check-in nem de início do evento na Userp — não é possível determinar a data do evento. Corrija no Userp antes de importar.'
+        );
+      }
+
       for (const ri of rawItems) {
         let product: any = null;
         if (ri.externalProductCode) product = productByExtId.get(ri.externalProductCode);
@@ -592,10 +599,21 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     }
 
     const results: { key: string; action: string; eventId: string }[] = [];
+    // Falhas que impedem importar ESTE item específico sem derrubar o lote inteiro (ex.:
+    // contrato sem data_checkin nem inicio_evento — já devia ter sido barrado no preview via
+    // blockingReasons, mas isso é reenviado pelo front, então pode chegar desatualizado; essa
+    // é a segunda trava, pra nunca mais um contrato assim quebrar o create() com 500 e travar
+    // os outros itens do lote junto — ver commit anterior sobre "Alexandre Stadnik Peixoto").
+    const errors: { key: string; error: string }[] = [];
 
     for (const preview of previews) {
       if (!preview.canImport) continue;
       const { key, clientCode, startDate, clientName, existingEventId, action, contractIds, items } = preview;
+
+      if (!startDate) {
+        errors.push({ key, error: 'Contrato sem data de check-in nem de início do evento na Userp — corrija na Userp antes de importar.' });
+        continue;
+      }
 
       // Fetch raw contract details for each contractId to store rawJson
       const relatedRaw: any[] = [];
@@ -631,17 +649,12 @@ export async function syncEventsRoutes(app: FastifyInstance) {
         // old fixed placeholder (noon-to-7pm BRT) when Userp's hour fields aren't filled in.
         const primaryRaw = relatedRaw[0] || null;
         const setupAtObj = parseBrt(primaryRaw?.data_checkin);
-        // startDate pode vir vazio (contrato sem data_checkin nem inicio_evento na Userp) — nesse
-        // caso `${startDate}T15:00:00.000Z` vira "Invalid Date" e derruba o create() do evento
-        // (e o import em lote inteiro junto). Segunda trava além do fallback em groupContracts:
-        // usa hoje se a data ficou mesmo assim inválida, em vez de deixar o Prisma explodir.
-        const startDateFallback = /^\d{4}-\d{2}-\d{2}$/.test(startDate) ? startDate : new Date().toISOString().slice(0, 10);
-        const startAtObj = parseBrt(primaryRaw?.inicio_evento) || new Date(`${startDateFallback}T15:00:00.000Z`); // fallback: 12:00 BRT
+        const startAtObj = parseBrt(primaryRaw?.inicio_evento) || new Date(`${startDate}T15:00:00.000Z`); // fallback: 12:00 BRT
         const teardownAtObj = parseBrt(primaryRaw?.fim_evento) || new Date(startAtObj.getTime() + 7 * 60 * 60_000); // fallback: +7h
         const checkoutAtObj = parseBrt(primaryRaw?.data_checkout);
         const ev = await (prisma as any).event.create({
           data: {
-            name: `${clientName} — ${startDate || startDateFallback}`,
+            name: `${clientName} — ${startDate}`,
             clientName,
             employerId,
             status: 'confirmed',
@@ -979,7 +992,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       results.push({ key, action: effectiveAction, eventId });
     }
 
-    return { success: true, results };
+    return { success: true, results, errors };
   });
 
   // GET /events/:id/userp-status — check USERP for unimported contracts linked to this event

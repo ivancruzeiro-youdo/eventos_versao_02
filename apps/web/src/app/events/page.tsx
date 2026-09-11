@@ -76,6 +76,7 @@ export default function EventsPage() {
   const [syncError, setSyncError] = useState('');
   const [importing, setImporting] = useState(false);
   const [importDone, setImportDone] = useState<{ key: string; action: string }[]>([]);
+  const [importErrors, setImportErrors] = useState<{ key: string; error: string }[]>([]);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [syncSearch, setSyncSearch] = useState('');
@@ -101,6 +102,7 @@ export default function EventsPage() {
     setSyncPreviews([]);
     setSyncError('');
     setImportDone([]);
+    setImportErrors([]);
     setSelectedKeys(new Set());
     setExpandedKey(null);
     setSyncSearch('');
@@ -132,6 +134,7 @@ export default function EventsPage() {
       const data = await res.json();
       if (!res.ok) { setSyncError(data.error || 'Erro ao importar'); return; }
       setImportDone(data.results || []);
+      setImportErrors(data.errors || []);
       await loadEvents();
     } catch (e: any) {
       setSyncError(e.message || 'Erro inesperado');
@@ -572,6 +575,17 @@ export default function EventsPage() {
                 </div>
               )}
 
+              {importErrors.length > 0 && (
+                <div className="p-4 bg-destructive/5 border border-destructive/40 rounded-lg">
+                  <p className="font-medium text-destructive mb-2 flex items-center gap-2"><AlertTriangle size={16} /> Não foi possível importar</p>
+                  {importErrors.map(r => (
+                    <p key={r.key} className="text-sm text-destructive">
+                      {r.key.replace('__', ' — ')}: {r.error}
+                    </p>
+                  ))}
+                </div>
+              )}
+
               {!syncLoading && syncPreviews.length === 0 && !syncError && (
                 <p className="text-center text-muted-foreground py-8">Nenhum contrato encontrado a partir de hoje.</p>
               )}
@@ -733,7 +747,7 @@ export default function EventsPage() {
                       <button onClick={() => setSyncOpen(false)}
                         className="px-4 py-2 border border-input rounded-md text-sm hover:bg-muted transition">Fechar</button>
                       <button onClick={doImport}
-                        disabled={importing || selectedKeys.size === 0 || importDone.length > 0}
+                        disabled={importing || selectedKeys.size === 0 || importDone.length > 0 || importErrors.length > 0}
                         className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 transition disabled:opacity-50 flex items-center gap-2">
                         {importing ? <><RefreshCw size={14} className="animate-spin" /> Importando...</> : 'Importar Selecionados'}
                       </button>
