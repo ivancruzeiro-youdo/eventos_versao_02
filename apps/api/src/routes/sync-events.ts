@@ -125,9 +125,17 @@ async function fetchContratos(): Promise<any[]> {
   const today = new Date().toISOString().slice(0, 10);
   const ids = await fetchContratoIds();
   const results: any[] = [];
-  // Fetch details in parallel batches of 10
-  for (let i = 0; i < ids.length; i += 10) {
-    const batch = ids.slice(i, i + 10);
+  // A Userp não expõe data nenhuma na listagem paginada (contracts-paginated.php) — só dá pra
+  // saber a data de um contrato buscando o detalhe individual (contracts-details.php), então
+  // esse fetch é 1 round-trip por contrato VIGENTE que existe na Userp inteira, não só os já
+  // importados aqui. Com ~420 contratos e lotes de 10, isso media uns 13-14s medidos em
+  // produção (POST /events/sync-preview) — só a tela "Sincronizar Contratos Userp" sente isso,
+  // não o carregamento normal de eventos. Lote maior reduz proporcionalmente (menos rodadas
+  // sequenciais); 25 é um meio-termo — não tentamos tudo de uma vez pra não arriscar sobrecarregar
+  // a Userp com centenas de requisições simultâneas.
+  const BATCH_SIZE = 25;
+  for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+    const batch = ids.slice(i, i + BATCH_SIZE);
     const details = await Promise.all(batch.map(id => fetchContratoDetails(id)));
     for (const d of details) {
       if (!d) continue;
