@@ -50,6 +50,7 @@ export interface ServiceData {
   plan: {
     id: string | null; intervalMinutes: number; anchorAt: string | null; endAt: string | null; entries: ServiceEntry[];
     pause: { reason: string; pausedAt: string; pauseUntil: string } | null;
+    pauseCount: number;
     logs: { id: string; action: string; detail: string; userName: string | null; createdAt: string }[];
   };
   schedule: {
@@ -57,6 +58,8 @@ export interface ServiceData {
     abServiceEntries: { eventItemId: string; name: string; kind: string; startAt: string; endAt: string | null }[];
   };
 }
+
+const MAX_PAUSES = 2;
 
 const KIND_LABEL: Record<string, string> = {
   montagem: 'Montagem',
@@ -288,13 +291,19 @@ export default function ServicePanel({ data, cmd, lateAlerts, audioOn, onEnableA
             <UtensilsCrossed className="size-4" /> Sequência de serviço
           </h3>
           {!data.plan.pause && (
-            <button
-              onClick={() => setShowPauseModal(true)}
-              disabled={working}
-              className="flex items-center gap-1 rounded border border-sky-300 bg-white px-2 py-1.5 text-xs font-medium text-sky-700 shadow-sm hover:bg-sky-50 disabled:opacity-40"
-            >
-              <PauseCircle className="size-3.5" /> pausar serviço
-            </button>
+            data.plan.pauseCount >= MAX_PAUSES ? (
+              <span className="flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs font-medium text-slate-400" title={`Limite de ${MAX_PAUSES} pausas por evento atingido`}>
+                <PauseCircle className="size-3.5" /> limite de pausas atingido ({MAX_PAUSES}/{MAX_PAUSES})
+              </span>
+            ) : (
+              <button
+                onClick={() => setShowPauseModal(true)}
+                disabled={working}
+                className="flex items-center gap-1 rounded border border-sky-300 bg-white px-2 py-1.5 text-xs font-medium text-sky-700 shadow-sm hover:bg-sky-50 disabled:opacity-40"
+              >
+                <PauseCircle className="size-3.5" /> pausar serviço ({data.plan.pauseCount}/{MAX_PAUSES})
+              </button>
+            )
           )}
         </div>
 

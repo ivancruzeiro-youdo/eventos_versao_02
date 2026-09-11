@@ -497,12 +497,13 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
             pause: plan.pauseUntil && plan.pauseUntil.getTime() > atDate.getTime()
               ? { reason: plan.pauseReason ?? '', pausedAt: plan.pausedAt, pauseUntil: plan.pauseUntil }
               : null,
+            pauseCount: plan.pauseCount,
             logs: plan.logs.map(l => ({
               id: l.id, action: l.action, detail: l.detail,
               userName: l.userName, createdAt: l.createdAt,
             })),
           }
-        : { id: null, intervalMinutes: 15, anchorAt: null, endAt: null, notes: null, updatedAt: null, entries: [], logs: [], pause: null },
+        : { id: null, intervalMinutes: 15, anchorAt: null, endAt: null, notes: null, updatedAt: null, entries: [], logs: [], pause: null, pauseCount: 0 },
       schedule: {
         activities: activities.map(a => ({
           ...a,
@@ -692,6 +693,10 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
     if (plan.pauseUntil && plan.pauseUntil.getTime() > Date.now()) {
       return reply.status(409).send({ error: 'Serviço já está em pausa.' });
     }
+    const MAX_PAUSES = 2;
+    if (plan.pauseCount >= MAX_PAUSES) {
+      return reply.status(409).send({ error: `Este evento já atingiu o limite de ${MAX_PAUSES} pausas.` });
+    }
 
     const now = new Date();
     const pauseUntil = new Date(now.getTime() + minutes * 60_000);
@@ -703,6 +708,8 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
 
     // Atômico de propósito: se o deslocamento das entradas for salvo mas pauseUntil não, a
     // retomada antecipada não teria como calcular o tempo não usado corretamente.
+    // pauseCount só sobe aqui, nunca desce em /resume — retomar (manual ou automática) não
+    // devolve o direito de pausar de novo, é a mesma pausa "gasta".
     await prisma.$transaction([
       ...pending.map(e => prisma.kitchenServicePlanEntry.update({
         where: { id: e.id },
@@ -710,11 +717,11 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
       })),
       prisma.kitchenServicePlan.update({
         where: { id: plan.id },
-        data: { pausedAt: now, pauseUntil, pauseReason: trimmedReason },
+        data: { pausedAt: now, pauseUntil, pauseReason: trimmedReason, pauseCount: { increment: 1 } },
       }),
     ]);
 
-    await logPlan(plan.id, 'pause', `Serviço pausado por ${minutes} min até ${fmtBrtLog(pauseUntil)} — motivo: ${trimmedReason}`, user);
+    await logPlan(plan.id, 'pause', `Serviço pausado por ${minutes} min até ${fmtBrtLog(pauseUntil)} — motivo: ${trimmedReason} (pausa ${plan.pauseCount + 1}/${MAX_PAUSES})`, user);
 
     const fresh = await prisma.kitchenServicePlan.findUnique({ where: { id: plan.id } });
     return { success: true, plan: fresh };

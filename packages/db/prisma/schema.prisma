@@ -1589,6 +1589,10 @@ model KitchenServicePlan {
   pausedAt        DateTime?
   pauseUntil      DateTime?
   pauseReason     String?
+  // Limite de 2 pausas por evento (pedido de negócio) — incrementado a cada POST .../pause
+  // bem-sucedido, nunca decrementado (retomar, seja manual ou automática, não devolve o
+  // direito de pausar de novo). Checado no próprio endpoint antes de aceitar uma pausa nova.
+  pauseCount      Int       @default(0)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
