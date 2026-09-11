@@ -666,6 +666,12 @@ export default function EventsPage() {
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-medium text-sm">{prev.clientName}</span>
                               <span className="text-xs text-muted-foreground">{prev.startDate}</span>
+                              {prev.contractIds.filter(Boolean).length > 0 && (
+                                <span className="text-xs text-muted-foreground font-mono">
+                                  {prev.contractIds.filter(Boolean).length > 1 ? 'Contratos ' : 'Contrato '}
+                                  {prev.contractIds.filter(Boolean).join(', ')}
+                                </span>
+                              )}
                               <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
                                 prev.action === 'create' ? 'bg-green-100 text-green-800' :
                                 prev.action === 'update' ? 'bg-blue-100 text-blue-800' :
