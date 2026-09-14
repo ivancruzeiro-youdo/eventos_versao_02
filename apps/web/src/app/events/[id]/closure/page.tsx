@@ -149,6 +149,35 @@ export default function ClosurePage() {
     doc.save(`veiculos-${eventName.replace(/[^\w-]+/g, '_')}.pdf`);
   }
 
+  function exportGiftsPdf() {
+    const doc = new jsPDF();
+    const eventName = closure?.event?.name || 'Evento';
+    let y = 15;
+
+    doc.setFontSize(14);
+    doc.text(`Presentes — ${eventName}`, 14, y);
+    y += 6;
+    doc.setFontSize(9);
+    doc.setTextColor(120);
+    doc.text(`Gerado em ${new Date().toLocaleString('pt-BR')}`, 14, y);
+    doc.setTextColor(0);
+    y += 8;
+
+    doc.setFontSize(11);
+    doc.text(`Presentes registrados (${giftEntries.length})`, 14, y);
+    y += 3;
+    autoTable(doc, {
+      startY: y,
+      head: [['Convidado']],
+      body: giftEntries.map(p => [p.guestName]),
+      theme: 'striped',
+      headStyles: { fillColor: [16, 122, 87] },
+      margin: { left: 14, right: 14 },
+    });
+
+    doc.save(`presentes-${eventName.replace(/[^\w-]+/g, '_')}.pdf`);
+  }
+
   async function openAttachment(a: { id: string; filename: string; mimeType: string }) {
     setAttachmentError('');
     setLoadingAttachmentId(a.id);
@@ -417,9 +446,17 @@ export default function ClosurePage() {
         {/* Presentes */}
         {giftEntries.length > 0 && (
           <div className="bg-card border rounded-xl p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <Gift size={16} className="text-slate-500" />
-              <h2 className="font-semibold">Presentes ({giftEntries.length})</h2>
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <div className="flex items-center gap-2">
+                <Gift size={16} className="text-slate-500" />
+                <h2 className="font-semibold">Presentes ({giftEntries.length})</h2>
+              </div>
+              <button
+                onClick={exportGiftsPdf}
+                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-sm font-medium hover:bg-accent transition"
+              >
+                <FileDown size={15} /> Exportar PDF
+              </button>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {giftEntries.map((p: any) => (
