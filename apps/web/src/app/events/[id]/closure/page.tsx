@@ -16,24 +16,39 @@ function fmtBrl(v: number): string {
 // Baixa a foto (URL presignada do S3) e reduz pra um JPEG pequeno em base64 — jsPDF só
 // consegue embutir bytes de imagem reais, nunca uma URL remota. Redimensionar evita PDFs
 // gigantes quando há muitas fotos (cada uma vem em resolução de câmera de celular).
+//
+// Usa <img> + URL de blob local em vez de createImageBitmap: o blob: URL é tratado como
+// mesma origem pelo canvas (não "mancha"/taint), então funciona mesmo que o decoder nativo
+// de createImageBitmap rejeite algum JPEG de câmera (perfil de cor/orientação EXIF incomum
+// já causou isso em produção) — <img>/canvas é o caminho mais tolerante entre navegadores.
 async function loadImageAsJpegDataUrl(url: string, maxSize = 500): Promise<string | null> {
+  let objectUrl: string | null = null;
   try {
     const res = await fetch(url);
-    if (!res.ok) return null;
+    if (!res.ok) throw new Error(`fetch falhou: ${res.status}`);
     const blob = await res.blob();
-    const bitmap = await createImageBitmap(blob);
-    const scale = Math.min(1, maxSize / Math.max(bitmap.width, bitmap.height));
-    const w = Math.max(1, Math.round(bitmap.width * scale));
-    const h = Math.max(1, Math.round(bitmap.height * scale));
+    objectUrl = URL.createObjectURL(blob);
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('falha ao decodificar imagem'));
+      el.src = objectUrl!;
+    });
+    const scale = Math.min(1, maxSize / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = Math.max(1, Math.round(img.naturalWidth * scale));
+    const h = Math.max(1, Math.round(img.naturalHeight * scale));
     const canvas = document.createElement('canvas');
     canvas.width = w;
     canvas.height = h;
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
-    ctx.drawImage(bitmap, 0, 0, w, h);
+    ctx.drawImage(img, 0, 0, w, h);
     return canvas.toDataURL('image/jpeg', 0.75);
-  } catch {
+  } catch (err) {
+    console.warn('[export-pdf] falha ao carregar foto para o PDF:', url, err);
     return null;
+  } finally {
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
   }
 }
 
@@ -195,7 +210,8 @@ export default function ClosurePage() {
         if (dataUrl) {
           try {
             doc.addImage(dataUrl, 'JPEG', x, y, cellWidth, imgHeight);
-          } catch {
+          } catch (err) {
+            console.warn('[export-pdf] falha ao inserir foto no PDF:', entries[idx].guestName, err);
             doc.setDrawColor(210);
             doc.rect(x, y, cellWidth, imgHeight);
           }
