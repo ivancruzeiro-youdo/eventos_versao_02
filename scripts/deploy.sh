@@ -14,7 +14,8 @@ set -euo pipefail
 
 KEY=/tmp/ev2key.pem
 EC2=ec2-user@eventos.youdobrasil.com.br
-SSH="ssh -i $KEY -o StrictHostKeyChecking=no"
+SSH="ssh -i $KEY -o StrictHostKeyChecking=no -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
+SCP="scp -i $KEY -o StrictHostKeyChecking=no -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
 REMOTE=/home/ec2-user/youdo-v2
 API_URL=https://eventos.youdobrasil.com.br
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -57,12 +58,28 @@ deploy_api() {
 }
 
 deploy_web() {
-  echo "==> Build da imagem web NO EC2 (com NEXT_PUBLIC_API_URL correto) + recriação do container"
+  # O build do Next.js (webpack/terser) é pesado o bastante pra fazer o EC2 (t3.small, 2GB RAM)
+  # trocar página em disco enquanto os containers de produção continuam rodando ao vivo — builds
+  # que levam ~1-2min localmente passavam a levar 3-4min lá, e havia risco real de OOM matar um
+  # container (Postgres/API não têm limite de memória definido). Por isso o build roda aqui na
+  # máquina local (16GB, ~10 cores) via buildx cross-compilando pra linux/amd64 (o EC2 é x86_64,
+  # não Graviton) — o EC2 só recebe a imagem pronta e recria o container, sem nunca compilar nada.
+  echo "==> Build da imagem web LOCAL (linux/amd64 via buildx) — evita build no EC2 (pouca RAM)"
+  cd "$ROOT"
+  docker buildx build --platform linux/amd64 \
+    --build-arg NEXT_PUBLIC_API_URL="$API_URL" \
+    -t youdo-web:latest -f apps/web/Dockerfile . --load
+
+  echo "==> Exportando imagem e enviando pro EC2"
+  TARBALL="/tmp/youdo-web-image.tar.gz"
+  docker save youdo-web:latest | gzip > "$TARBALL"
+  $SCP "$TARBALL" "$EC2:/tmp/youdo-web-image.tar.gz"
+  rm -f "$TARBALL"
+
+  echo "==> Carregando imagem e recriando o container no EC2"
   $SSH $EC2 "
-    docker image prune -f >/dev/null; docker builder prune -f >/dev/null
-    cd $REMOTE &&
-    docker build --build-arg NEXT_PUBLIC_API_URL=$API_URL \
-      -t youdo-web:latest -f apps/web/Dockerfile . &&
+    docker load -i /tmp/youdo-web-image.tar.gz &&
+    rm -f /tmp/youdo-web-image.tar.gz &&
     cd $REMOTE/docker &&
     docker compose -f docker-compose.prod.yml stop web &&
     docker compose -f docker-compose.prod.yml rm -f web &&
