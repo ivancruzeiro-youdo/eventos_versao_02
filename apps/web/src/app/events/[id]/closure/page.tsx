@@ -13,6 +13,30 @@ function fmtBrl(v: number): string {
   return v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// Baixa a foto (URL presignada do S3) e reduz pra um JPEG pequeno em base64 — jsPDF só
+// consegue embutir bytes de imagem reais, nunca uma URL remota. Redimensionar evita PDFs
+// gigantes quando há muitas fotos (cada uma vem em resolução de câmera de celular).
+async function loadImageAsJpegDataUrl(url: string, maxSize = 500): Promise<string | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    const bitmap = await createImageBitmap(blob);
+    const scale = Math.min(1, maxSize / Math.max(bitmap.width, bitmap.height));
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    return canvas.toDataURL('image/jpeg', 0.75);
+  } catch {
+    return null;
+  }
+}
+
 function NpsScore({ score }: { score: number }) {
   let colorClass = 'text-red-600 bg-red-50 border-red-200';
   if (score >= 9) colorClass = 'text-green-600 bg-green-50 border-green-200';
@@ -42,6 +66,8 @@ export default function ClosurePage() {
   const [loadingAttachmentId, setLoadingAttachmentId] = useState<string | null>(null);
   const [viewingAttachment, setViewingAttachment] = useState<{ filename: string; mimeType: string; dataBase64: string } | null>(null);
   const [attachmentError, setAttachmentError] = useState('');
+  const [exportingCars, setExportingCars] = useState(false);
+  const [exportingGifts, setExportingGifts] = useState(false);
 
   useEffect(() => {
     load();
@@ -120,62 +146,90 @@ export default function ClosurePage() {
     doc.save(`convidados-${eventName.replace(/[^\w-]+/g, '_')}.pdf`);
   }
 
-  function exportCarsPdf() {
+  // Grade de fotos + legenda, igual à exibição na própria tela (cards com foto e nome) —
+  // usado tanto pra Veículos quanto pra Presentes, únicas duas seções que têm foto.
+  async function exportPhotoGridPdf(
+    entries: { id: string; photoUrl: string; guestName: string }[],
+    title: string,
+    filenamePrefix: string,
+  ) {
     const doc = new jsPDF();
     const eventName = closure?.event?.name || 'Evento';
-    let y = 15;
+    const marginX = 14;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const cols = 3;
+    const gap = 5;
+    const cellWidth = (pageWidth - marginX * 2 - gap * (cols - 1)) / cols;
+    const imgHeight = cellWidth * 0.75;
+    const rowHeight = imgHeight + 8;
 
+    let y = 15;
     doc.setFontSize(14);
-    doc.text(`Veículos Estacionados — ${eventName}`, 14, y);
+    doc.text(`${title} — ${eventName}`, marginX, y);
     y += 6;
     doc.setFontSize(9);
     doc.setTextColor(120);
-    doc.text(`Gerado em ${new Date().toLocaleString('pt-BR')}`, 14, y);
+    doc.text(`Gerado em ${new Date().toLocaleString('pt-BR')}`, marginX, y);
     doc.setTextColor(0);
+    y += 6;
+    doc.setFontSize(11);
+    doc.text(`${title} (${entries.length})`, marginX, y);
     y += 8;
 
-    doc.setFontSize(11);
-    doc.text(`Veículos registrados (${parkingEntries.length})`, 14, y);
-    y += 3;
-    autoTable(doc, {
-      startY: y,
-      head: [['Convidado']],
-      body: parkingEntries.map(p => [p.guestName]),
-      theme: 'striped',
-      headStyles: { fillColor: [16, 122, 87] },
-      margin: { left: 14, right: 14 },
-    });
+    // Baixa todas as fotos em paralelo antes de desenhar, pra não travar o layout esperando
+    // uma imagem de cada vez.
+    const images = await Promise.all(entries.map(e => loadImageAsJpegDataUrl(e.photoUrl)));
 
-    doc.save(`veiculos-${eventName.replace(/[^\w-]+/g, '_')}.pdf`);
+    const rows = Math.ceil(entries.length / cols);
+    for (let r = 0; r < rows; r++) {
+      if (y + rowHeight > pageHeight - 10) {
+        doc.addPage();
+        y = 15;
+      }
+      for (let c = 0; c < cols; c++) {
+        const idx = r * cols + c;
+        if (idx >= entries.length) break;
+        const x = marginX + c * (cellWidth + gap);
+        const dataUrl = images[idx];
+        if (dataUrl) {
+          try {
+            doc.addImage(dataUrl, 'JPEG', x, y, cellWidth, imgHeight);
+          } catch {
+            doc.setDrawColor(210);
+            doc.rect(x, y, cellWidth, imgHeight);
+          }
+        } else {
+          doc.setDrawColor(210);
+          doc.rect(x, y, cellWidth, imgHeight);
+        }
+        doc.setFontSize(8);
+        doc.setTextColor(50);
+        doc.text(entries[idx].guestName || '', x, y + imgHeight + 4, { maxWidth: cellWidth });
+        doc.setTextColor(0);
+      }
+      y += rowHeight;
+    }
+
+    doc.save(`${filenamePrefix}-${eventName.replace(/[^\w-]+/g, '_')}.pdf`);
   }
 
-  function exportGiftsPdf() {
-    const doc = new jsPDF();
-    const eventName = closure?.event?.name || 'Evento';
-    let y = 15;
+  async function exportCarsPdf() {
+    setExportingCars(true);
+    try {
+      await exportPhotoGridPdf(parkingEntries, 'Veículos Estacionados', 'veiculos');
+    } finally {
+      setExportingCars(false);
+    }
+  }
 
-    doc.setFontSize(14);
-    doc.text(`Presentes — ${eventName}`, 14, y);
-    y += 6;
-    doc.setFontSize(9);
-    doc.setTextColor(120);
-    doc.text(`Gerado em ${new Date().toLocaleString('pt-BR')}`, 14, y);
-    doc.setTextColor(0);
-    y += 8;
-
-    doc.setFontSize(11);
-    doc.text(`Presentes registrados (${giftEntries.length})`, 14, y);
-    y += 3;
-    autoTable(doc, {
-      startY: y,
-      head: [['Convidado']],
-      body: giftEntries.map(p => [p.guestName]),
-      theme: 'striped',
-      headStyles: { fillColor: [16, 122, 87] },
-      margin: { left: 14, right: 14 },
-    });
-
-    doc.save(`presentes-${eventName.replace(/[^\w-]+/g, '_')}.pdf`);
+  async function exportGiftsPdf() {
+    setExportingGifts(true);
+    try {
+      await exportPhotoGridPdf(giftEntries, 'Presentes', 'presentes');
+    } finally {
+      setExportingGifts(false);
+    }
   }
 
   async function openAttachment(a: { id: string; filename: string; mimeType: string }) {
@@ -427,9 +481,11 @@ export default function ClosurePage() {
               </div>
               <button
                 onClick={exportCarsPdf}
-                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-sm font-medium hover:bg-accent transition"
+                disabled={exportingCars}
+                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-sm font-medium hover:bg-accent transition disabled:opacity-50"
               >
-                <FileDown size={15} /> Exportar PDF
+                {exportingCars ? <Loader2 size={15} className="animate-spin" /> : <FileDown size={15} />}
+                {exportingCars ? 'Gerando…' : 'Exportar PDF'}
               </button>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -453,9 +509,11 @@ export default function ClosurePage() {
               </div>
               <button
                 onClick={exportGiftsPdf}
-                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-sm font-medium hover:bg-accent transition"
+                disabled={exportingGifts}
+                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-sm font-medium hover:bg-accent transition disabled:opacity-50"
               >
-                <FileDown size={15} /> Exportar PDF
+                {exportingGifts ? <Loader2 size={15} className="animate-spin" /> : <FileDown size={15} />}
+                {exportingGifts ? 'Gerando…' : 'Exportar PDF'}
               </button>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
