@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../server.js';
 import { requireAuth } from '../middleware/auth.js';
 import { normalizePhone, sendWhatsAppAlert } from '../lib/notifications.js';
+import { mergeServiceWindows } from '../lib/service-windows.js';
 
 const createScheduleSchema = z.object({
   name: z.string().min(1),
@@ -149,14 +150,30 @@ export async function scheduleRoutes(app: FastifyInstance) {
     // EventSchedule exige teamId, recusa sobreposição entre times com 409 e dispara WhatsApp —
     // nada disso deve acontecer ao salvar o horário de um item desses. O merge é só visual, no
     // front, que usa `category` pra badge/ícone (A&B vs Entretenimento).
-    const abServiceItems = await prisma.eventItem.findMany({
+    const abServiceItemsRaw = await prisma.eventItem.findMany({
       where: { eventId, category: { in: ['ab', 'entretenimento'] }, serviceStartAt: { not: null } },
       select: {
         id: true, name: true, quantity: true, unit: true, category: true,
         serviceStartAt: true, serviceEndAt: true,
+        serviceWindows: { orderBy: { sortOrder: 'asc' } },
       },
-      orderBy: { serviceStartAt: 'asc' },
     });
+    // Item com 2-3 janelas de horário vira 2-3 entradas no cronograma (uma por janela) — o
+    // front (EventScheduleTab) não precisa saber de EventItemServiceWindow, só recebe mais
+    // linhas com o mesmo id-base sufixado.
+    const abServiceItems = abServiceItemsRaw
+      .flatMap((item) =>
+        mergeServiceWindows(item).map((w, idx) => ({
+          id: idx === 0 ? item.id : `${item.id}#${idx}`,
+          name: item.name,
+          quantity: item.quantity,
+          unit: item.unit,
+          category: item.category,
+          serviceStartAt: w.startAt,
+          serviceEndAt: w.endAt,
+        })),
+      )
+      .sort((a, b) => a.serviceStartAt.getTime() - b.serviceStartAt.getTime());
 
     return { success: true, schedules, abServiceItems };
   });

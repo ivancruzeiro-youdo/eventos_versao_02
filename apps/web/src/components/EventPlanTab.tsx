@@ -13,7 +13,7 @@ import AbServiceTimeFields from './AbServiceTimeFields';
 interface AnswerHistory { id: string; before: any; after: any; createdAt: string; user: { name: string } | null }
 interface ItemAnswer { questionId: string; answer: any; updatedAt: string; updatedBy: { name: string } | null; history: AnswerHistory[] }
 interface ProductQuestion { id: string; text: string; type: string; required: boolean; options: any }
-interface EventItem { id: string; name: string; category: string; serviceStartAt?: string | null; serviceEndAt?: string | null; product: { questions: ProductQuestion[] } | null; answers: ItemAnswer[] }
+interface EventItem { id: string; name: string; category: string; serviceStartAt?: string | null; serviceEndAt?: string | null; windows?: { startAt: string; endAt: string }[]; product: { questions: ProductQuestion[] } | null; answers: ItemAnswer[] }
 interface VenueQuestion { id: string; venueId: string; text: string; type: string; required: boolean; options: any; order: number }
 interface EventVenue { id: string; venue: { id: string; name: string; questions: VenueQuestion[] } }
 interface VenueAnswer { questionId: string; answer: any; updatedAt: string; updatedBy: { name: string } | null; history: AnswerHistory[] }
@@ -280,11 +280,15 @@ export default function EventPlanTab({ eventId }: Props) {
               <AbServiceTimeFields
                 eventId={eventId}
                 itemId={item.id}
-                serviceStartAt={item.serviceStartAt ?? null}
-                serviceEndAt={item.serviceEndAt ?? null}
+                windows={item.windows ?? (item.serviceStartAt ? [{ startAt: item.serviceStartAt, endAt: item.serviceEndAt || item.serviceStartAt }] : [])}
                 category={item.category === 'entretenimento' ? 'entretenimento' : 'ab'}
-                onSaved={(times) =>
-                  setItems(prev => prev.map(i => (i.id === item.id ? { ...i, ...times } : i)))
+                onSaved={(windows) =>
+                  setItems(prev => prev.map(i => (i.id === item.id ? {
+                    ...i,
+                    windows,
+                    serviceStartAt: windows[0]?.startAt ?? null,
+                    serviceEndAt: windows[0]?.endAt ?? null,
+                  } : i)))
                 }
               />
             </div>

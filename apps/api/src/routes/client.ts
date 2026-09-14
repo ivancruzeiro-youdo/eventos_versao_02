@@ -5,6 +5,7 @@ import { mediaTypeFromMime, MAX_SIZE_BYTES, formatMb } from './event-media.js';
 import { getValidAccessToken } from './spotify.js';
 import { getPlaylist, parsePlaylistId } from '../lib/spotify.js';
 import { getFloorPlanUrl } from './layout.js';
+import { mergeServiceWindows } from '../lib/service-windows.js';
 
 async function getClientSession(app: FastifyInstance, request: any, reply: any) {
   const auth = request.headers['x-client-auth'] as string | undefined;
@@ -291,6 +292,7 @@ export async function clientRoutes(app: FastifyInstance) {
           include: {
             product: { include: { questions: { orderBy: { order: 'asc' } } } },
             answers: true,
+            serviceWindows: { orderBy: { sortOrder: 'asc' } },
           },
           orderBy: { createdAt: 'asc' },
         },
@@ -304,7 +306,11 @@ export async function clientRoutes(app: FastifyInstance) {
     });
 
     if (!event) return reply.status(404).send({ error: 'Evento não encontrado' });
-    return { success: true, event };
+    const eventWithWindows = {
+      ...event,
+      items: event.items.map((item: any) => ({ ...item, windows: mergeServiceWindows(item) })),
+    };
+    return { success: true, event: eventWithWindows };
   });
 
   // Get schedules (read-only)

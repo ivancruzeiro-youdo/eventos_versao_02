@@ -57,6 +57,7 @@ interface EventItem {
   notes: string | null;
   serviceStartAt?: string | null;
   serviceEndAt?: string | null;
+  windows?: { startAt: string; endAt: string }[];
   choices: Choice[];
   product: { id: string; name: string; subitems: any; questions: Question[] } | null;
 }
@@ -364,12 +365,16 @@ export default function EventItemsTab({ eventId, category, eventStartAt }: Props
                   <AbServiceTimeFields
                     eventId={eventId}
                     itemId={item.id}
-                    serviceStartAt={item.serviceStartAt ?? null}
-                    serviceEndAt={item.serviceEndAt ?? null}
+                    windows={item.windows ?? (item.serviceStartAt ? [{ startAt: item.serviceStartAt, endAt: item.serviceEndAt || item.serviceStartAt }] : [])}
                     eventStartAt={eventStartAt}
                     category={category === 'entretenimento' ? 'entretenimento' : 'ab'}
-                    onSaved={(times) =>
-                      setItems(prev => prev.map(i => (i.id === item.id ? { ...i, ...times } : i)))
+                    onSaved={(windows) =>
+                      setItems(prev => prev.map(i => (i.id === item.id ? {
+                        ...i,
+                        windows,
+                        serviceStartAt: windows[0]?.startAt ?? null,
+                        serviceEndAt: windows[0]?.endAt ?? null,
+                      } : i)))
                     }
                   />
                 )}

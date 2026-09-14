@@ -1440,12 +1440,16 @@ function FoodTab({ token, jwt, approvals, onToggle, locked }: {
                 </span>
               )}
             </div>
-            {item.serviceStartAt && (
+            {(item.windows?.length > 0 || item.serviceStartAt) && (
               <div className={`px-4 py-3 flex items-center gap-3 border-t ${approvals.has(`ab_time:${item.id}`) ? 'bg-green-50/60' : ''}`}>
                 <Clock size={14} className="text-gray-400 shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-xs text-gray-400">Horário de serviço</p>
-                  <p className="text-sm font-medium text-gray-900">{formatServiceTime(item.serviceStartAt, item.serviceEndAt)}</p>
+                  <p className="text-sm font-medium text-gray-900">
+                    {(item.windows?.length ? item.windows : [{ startAt: item.serviceStartAt, endAt: item.serviceEndAt }])
+                      .map((w: any) => formatServiceTime(w.startAt, w.endAt))
+                      .join(' + ')}
+                  </p>
                 </div>
                 <ApproveButton
                   approved={approvals.has(`ab_time:${item.id}`)}

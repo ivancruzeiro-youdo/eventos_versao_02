@@ -1253,10 +1253,29 @@ model EventItem {
   kitchenMenuLink    KitchenEventMenu[]
   servicePlanEntries KitchenServicePlanEntry[]
   prepChecks         KitchenPrepCheck[]
+  serviceWindows     EventItemServiceWindow[]
 
   @@index([eventId])
   @@index([productId])
   @@index([serviceStartAt])
+}
+
+// Janelas de horário extras de um item de A&B/Entretenimento — permite até 3 momentos de
+// serviço no mesmo item (ex.: 20h-21h + 21h30-22h + 22h30-23h30). A 1ª janela continua salva
+// em EventItem.serviceStartAt/serviceEndAt (sempre a mais cedo, por ordenação no save) pra não
+// quebrar quem já lê só esses dois campos (TELA COZINHA, âncora do plano de cozinha); a 2ª e a
+// 3ª ficam aqui.
+model EventItemServiceWindow {
+  id          String   @id @default(uuid())
+  eventItemId String
+  startAt     DateTime
+  endAt       DateTime
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  eventItem EventItem @relation(fields: [eventItemId], references: [id], onDelete: Cascade)
+
+  @@index([eventItemId])
 }
 
 // Escolhas feitas pelo cliente dentro de um item (ex: pratos selecionados)

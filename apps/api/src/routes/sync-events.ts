@@ -3,6 +3,7 @@ import { prisma } from '../server.js';
 import { requireAuth } from '../middleware/auth.js';
 import { applyVenueActivityTemplates } from '../lib/venue-activity-templates.js';
 import { getUserpToken, userpFetch } from '../lib/userp-auth.js';
+import { mergeServiceWindows } from '../lib/service-windows.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1653,56 +1654,78 @@ export async function syncEventsRoutes(app: FastifyInstance) {
         slots: true,
         product: { include: { questions: { orderBy: { order: 'asc' } } } },
         answers: { include: { updatedBy: { select: { id: true, name: true } } } },
+        serviceWindows: { orderBy: { sortOrder: 'asc' } },
       },
       orderBy: { category: 'asc' },
     });
-    return { success: true, items };
+    const itemsWithWindows = items.map((item: any) => ({ ...item, windows: mergeServiceWindows(item) }));
+    return { success: true, items: itemsWithWindows };
   });
 
-  // PATCH /events/:id/items/:itemId/service-times — horário de serviço do item (A&B).
-  // Exibido no cronograma como merge visual; não cria EventSchedule (ver schedules.ts).
+  // PATCH /events/:id/items/:itemId/service-times — até 3 janelas de horário de serviço do
+  // item (A&B/Entretenimento) — ex.: 20h-21h + 21h30-22h + 22h30-23h30. Exibido no cronograma
+  // como merge visual; não cria EventSchedule (ver schedules.ts). A janela mais cedo sempre fica
+  // em serviceStartAt/serviceEndAt (compat com TELA COZINHA e âncora do plano de cozinha, que só
+  // leem esses dois campos); as demais em EventItemServiceWindow.
   app.patch('/events/:id/items/:itemId/service-times', { preHandler: requireAuth }, async (request, reply) => {
     const { id: eventId, itemId } = request.params as { id: string; itemId: string };
     const user = (request as any).user;
-    const { serviceStartAt, serviceEndAt } = request.body as {
-      serviceStartAt: string | null;
-      serviceEndAt: string | null;
-    };
+    const { windows } = request.body as { windows: { startAt: string; endAt: string }[] };
+
+    if (!Array.isArray(windows)) return reply.status(400).send({ error: 'Lista de horários inválida.' });
+    if (windows.length > 3) return reply.status(400).send({ error: 'No máximo 3 janelas de horário.' });
 
     const item = await (prisma as any).eventItem.findFirst({
       where: { id: itemId, eventId },
-      select: { id: true, name: true, serviceStartAt: true, serviceEndAt: true },
+      select: { id: true, name: true, serviceStartAt: true, serviceEndAt: true, serviceWindows: { orderBy: { sortOrder: 'asc' } } },
     });
     if (!item) return reply.status(404).send({ error: 'Item não encontrado neste evento.' });
 
-    const start = serviceStartAt ? new Date(serviceStartAt) : null;
-    const end = serviceEndAt ? new Date(serviceEndAt) : null;
-    if (start && isNaN(start.getTime())) return reply.status(400).send({ error: 'Horário de início inválido.' });
-    if (end && isNaN(end.getTime())) return reply.status(400).send({ error: 'Horário de fim inválido.' });
-    if (start && end && end <= start) {
-      return reply.status(400).send({ error: 'O horário de fim deve ser depois do início.' });
+    const parsed: { startAt: Date; endAt: Date }[] = [];
+    for (const w of windows) {
+      const start = new Date(w.startAt);
+      const end = new Date(w.endAt);
+      if (isNaN(start.getTime())) return reply.status(400).send({ error: 'Horário de início inválido.' });
+      if (isNaN(end.getTime())) return reply.status(400).send({ error: 'Horário de fim inválido.' });
+      if (end <= start) return reply.status(400).send({ error: 'O horário de fim deve ser depois do início.' });
+      parsed.push({ startAt: start, endAt: end });
     }
-    if (!start && end) {
-      return reply.status(400).send({ error: 'Defina o horário de início antes do fim.' });
-    }
+    parsed.sort((a, b) => a.startAt.getTime() - b.startAt.getTime());
 
-    const updated = await (prisma as any).eventItem.update({
+    const [first, ...rest] = parsed;
+
+    await prisma.$transaction([
+      (prisma as any).eventItem.update({
+        where: { id: itemId },
+        data: {
+          serviceStartAt: first?.startAt ?? null,
+          serviceEndAt: first?.endAt ?? null,
+          serviceTimesUpdatedAt: new Date(),
+          serviceTimesUpdatedById: user?.id ?? null,
+        },
+      }),
+      (prisma as any).eventItemServiceWindow.deleteMany({ where: { eventItemId: itemId } }),
+      ...(rest.length > 0
+        ? [
+            (prisma as any).eventItemServiceWindow.createMany({
+              data: rest.map((w, idx) => ({ eventItemId: itemId, startAt: w.startAt, endAt: w.endAt, sortOrder: idx + 1 })),
+            }),
+          ]
+        : []),
+    ]);
+
+    const updated = await (prisma as any).eventItem.findUnique({
       where: { id: itemId },
-      data: {
-        serviceStartAt: start,
-        serviceEndAt: end,
-        serviceTimesUpdatedAt: new Date(),
-        serviceTimesUpdatedById: user?.id ?? null,
-      },
+      include: { serviceWindows: { orderBy: { sortOrder: 'asc' } } },
     });
 
     // Registro de auditoria no próprio item, mesmo padrão do histórico de cronograma.
     const fmt = (d: Date | null) =>
       d ? d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' }) : '—';
-    const antes = item.serviceStartAt || item.serviceEndAt
-      ? `${fmt(item.serviceStartAt)} → ${fmt(item.serviceEndAt)}`
-      : 'sem horário';
-    const depois = start || end ? `${fmt(start)} → ${fmt(end)}` : 'sem horário';
+    const fmtWindows = (ws: { startAt: Date; endAt: Date }[]) =>
+      ws.length === 0 ? 'sem horário' : ws.map(w => `${fmt(w.startAt)} → ${fmt(w.endAt)}`).join(' + ');
+    const antes = fmtWindows(mergeServiceWindows(item));
+    const depois = fmtWindows(parsed);
     await (prisma as any).eventComment.create({
       data: {
         eventId,
@@ -1713,7 +1736,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       },
     });
 
-    return { success: true, item: updated };
+    return { success: true, item: { ...updated, windows: mergeServiceWindows(updated) } };
   });
 
   // PATCH /events/:id/items/:itemId/choices — save client choices with history
