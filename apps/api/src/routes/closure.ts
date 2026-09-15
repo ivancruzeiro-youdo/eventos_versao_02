@@ -63,12 +63,17 @@ export async function closureRoutes(app: FastifyInstance) {
     const body = closureSchema.parse(request.body);
     const npsToken = randomUUID();
 
-    // Snapshot A&B contracted quantity vs. actual check-ins, for excedente billing
+    // Snapshot A&B contracted quantity vs. actual check-ins, for excedente billing.
+    // Só itens com unit "Pessoa" contam pro "contratado" — um item medido em "Unidade"
+    // (ex.: barril de chopp) ou "Litro"/"Período" não escala com o número de convidados,
+    // então sua quantity não representa headcount (um barril de chopp com quantity=50 não
+    // significa "contratado pra 50 pessoas").
     const [abItems, guests] = await Promise.all([
-      (prisma as any).eventItem.findMany({ where: { eventId, category: 'ab' }, select: { quantity: true } }),
+      (prisma as any).eventItem.findMany({ where: { eventId, category: 'ab' }, select: { quantity: true, unit: true } }),
       prisma.guest.findMany({ where: { eventId }, select: { status: true } }),
     ]);
-    const abContractedQty = abItems.length > 0 ? Math.max(...abItems.map((i: any) => i.quantity)) : null;
+    const abPersonItems = abItems.filter((i: any) => i.unit === 'Pessoa');
+    const abContractedQty = abPersonItems.length > 0 ? Math.max(...abPersonItems.map((i: any) => i.quantity)) : null;
     const abCheckedInCount = guests.filter((g) => g.status === 'checked_in').length;
 
     const closure = await (prisma as any).eventClosure.create({

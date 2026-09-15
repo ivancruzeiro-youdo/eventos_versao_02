@@ -67,18 +67,23 @@ export default function EncerrarEventoPage() {
         // /items não filtra por categoria no servidor (o ?category= é só documentação da
         // intenção) — filtra aqui, senão um item de outra categoria com quantidade maior
         // (ex.: equipe) inflava o "contratado" de A&B.
-        const allItems: { category: string; quantity: number; product?: { price: number | null } | null }[] = itemsData.items ?? [];
+        const allItems: { category: string; quantity: number; unit?: string | null; product?: { price: number | null } | null }[] = itemsData.items ?? [];
         const items = allItems.filter(i => i.category === 'ab');
+        // Só item medido "Pessoa" representa headcount — um item em "Unidade" (barril de
+        // chopp), "Litro" ou "Período" tem preço/quantidade numa base totalmente diferente
+        // e não deve entrar na conta de "contratado" nem no preço do pacote por pessoa
+        // (senão o preço de um barril inteiro vira "preço por pessoa excedente").
+        const personItems = items.filter(i => i.unit === 'Pessoa');
         const checkedIn = guests.filter(g => g.status === 'checked_in').length;
-        const contracted = items.length > 0 ? Math.max(...items.map(i => i.quantity)) : null;
+        const contracted = personItems.length > 0 ? Math.max(...personItems.map(i => i.quantity)) : null;
         setAbCheckedInCount(checkedIn);
         setAbContractedQty(contracted);
         if (contracted !== null && checkedIn > contracted) {
           setAbExcessQty(String(checkedIn - contracted));
         }
-        // Sugestão de valor unitário: soma do preço cadastrado dos produtos de A&B (pacote
-        // por pessoa) — só um ponto de partida, o operador confere/ajusta antes de enviar.
-        const suggestedUnitValue = items.reduce((sum, i) => sum + (i.product?.price ?? 0), 0);
+        // Sugestão de valor unitário: soma do preço cadastrado dos produtos de A&B "por
+        // pessoa" — só um ponto de partida, o operador confere/ajusta antes de enviar.
+        const suggestedUnitValue = personItems.reduce((sum, i) => sum + (i.product?.price ?? 0), 0);
         if (suggestedUnitValue > 0) setAbExcessUnitValue(String(suggestedUnitValue));
       } catch { /* silent — não bloqueia o encerramento */ }
     }
