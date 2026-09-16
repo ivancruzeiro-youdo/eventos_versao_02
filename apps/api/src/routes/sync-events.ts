@@ -168,6 +168,13 @@ function mapCategory(categoryName: string | null): 'ab' | 'infra' | 'staff' | 'v
   return null;
 }
 
+// "Hora"/"Horas" como unidade do produto significa que a quantidade contratada é DURAÇÃO, não
+// cabeça — ex.: "Técnico de Som" 4 "Hora" é 1 vaga de 4h, nunca 4 vagas de 1h cada. "Pessoa"/
+// "Unidade"/qualquer outra coisa continua sendo headcount de verdade.
+function isHourlyUnit(unit: string | null | undefined): boolean {
+  return !!unit && /hora/i.test(unit);
+}
+
 // Business rule: contracted Garçom/Bartender headcount is automatically split across
 // specialized roles instead of a single flat service. Responsável roles are always
 // guaranteed (never dropped for small contracts, per business decision); Garçom/Montador
@@ -175,8 +182,15 @@ function mapCategory(categoryName: string | null): 'ab' | 'infra' | 'staff' | 'v
 // Responsável de Salão seat, and the remainder stays as base Garçom.
 async function resolveStaffAllocations(
   svc: { id: string; name: string },
-  qty: number
-): Promise<{ serviceId: string; maxSlots: number }[]> {
+  qty: number,
+  unit?: string | null
+): Promise<{ serviceId: string; maxSlots: number; durationHours?: number }[]> {
+  // Serviço contratado por hora não é headcount — vira 1 vaga com a duração contratada, e não
+  // passa pelo split de Garçom/Bartender (que é puramente sobre número de pessoas).
+  if (isHourlyUnit(unit)) {
+    return qty > 0 ? [{ serviceId: svc.id, maxSlots: 1, durationHours: qty }] : [];
+  }
+
   const total = Math.ceil(qty);
   if (total <= 0) return [];
 
@@ -887,7 +901,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
           const eventStartAt: Date = eventRecord?.startAt ?? new Date(`${startDate}T12:00:00`);
           const eventEndBase: Date = eventRecord?.teardownAt ?? eventStartAt;
           for (const svc of item.staffServices) {
-            const allocations = await resolveStaffAllocations(svc, item.qty);
+            const allocations = await resolveStaffAllocations(svc, item.qty, item.unit);
             for (const alloc of allocations) {
               const existingSvc = await (prisma as any).eventService.findFirst({ where: { eventId, serviceId: alloc.serviceId } });
               if (existingSvc) {
@@ -904,7 +918,12 @@ export async function syncEventsRoutes(app: FastifyInstance) {
                 const startOffset: number = svcData?.startOffsetMinutes ?? -60;
                 const endOffset: number = svcData?.endOffsetMinutes ?? 60;
                 const svcStart = new Date(eventStartAt.getTime() + startOffset * 60_000);
-                const svcEnd = new Date(eventEndBase.getTime() + endOffset * 60_000);
+                // Contratado por hora: término = início + duração contratada, não o offset de
+                // término padrão (que é sobre "quando a pessoa vai embora do evento", conceito
+                // que não se aplica a uma vaga cuja duração já veio do próprio contrato).
+                const svcEnd = alloc.durationHours != null
+                  ? new Date(svcStart.getTime() + alloc.durationHours * 60 * 60_000)
+                  : new Date(eventEndBase.getTime() + endOffset * 60_000);
                 await (prisma as any).eventService.create({
                   data: {
                     eventId,
@@ -1243,7 +1262,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
             const eventStartAt: Date = eventRecord?.startAt ?? new Date(`${startDate}T12:00:00`);
             const eventEndBase: Date = eventRecord?.teardownAt ?? eventStartAt;
             for (const svc of staffServices) {
-              const allocations = await resolveStaffAllocations(svc, qty);
+              const allocations = await resolveStaffAllocations(svc, qty, p.details?.unity || null);
               for (const alloc of allocations) {
                 const existingSvc = await (prisma as any).eventService.findFirst({ where: { eventId, serviceId: alloc.serviceId } });
                 if (existingSvc) {
@@ -1252,12 +1271,16 @@ export async function syncEventsRoutes(app: FastifyInstance) {
                   const svcData = await (prisma as any).freelancerService.findUnique({ where: { id: alloc.serviceId } });
                   const startOffset: number = svcData?.startOffsetMinutes ?? -60;
                   const endOffset: number = svcData?.endOffsetMinutes ?? 60;
+                  const svcStart = new Date(eventStartAt.getTime() + startOffset * 60_000);
+                  const svcEnd = alloc.durationHours != null
+                    ? new Date(svcStart.getTime() + alloc.durationHours * 60 * 60_000)
+                    : new Date(eventEndBase.getTime() + endOffset * 60_000);
                   await (prisma as any).eventService.create({
                     data: {
                       eventId, serviceId: alloc.serviceId, productName: pname, maxSlots: alloc.maxSlots,
                       valuePerHour: svcData?.hourlyRate ?? 0,
-                      startAt: new Date(eventStartAt.getTime() + startOffset * 60_000),
-                      endAt: new Date(eventEndBase.getTime() + endOffset * 60_000),
+                      startAt: svcStart,
+                      endAt: svcEnd,
                       status: 'active',
                     },
                   });
