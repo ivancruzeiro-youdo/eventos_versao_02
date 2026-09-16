@@ -232,6 +232,25 @@ async function resolveStaffAllocations(
   return [{ serviceId: svc.id, maxSlots: total }];
 }
 
+// Padrões (venues/espaços) contratados podem vir tanto no contrato principal quanto em
+// qualquer contrato SECUNDÁRIO dele — achado real: contrato 5490 (padrao 107 = "Lounge 2") foi
+// importado como secundário de 4954, e como só o padrao_id/padroes do contrato principal era
+// escaneado, o evento ficou só com "Lounge 1" mesmo com "Lounge 2" genuinamente contratado.
+function collectPadraoIds(relatedRaw: any[]): Set<string> {
+  const ids = new Set<string>();
+  const scan = (rc: any) => {
+    if (rc.padrao_id) ids.add(String(rc.padrao_id));
+    for (const p of rc.padroes || []) {
+      if (p.padrao) ids.add(String(p.padrao));
+    }
+  };
+  for (const rc of relatedRaw) {
+    scan(rc);
+    for (const sec of rc._secondary || []) scan(sec);
+  }
+  return ids;
+}
+
 // Group contracts by (cliente, data_checkin) — same event (one main per key already, but keep for merge)
 // data_checkin pode vir null (contrato sem check-in agendado ainda, ex. 5412) — cai pro
 // inicio_evento pra não gerar uma chave com data vazia (evento nasceria com nome tipo
@@ -691,13 +710,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
         eventId = ev.id;
 
         // Link all venues via padroes[] array -> Venue.externalId
-        const allPadraoIds = new Set<string>();
-        for (const rc of relatedRaw) {
-          if (rc.padrao_id) allPadraoIds.add(String(rc.padrao_id));
-          for (const p of rc.padroes || []) {
-            if (p.padrao) allPadraoIds.add(String(p.padrao));
-          }
-        }
+        const allPadraoIds = collectPadraoIds(relatedRaw);
         for (const pid of allPadraoIds) {
           const venue = await (prisma as any).venue.findFirst({ where: { externalId: pid } });
           if (venue) {
@@ -758,13 +771,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
 
       // Sync venues from padroes[] (additive — never remove existing venues)
       {
-        const allPadraoIds = new Set<string>();
-        for (const rc of relatedRaw) {
-          if (rc.padrao_id) allPadraoIds.add(String(rc.padrao_id));
-          for (const p of rc.padroes || []) {
-            if (p.padrao) allPadraoIds.add(String(p.padrao));
-          }
-        }
+        const allPadraoIds = collectPadraoIds(relatedRaw);
         // Só busca o setupAt do evento se algum espaço novo realmente precisar dele — a
         // maioria das sincronizações não adiciona espaço nenhum aqui.
         let currentCheckInAt: Date | null | undefined;
