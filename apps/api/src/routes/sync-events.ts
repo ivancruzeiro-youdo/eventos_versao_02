@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { applyVenueActivityTemplates } from '../lib/venue-activity-templates.js';
 import { getUserpToken, userpFetch } from '../lib/userp-auth.js';
 import { mergeServiceWindows } from '../lib/service-windows.js';
+import { publishKitchenEvent } from '../lib/kitchen-events.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1736,6 +1737,47 @@ export async function syncEventsRoutes(app: FastifyInstance) {
           ]
         : []),
     ]);
+
+    // TELA COZINHA: se este item já tem saídas programadas na sequência (KitchenServicePlanEntry
+    // vinculada por eventItemId), desloca todas elas pelo mesmo delta do horário de início —
+    // preserva o espaçamento já planejado entre os itens (o "contexto"), só move o bloco inteiro
+    // junto com o novo horário do A&B, em vez de deixar a cozinha desalinhada ou exigir reajustar
+    // item por item. Mesmo princípio do deslocamento em cascata quando o âncora do plano muda
+    // (POST .../plan) — aqui é escopado só às saídas deste item específico, não o plano inteiro.
+    const oldStart = item.serviceStartAt;
+    const newStart = first?.startAt ?? null;
+    if (oldStart && newStart && newStart.getTime() !== oldStart.getTime()) {
+      const delta = newStart.getTime() - oldStart.getTime();
+      const kitchenEntries = await (prisma as any).kitchenServicePlanEntry.findMany({
+        where: { eventItemId: itemId },
+        select: { id: true, serveAt: true, planId: true },
+      });
+      if (kitchenEntries.length > 0) {
+        await prisma.$transaction(
+          kitchenEntries.map((e: any) => (prisma as any).kitchenServicePlanEntry.update({
+            where: { id: e.id },
+            data: { serveAt: new Date(e.serveAt.getTime() + delta) },
+          }))
+        );
+        const deltaMin = Math.round(delta / 60_000);
+        try {
+          await (prisma as any).kitchenServicePlanLog.create({
+            data: {
+              planId: kitchenEntries[0].planId,
+              action: 'shift',
+              detail: `Horário de serviço de "${item.name}" mudou — ${kitchenEntries.length} saída(s) já programada(s) na sequência deslocada(s) em ${deltaMin >= 0 ? '+' : ''}${deltaMin} min`,
+              userId: user?.id ?? null,
+              userName: user?.name || user?.email || null,
+            },
+          });
+        } catch (err) {
+          // Nunca lança — falha ao gravar o log não pode impedir a alteração de horário em si.
+          console.error('[sync-events] falha ao gravar log do plano de cozinha:', err);
+        }
+        // Avisa PCs com a TELA COZINHA aberta pra esse evento, na hora, em vez de esperar o poll.
+        publishKitchenEvent(eventId, 'plan-changed');
+      }
+    }
 
     const updated = await (prisma as any).eventItem.findUnique({
       where: { id: itemId },
