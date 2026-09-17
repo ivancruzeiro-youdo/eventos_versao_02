@@ -620,15 +620,17 @@ model ServiceAcessoMapping {
 model AcessoLog {
   id              String   @id @default(uuid())
   freelancerId    String
-  applicationId   String
+  // Nulo quando o envio vem do robô diário de ressincronização (workers/acesso-sync.ts) — não
+  // motivado por uma candidatura específica, e sim por uma repassada geral do freelancer.
+  applicationId   String?
   acessoExternoId String?
   status          String
   payload         Json?
   response        Json?
   createdAt       DateTime @default(now())
 
-  freelancer  Freelancer            @relation(fields: [freelancerId], references: [id])
-  application FreelancerApplication @relation(fields: [applicationId], references: [id])
+  freelancer  Freelancer             @relation(fields: [freelancerId], references: [id])
+  application FreelancerApplication? @relation(fields: [applicationId], references: [id])
 
   @@index([freelancerId])
   @@index([applicationId])

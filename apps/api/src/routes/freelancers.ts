@@ -4,6 +4,7 @@ import { prisma } from '../server.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import bcrypt from 'bcryptjs';
 import * as acessosClient from '../services/acessos.js';
+import { syncFreelancerAcesso } from '../lib/acesso-sync.js';
 
 // Shared `select` for every Freelancer row ever returned to a client — passwordHash
 // (bcrypt) must never leave the server, this is the single place that decides what's safe.
@@ -122,63 +123,17 @@ type GrantResult =
   | { attempted: false; reason: string }
   | { attempted: true; status: 'granted' | 'error'; reason?: string };
 
-/** Janela de acesso por portaria (acessoId), unindo TODOS os compromissos aprovados e ainda
- *  vigentes desse freelancer — em QUALQUER evento, não só o que disparou a concessão atual.
- *
- *  Isso existe por causa de uma característica da Acessos: o cadastro lá é ÚNICO por CPF, e
- *  toda chamada de grantAccess SUBSTITUI a lista inteira de portarias/janelas da pessoa, em
- *  vez de só acrescentar. Antes esta função olhava só o evento corrente (mesclando múltiplos
- *  turnos aprovados NO MESMO evento, ex.: Emanueli em "Faxina" de manhã e "Faxina 2" à tarde),
- *  e isso causou um caso real em produção: Alyne foi aprovada num evento futuro, o envio desse
- *  evento sobrescreveu o cadastro dela na Acessos só com a janela futura, e ela ficou sem
- *  acesso num evento em andamento no mesmo dia (cujo envio original nunca tinha nem acontecido
- *  — vaga cadastrada depois da aprovação). Agora cada envio recalcula a janela olhando TODOS
- *  os compromissos da pessoa (passados já encerrados são ignorados, então não influenciam mais
- *  nem impedem o cadastro de "esquecer" um evento antigo), unindo por portaria (menor início,
- *  maior fim) — nunca estreita um acesso ainda válido de outro evento, só amplia. */
-async function computeFreelancerAccessMap(freelancerId: string): Promise<Map<string, { start: Date; end: Date }>> {
-  const now = new Date();
-  const approvedApps = await prisma.freelancerApplication.findMany({
-    where: { freelancerId, status: 'approved' },
-    select: { eventId: true, role: true },
-  });
-  if (approvedApps.length === 0) return new Map();
-
-  const eventIds = [...new Set(approvedApps.map(a => a.eventId))];
-  const events = await prisma.event.findMany({
-    where: { id: { in: eventIds } },
-    include: {
-      services: { include: { service: { include: { acessoMappings: true } } } },
-    },
-  });
-  const eventById = new Map(events.map((e: any) => [e.id, e]));
-
-  const map = new Map<string, { start: Date; end: Date }>();
-  for (const app of approvedApps) {
-    const event = eventById.get(app.eventId);
-    if (!event) continue;
-    const slot = (event as any).services.find((s: any) => s.service.name === app.role);
-    if (!slot || !slot.startAt || !slot.endAt || !slot.service.acessoMappings.length) continue;
-    if (slot.endAt < now) continue; // compromisso já encerrado — não deve mais segurar/estender acesso
-
-    for (const m of slot.service.acessoMappings as any[]) {
-      const existing = map.get(m.acessoId);
-      if (!existing) {
-        map.set(m.acessoId, { start: slot.startAt, end: slot.endAt });
-      } else {
-        if (slot.startAt < existing.start) existing.start = slot.startAt;
-        if (slot.endAt > existing.end) existing.end = slot.endAt;
-      }
-    }
-  }
-  return map;
-}
-
+/** Valida que a candidatura tem vaga cadastrada e portaria mapeada, e delega o cálculo da
+ *  janela + envio pra syncFreelancerAcesso (lib/acesso-sync.ts) — que olha TODOS os
+ *  compromissos aprovados do freelancer (não só este evento) vigentes ou nas próximas 48h,
+ *  já que a Acessos tem um cadastro único por CPF e cada envio SUBSTITUI a lista inteira de
+ *  portarias/janelas. Se o evento desta candidatura for daqui a mais de 48h, o envio não
+ *  acontece agora — o robô diário (workers/acesso-sync.ts) cuida disso quando a data chegar
+ *  mais perto, sem depender de mais nenhuma ação manual. */
 async function handleAcessoGrant(applicationId: string): Promise<GrantResult> {
   const application = await prisma.freelancerApplication.findUnique({
     where: { id: applicationId },
     include: {
-      freelancer: true,
       event: {
         include: {
           services: {
@@ -191,7 +146,6 @@ async function handleAcessoGrant(applicationId: string): Promise<GrantResult> {
 
   if (!application) return { attempted: false, reason: 'Candidatura não encontrada.' };
 
-  // Encontra o slot do serviço com as datas e mapeamentos de acesso
   const slot = application.event.services.find(
     (s: any) => s.service.name === application.role,
   );
@@ -203,71 +157,7 @@ async function handleAcessoGrant(applicationId: string): Promise<GrantResult> {
     return { attempted: false, reason: `O serviço "${application.role}" não tem nenhuma portaria mapeada em Admin → Acessos por Serviço.` };
   }
 
-  // Junta TODOS os compromissos aprovados e ainda vigentes dessa pessoa (qualquer evento) numa
-  // única janela por portaria — ver computeFreelancerAccessMap acima. Essencial: a Acessos tem
-  // um cadastro único por CPF, e cada chamada SUBSTITUI a lista inteira de portarias/janelas —
-  // mandar só a janela deste evento apagaria o acesso de outro evento ainda vigente.
-  const accessMap = await computeFreelancerAccessMap(application.freelancerId);
-  // Garante que a portaria deste evento entra na conta mesmo que o snapshot acima não a tenha
-  // capturado por alguma inconsistência de timing (ex.: slot criado na mesma transação).
-  if (slot.startAt && slot.endAt) {
-    for (const m of slot.service.acessoMappings as any[]) {
-      const existing = accessMap.get(m.acessoId);
-      if (!existing) {
-        accessMap.set(m.acessoId, { start: slot.startAt, end: slot.endAt });
-      } else {
-        if (slot.startAt < existing.start) existing.start = slot.startAt;
-        if (slot.endAt > existing.end) existing.end = slot.endAt;
-      }
-    }
-  }
-
-  if (accessMap.size === 0) {
-    return { attempted: false, reason: 'Nenhum compromisso vigente com horário definido para calcular a janela de acesso.' };
-  }
-
-  const acessos = [...accessMap.entries()].map(([acessoId, w]) => ({
-    acesso_id: acessoId,
-    data_inicio: w.start.toISOString().split('T')[0],
-    data_fim: w.end.toISOString().split('T')[0],
-  }));
-
-  const payload: any = {
-    nome: application.freelancer.name,
-    cpf: application.freelancer.cpf,
-    acessos,
-  };
-  if ((application.freelancer as any).fotoBase64) {
-    payload.foto_base64 = (application.freelancer as any).fotoBase64;
-  }
-
-  let acessoExternoId: string | null = null;
-  let status = 'granted';
-  let response: any = null;
-
-  try {
-    const result = await acessosClient.grantAccess(payload);
-    acessoExternoId = result.id;
-    response = result;
-  } catch (err: any) {
-    status = 'error';
-    response = { error: err.message };
-  }
-
-  await (prisma as any).acessoLog.create({
-    data: {
-      freelancerId: application.freelancerId,
-      applicationId,
-      acessoExternoId,
-      status,
-      payload,
-      response,
-    },
-  });
-
-  return status === 'granted'
-    ? { attempted: true, status: 'granted' }
-    : { attempted: true, status: 'error', reason: response?.error };
+  return syncFreelancerAcesso(application.freelancerId, applicationId);
 }
 
 async function handleAcessoRevoke(applicationId: string): Promise<void> {

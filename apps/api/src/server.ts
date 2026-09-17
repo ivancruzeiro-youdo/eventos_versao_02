@@ -233,6 +233,9 @@ const start = async () => {
 
     const { startContractSyncScheduler } = await import('./workers/contract-sync.js');
     startContractSyncScheduler(app, (msg) => app.log.info(msg));
+
+    const { startAcessoSyncScheduler } = await import('./workers/acesso-sync.js');
+    startAcessoSyncScheduler((msg) => app.log.info(msg));
   } catch (err) {
     app.log.error(err);
     process.exit(1);
