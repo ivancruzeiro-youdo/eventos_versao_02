@@ -11,6 +11,7 @@ interface ChecklistItem {
   done: boolean;
   doneAt: string | null;
   doneBy: { name: string } | null;
+  doneByFreelancer: { name: string } | null;
 }
 
 interface Checklist {
@@ -159,7 +160,8 @@ export default function EventChecklistPage() {
                   </p>
                   {item.done && item.doneAt && (
                     <p className="text-xs text-green-600 mt-1">
-                      ✓ Concluído por {item.doneBy?.name || 'Usuário'} em {new Date(item.doneAt).toLocaleString('pt-BR')}
+                      ✓ Concluído por {item.doneByFreelancer?.name || item.doneBy?.name || 'Usuário'}
+                      {item.doneByFreelancer ? ' (freelancer)' : ''} em {new Date(item.doneAt).toLocaleString('pt-BR')}
                     </p>
                   )}
                 </div>

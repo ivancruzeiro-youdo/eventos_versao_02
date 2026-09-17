@@ -128,6 +128,10 @@ export async function planRoutes(app: FastifyInstance) {
       include: {
         items: {
           orderBy: { order: 'asc' },
+          include: {
+            doneBy: { select: { id: true, name: true } },
+            doneByFreelancer: { select: { id: true, name: true } },
+          },
         },
       },
       orderBy: { createdAt: 'asc' },
@@ -201,9 +205,16 @@ export async function planRoutes(app: FastifyInstance) {
               done,
               doneAt: done ? new Date() : null,
               doneByUserId: done ? user.id : null,
+              // Zera a atribuição de freelancer — só um dos dois lados "dono" o item por vez,
+              // e essa marcação/desmarcação está sendo feita pela equipe interna agora.
+              doneByFreelancerId: null,
             }
           : {}),
         ...(typeof text === 'string' && text.trim() ? { text: text.trim() } : {}),
+      },
+      include: {
+        doneBy: { select: { id: true, name: true } },
+        doneByFreelancer: { select: { id: true, name: true } },
       },
     });
 

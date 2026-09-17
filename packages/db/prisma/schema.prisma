@@ -74,6 +74,7 @@ model Freelancer {
   penalties    FreelancerPenalty[]
   services     FreelancerServiceLink[]
   acessoLogs   AcessoLog[]
+  doneChecklistItems ChecklistItem[] @relation("DoneByFreelancer")
 
   @@index([email])
   @@index([cpf])
@@ -847,12 +848,17 @@ model ChecklistItem {
   done          Boolean   @default(false)
   doneAt        DateTime?
   doneByUserId  String?
+  // Item marcado por um freelancer (não da equipe interna) — freelancer vive numa tabela
+  // separada de User, então precisa da própria FK; nunca os dois preenchidos ao mesmo tempo
+  // (quem marcou por último "dono" o item).
+  doneByFreelancerId String?
   order         Int
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  checklist EventChecklist? @relation(fields: [checklistId], references: [id], onDelete: Cascade)
-  doneBy    User?      @relation("DoneBy", fields: [doneByUserId], references: [id])
+  checklist       EventChecklist? @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+  doneBy          User?       @relation("DoneBy", fields: [doneByUserId], references: [id])
+  doneByFreelancer Freelancer? @relation("DoneByFreelancer", fields: [doneByFreelancerId], references: [id])
 
   @@index([checklistId])
 }

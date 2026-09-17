@@ -78,6 +78,7 @@ interface ChecklistItem {
   done: boolean;
   doneAt?: string;
   doneBy?: { name: string };
+  doneByFreelancer?: { name: string };
   order: number;
 }
 

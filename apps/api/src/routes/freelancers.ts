@@ -664,7 +664,17 @@ export async function freelancerRoutes(app: FastifyInstance) {
               files: { select: { id: true, name: true, mimeType: true, sizeBytes: true } },
               linkedChecklists: {
                 include: {
-                  checklist: { include: { items: { orderBy: { order: 'asc' } } } },
+                  checklist: {
+                    include: {
+                      items: {
+                        orderBy: { order: 'asc' },
+                        include: {
+                          doneBy: { select: { id: true, name: true } },
+                          doneByFreelancer: { select: { id: true, name: true } },
+                        },
+                      },
+                    },
+                  },
                 },
               },
             },
@@ -689,6 +699,67 @@ export async function freelancerRoutes(app: FastifyInstance) {
     });
 
     return { success: true, applications: enriched };
+  });
+
+  // Freelancer marca/desmarca um item do checklist da própria vaga — sempre grava quem (o
+  // próprio freelancer) e quando, nunca só visualização. Ownership verificado: o item precisa
+  // pertencer a um checklist vinculado (EventServiceChecklist) a uma vaga cujo serviço bate
+  // com uma candidatura APROVADA desse freelancer no mesmo evento — não dá pra marcar item de
+  // checklist de vaga que não é sua.
+  app.patch('/freelancer/checklist-items/:id', { preHandler: requireAuth }, async (request, reply) => {
+    const user = (request as any).user;
+    const { id } = request.params as { id: string };
+    const { done } = request.body as { done: boolean };
+
+    if (user.role !== 'freelancer') {
+      return reply.status(403).send({ error: 'Freelancer access only' });
+    }
+    if (typeof done !== 'boolean') {
+      return reply.status(400).send({ error: '"done" precisa ser true ou false.' });
+    }
+
+    const item = await prisma.checklistItem.findUnique({
+      where: { id },
+      select: {
+        checklist: {
+          select: {
+            eventId: true,
+            linkedServices: { select: { service: { select: { service: { select: { name: true } } } } } },
+          },
+        },
+      },
+    });
+    if (!item?.checklist) return reply.status(404).send({ error: 'Item não encontrado.' });
+
+    const roles = item.checklist.linkedServices.map((ls: any) => ls.service.service.name);
+    const hasApproved = roles.length > 0 && await prisma.freelancerApplication.findFirst({
+      where: {
+        freelancerId: user.id,
+        eventId: item.checklist.eventId,
+        role: { in: roles },
+        status: 'approved',
+      },
+      select: { id: true },
+    });
+    if (!hasApproved) {
+      return reply.status(403).send({ error: 'Este checklist não pertence a uma vaga sua neste evento.' });
+    }
+
+    const updated = await prisma.checklistItem.update({
+      where: { id },
+      data: {
+        done,
+        doneAt: done ? new Date() : null,
+        doneByFreelancerId: done ? user.id : null,
+        doneByUserId: null,
+      },
+      include: {
+        doneBy: { select: { id: true, name: true } },
+        doneByFreelancer: { select: { id: true, name: true } },
+      },
+    });
+
+    return { success: true, item: updated };
   });
 
   // Cancel an application

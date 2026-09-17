@@ -116,6 +116,8 @@ export const freelancerApi = {
   profile: () => fetchApi('/api/v2/freelancer/profile'),
   updatePhoto: (fotoBase64: string) =>
     fetchApi('/api/v2/freelancer/profile/photo', { method: 'PATCH', body: JSON.stringify({ fotoBase64 }) }),
+  toggleChecklistItem: (itemId: string, done: boolean) =>
+    fetchApi(`/api/v2/freelancer/checklist-items/${itemId}`, { method: 'PATCH', body: JSON.stringify({ done }) }),
 };
 
 // Products/Categories from UERP

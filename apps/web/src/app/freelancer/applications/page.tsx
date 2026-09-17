@@ -20,6 +20,9 @@ interface ChecklistItem {
   text: string;
   done: boolean;
   order: number;
+  doneAt: string | null;
+  doneBy: { name: string } | null;
+  doneByFreelancer: { name: string } | null;
 }
 
 interface ServiceChecklist {
@@ -152,6 +155,28 @@ export default function FreelancerApplicationsPage() {
       window.open(downloadUrl, '_blank');
     } catch {
       alert('Não foi possível baixar o arquivo.');
+    }
+  }
+
+  async function toggleChecklistItem(itemId: string, done: boolean) {
+    try {
+      const res = await freelancerApi.toggleChecklistItem(itemId, done);
+      const updated = res.item;
+      setApplications(prev => prev.map(a => {
+        if (!a.briefing) return a;
+        return {
+          ...a,
+          briefing: {
+            ...a.briefing,
+            checklists: a.briefing.checklists.map(cl => ({
+              ...cl,
+              items: cl.items.map(it => (it.id === itemId ? { ...it, ...updated } : it)),
+            })),
+          },
+        };
+      }));
+    } catch (err: any) {
+      alert(err.message || 'Não foi possível atualizar o item do checklist.');
     }
   }
 
@@ -398,14 +423,21 @@ export default function FreelancerApplicationsPage() {
                                       <p className="text-sm font-medium text-card-foreground mb-2">{cl.title}</p>
                                       <ul className="space-y-1.5">
                                         {cl.items.map(item => (
-                                          <li key={item.id} className="flex items-center gap-2 text-sm text-card-foreground">
-                                            <input
-                                              type="checkbox"
-                                              checked={item.done}
-                                              readOnly
-                                              className="rounded border-muted-foreground/30 accent-primary"
-                                            />
-                                            <span className={item.done ? 'line-through text-muted-foreground' : ''}>{item.text}</span>
+                                          <li key={item.id} className="flex flex-col gap-0.5">
+                                            <label className="flex items-center gap-2 text-sm text-card-foreground cursor-pointer">
+                                              <input
+                                                type="checkbox"
+                                                checked={item.done}
+                                                onChange={(e) => toggleChecklistItem(item.id, e.target.checked)}
+                                                className="rounded border-muted-foreground/30 accent-primary"
+                                              />
+                                              <span className={item.done ? 'line-through text-muted-foreground' : ''}>{item.text}</span>
+                                            </label>
+                                            {item.done && item.doneAt && (
+                                              <p className="text-xs text-muted-foreground pl-6">
+                                                ✓ Concluído por {item.doneByFreelancer?.name || item.doneBy?.name || 'você'} em {new Date(item.doneAt).toLocaleString('pt-BR')}
+                                              </p>
+                                            )}
                                           </li>
                                         ))}
                                       </ul>
