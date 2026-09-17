@@ -122,36 +122,59 @@ type GrantResult =
   | { attempted: false; reason: string }
   | { attempted: true; status: 'granted' | 'error'; reason?: string };
 
-/** Menor início e maior fim entre TODOS os turnos aprovados desse freelancer neste evento —
- *  não só o do serviço/candidatura que disparou a concessão. Uma mesma pessoa pode estar
- *  aprovada em mais de um turno no mesmo evento (ex.: Emanueli em "Faxina" de manhã e
- *  "Faxina 2" à tarde); sem unificar, cada candidatura mandava sua própria janela pra Acessos
- *  e a pessoa ficava sem acesso liberado no intervalo entre o fim do primeiro turno e o
- *  início do segundo. Unificando, ela entra uma vez só e fica liberada do início do primeiro
- *  turno até o fim do último. */
-async function computeUnifiedAccessWindow(freelancerId: string, eventId: string): Promise<{ start: Date | null; end: Date | null }> {
+/** Janela de acesso por portaria (acessoId), unindo TODOS os compromissos aprovados e ainda
+ *  vigentes desse freelancer — em QUALQUER evento, não só o que disparou a concessão atual.
+ *
+ *  Isso existe por causa de uma característica da Acessos: o cadastro lá é ÚNICO por CPF, e
+ *  toda chamada de grantAccess SUBSTITUI a lista inteira de portarias/janelas da pessoa, em
+ *  vez de só acrescentar. Antes esta função olhava só o evento corrente (mesclando múltiplos
+ *  turnos aprovados NO MESMO evento, ex.: Emanueli em "Faxina" de manhã e "Faxina 2" à tarde),
+ *  e isso causou um caso real em produção: Alyne foi aprovada num evento futuro, o envio desse
+ *  evento sobrescreveu o cadastro dela na Acessos só com a janela futura, e ela ficou sem
+ *  acesso num evento em andamento no mesmo dia (cujo envio original nunca tinha nem acontecido
+ *  — vaga cadastrada depois da aprovação). Agora cada envio recalcula a janela olhando TODOS
+ *  os compromissos da pessoa (passados já encerrados são ignorados, então não influenciam mais
+ *  nem impedem o cadastro de "esquecer" um evento antigo), unindo por portaria (menor início,
+ *  maior fim) — nunca estreita um acesso ainda válido de outro evento, só amplia. */
+async function computeFreelancerAccessMap(freelancerId: string): Promise<Map<string, { start: Date; end: Date }>> {
+  const now = new Date();
   const approvedApps = await prisma.freelancerApplication.findMany({
-    where: { freelancerId, eventId, status: 'approved' },
-    select: { role: true },
+    where: { freelancerId, status: 'approved' },
+    select: { eventId: true, role: true },
   });
-  if (approvedApps.length === 0) return { start: null, end: null };
-  const roles = [...new Set(approvedApps.map(a => a.role))];
+  if (approvedApps.length === 0) return new Map();
 
-  const slots = await prisma.eventService.findMany({
-    where: { eventId, service: { name: { in: roles } } },
-    select: { startAt: true, endAt: true },
+  const eventIds = [...new Set(approvedApps.map(a => a.eventId))];
+  const events = await prisma.event.findMany({
+    where: { id: { in: eventIds } },
+    include: {
+      services: { include: { service: { include: { acessoMappings: true } } } },
+    },
   });
+  const eventById = new Map(events.map((e: any) => [e.id, e]));
 
-  let start: Date | null = null;
-  let end: Date | null = null;
-  for (const s of slots) {
-    if (s.startAt && (!start || s.startAt < start)) start = s.startAt;
-    if (s.endAt && (!end || s.endAt > end)) end = s.endAt;
+  const map = new Map<string, { start: Date; end: Date }>();
+  for (const app of approvedApps) {
+    const event = eventById.get(app.eventId);
+    if (!event) continue;
+    const slot = (event as any).services.find((s: any) => s.service.name === app.role);
+    if (!slot || !slot.startAt || !slot.endAt || !slot.service.acessoMappings.length) continue;
+    if (slot.endAt < now) continue; // compromisso já encerrado — não deve mais segurar/estender acesso
+
+    for (const m of slot.service.acessoMappings as any[]) {
+      const existing = map.get(m.acessoId);
+      if (!existing) {
+        map.set(m.acessoId, { start: slot.startAt, end: slot.endAt });
+      } else {
+        if (slot.startAt < existing.start) existing.start = slot.startAt;
+        if (slot.endAt > existing.end) existing.end = slot.endAt;
+      }
+    }
   }
-  return { start, end };
+  return map;
 }
 
-async function handleAcessoGrant(applicationId: string, refreshSiblings = true): Promise<GrantResult> {
+async function handleAcessoGrant(applicationId: string): Promise<GrantResult> {
   const application = await prisma.freelancerApplication.findUnique({
     where: { id: applicationId },
     include: {
@@ -180,17 +203,33 @@ async function handleAcessoGrant(applicationId: string, refreshSiblings = true):
     return { attempted: false, reason: `O serviço "${application.role}" não tem nenhuma portaria mapeada em Admin → Acessos por Serviço.` };
   }
 
-  // Unifica com os demais turnos aprovados dessa pessoa neste evento — ver
-  // computeUnifiedAccessWindow acima. Cai pro horário deste próprio slot só se, por algum
-  // motivo, a unificação não achar nada (ex.: outra candidatura sem status aprovado ainda).
-  const unified = await computeUnifiedAccessWindow(application.freelancerId, application.eventId);
-  const windowStart = unified.start ?? slot.startAt;
-  const windowEnd = unified.end ?? slot.endAt;
+  // Junta TODOS os compromissos aprovados e ainda vigentes dessa pessoa (qualquer evento) numa
+  // única janela por portaria — ver computeFreelancerAccessMap acima. Essencial: a Acessos tem
+  // um cadastro único por CPF, e cada chamada SUBSTITUI a lista inteira de portarias/janelas —
+  // mandar só a janela deste evento apagaria o acesso de outro evento ainda vigente.
+  const accessMap = await computeFreelancerAccessMap(application.freelancerId);
+  // Garante que a portaria deste evento entra na conta mesmo que o snapshot acima não a tenha
+  // capturado por alguma inconsistência de timing (ex.: slot criado na mesma transação).
+  if (slot.startAt && slot.endAt) {
+    for (const m of slot.service.acessoMappings as any[]) {
+      const existing = accessMap.get(m.acessoId);
+      if (!existing) {
+        accessMap.set(m.acessoId, { start: slot.startAt, end: slot.endAt });
+      } else {
+        if (slot.startAt < existing.start) existing.start = slot.startAt;
+        if (slot.endAt > existing.end) existing.end = slot.endAt;
+      }
+    }
+  }
 
-  const acessos = slot.service.acessoMappings.map((m: any) => ({
-    acesso_id: m.acessoId,
-    data_inicio: windowStart ? windowStart.toISOString().split('T')[0] : undefined,
-    data_fim: windowEnd ? windowEnd.toISOString().split('T')[0] : undefined,
+  if (accessMap.size === 0) {
+    return { attempted: false, reason: 'Nenhum compromisso vigente com horário definido para calcular a janela de acesso.' };
+  }
+
+  const acessos = [...accessMap.entries()].map(([acessoId, w]) => ({
+    acesso_id: acessoId,
+    data_inicio: w.start.toISOString().split('T')[0],
+    data_fim: w.end.toISOString().split('T')[0],
   }));
 
   const payload: any = {
@@ -225,33 +264,6 @@ async function handleAcessoGrant(applicationId: string, refreshSiblings = true):
       response,
     },
   });
-
-  // A janela unificada acabou de mudar (mais um turno aprovado entrou na conta) — qualquer
-  // outra candidatura aprovada dessa mesma pessoa neste evento que já tinha acesso concedido
-  // ficou com uma janela desatualizada (mais estreita) na Acessos. Reenvia pra cada uma
-  // (refreshSiblings=false trava a recursão — cada uma só atualiza a si mesma, nunca dispara
-  // outra rodada de irmãs).
-  if (refreshSiblings && status === 'granted') {
-    const siblings = await prisma.freelancerApplication.findMany({
-      where: {
-        freelancerId: application.freelancerId,
-        eventId: application.eventId,
-        status: 'approved',
-        id: { not: applicationId },
-      },
-      select: { id: true },
-    });
-    for (const sib of siblings) {
-      const hasGrant = await (prisma as any).acessoLog.findFirst({
-        where: { applicationId: sib.id, status: 'granted' },
-        select: { id: true },
-      });
-      if (!hasGrant) continue;
-      await handleAcessoGrant(sib.id, false).catch(err =>
-        console.error(`[freelancers] Falha ao atualizar janela de acesso da candidatura irmã ${sib.id}:`, err.message),
-      );
-    }
-  }
 
   return status === 'granted'
     ? { attempted: true, status: 'granted' }
