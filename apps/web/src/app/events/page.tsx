@@ -43,6 +43,13 @@ interface Event {
 
 type ViewMode = 'list' | 'calendar';
 
+interface ReadinessAlertEvent {
+  id: string;
+  name: string;
+  startAt: string | null;
+  missing: ('staff' | 'planFilled' | 'planConfirmed')[];
+}
+
 interface SyncItem {
   name: string; qty: number; unit: string;
   category: string;
@@ -68,6 +75,7 @@ export default function EventsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('calendar');
+  const [readinessAlerts, setReadinessAlerts] = useState<ReadinessAlertEvent[]>([]);
 
   // Sync modal
   const [syncOpen, setSyncOpen] = useState(false);
@@ -95,6 +103,7 @@ export default function EventsPage() {
 
   useEffect(() => {
     loadEvents();
+    loadReadinessAlerts();
   }, []);
 
   async function openSync() {
@@ -156,6 +165,17 @@ export default function EventsPage() {
       setError(err.message || 'Erro ao carregar eventos');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadReadinessAlerts() {
+    try {
+      const res = await fetch('/api/v2/events/readiness-alerts?withinDays=5', { credentials: 'include' });
+      if (!res.ok) return;
+      const data = await res.json();
+      setReadinessAlerts(data.events || []);
+    } catch {
+      // silencioso — é um aviso a mais, não pode travar a tela de eventos se falhar
     }
   }
 
@@ -292,6 +312,37 @@ export default function EventsPage() {
           </Link>
         </div>
       </div>
+
+      {/* Alerta de prontidão — eventos a menos de 5 dias sem mão de obra/plano OK */}
+      {readinessAlerts.length > 0 && (
+        <div className="bg-amber-50 border border-amber-300 rounded-lg px-4 py-3 mb-6">
+          <div className="flex items-start gap-2">
+            <AlertTriangle size={15} className="text-amber-600 shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-amber-900">
+                {readinessAlerts.length} evento{readinessAlerts.length > 1 ? 's' : ''} a menos de 5 dias com pendências
+              </p>
+              <ul className="mt-1.5 space-y-1">
+                {readinessAlerts.map(ev => (
+                  <li key={ev.id} className="text-xs text-amber-800">
+                    <Link href={`/events/${ev.id}`} className="font-medium hover:underline">
+                      {ev.name}
+                    </Link>
+                    {ev.startAt && <span className="text-amber-700"> — {formatDate(ev.startAt)}</span>}
+                    {': '}
+                    {ev.missing.map((m, i) => (
+                      <span key={m}>
+                        {i > 0 && ', '}
+                        {m === 'staff' ? 'mão de obra incompleta' : m === 'planFilled' ? 'plano do evento incompleto' : 'plano não confirmado pelo cliente'}
+                      </span>
+                    ))}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Status legend */}
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 mb-6 text-xs text-muted-foreground">

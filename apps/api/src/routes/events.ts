@@ -52,6 +52,101 @@ export async function eventRoutes(app: FastifyInstance) {
     return { success: true, events };
   });
 
+  // Eventos a menos de N dias (default 5) que ainda não bateram um dos 3 critérios de prontidão:
+  // mão de obra preenchida, plano do evento preenchido, plano confirmado pelo cliente. Endpoint
+  // separado (não incluído no GET / de cima) de propósito — os joins pra calcular isso são caros
+  // (services+aplicações, itens+perguntas+respostas, aprovações do cliente) e só valem a pena
+  // pro punhado de eventos na janela de alerta, não pra lista inteira de eventos.
+  app.get('/readiness-alerts', { preHandler: requireAuth }, async (request, reply) => {
+    const user = (request as any).user;
+    const withinDays = Math.max(1, Math.min(30, Number((request.query as any)?.withinDays) || 5));
+
+    let whereClause: any = {};
+    if (user.role === 'event_owner' || user.role === 'operator') {
+      whereClause = { employerId: user.employerId };
+    }
+
+    const now = new Date();
+    const limit = new Date(now.getTime() + withinDays * 24 * 60 * 60_000);
+
+    const candidates = await prisma.event.findMany({
+      where: { ...whereClause, status: { in: ['draft', 'confirmed'] }, startAt: { gte: now, lte: limit } },
+      select: { id: true, name: true, startAt: true },
+      orderBy: { startAt: 'asc' },
+    });
+
+    const results: { id: string; name: string; startAt: Date | null; missing: string[] }[] = [];
+
+    for (const ev of candidates) {
+      const missing: string[] = [];
+
+      // 1. Mão de obra preenchida — mesma lógica de "vagas preenchidas" já usada na aba Mão de
+      // Obra (EventMaoDeObraTab): aprovadas casadas por NOME do cargo (FreelancerApplication.role
+      // === FreelancerService.name), comparado ao maxSlots de CADA EventService individualmente
+      // — replica de propósito o mesmo critério que o operador já vê naquela tela, pra este
+      // alerta nunca discordar do que a aba mostra.
+      const [services, approvedApps] = await Promise.all([
+        (prisma as any).eventService.findMany({ where: { eventId: ev.id }, select: { maxSlots: true, service: { select: { name: true } } } }),
+        (prisma as any).freelancerApplication.findMany({ where: { eventId: ev.id, status: 'approved' }, select: { role: true } }),
+      ]);
+      if (services.length > 0) {
+        const approvedByRole = new Map<string, number>();
+        for (const a of approvedApps) approvedByRole.set(a.role, (approvedByRole.get(a.role) ?? 0) + 1);
+        const staffFilled = services.every((s: any) => (approvedByRole.get(s.service?.name) ?? 0) >= s.maxSlots);
+        if (!staffFilled) missing.push('staff');
+      }
+
+      // 2/3. Plano do evento — só perguntas de local (venue) e de item/produto (plan_q), igual
+      // à aba "Plano" do evento — NÃO inclui horário de A&B (ab_time) nem cronograma (schedule),
+      // que são conceitos separados na própria tela do cliente.
+      const eventPlan = await prisma.event.findUnique({
+        where: { id: ev.id },
+        select: {
+          items: { select: { id: true, product: { select: { questions: { select: { id: true, required: true } } } }, answers: { select: { questionId: true, answer: true } } } },
+          venues: { select: { venueId: true, venue: { select: { questions: { select: { id: true, required: true } } } } } },
+          venueAnswers: { select: { questionId: true, answer: true } },
+        },
+      });
+
+      let unanswered = 0;
+      const approvalChecks: { itemType: string; itemId: string }[] = [];
+      for (const v of eventPlan?.venues ?? []) {
+        for (const q of v.venue?.questions ?? []) {
+          const ans = eventPlan!.venueAnswers.find((a: any) => a.questionId === q.id);
+          const answered = ans?.answer !== null && ans?.answer !== undefined && ans?.answer !== '';
+          if (!answered && q.required) unanswered++;
+          if (answered) approvalChecks.push({ itemType: 'venue_q', itemId: `${v.venueId}_${q.id}` });
+        }
+      }
+      for (const item of eventPlan?.items ?? []) {
+        for (const q of item.product?.questions ?? []) {
+          const ans = item.answers.find((a: any) => a.questionId === q.id);
+          const answered = ans?.answer !== null && ans?.answer !== undefined && ans?.answer !== '';
+          if (!answered && q.required) unanswered++;
+          if (answered) approvalChecks.push({ itemType: 'plan_q', itemId: `${item.id}_${q.id}` });
+        }
+      }
+
+      if (unanswered > 0) missing.push('planFilled');
+
+      if (approvalChecks.length > 0) {
+        const approvals = await (prisma as any).clientApproval.findMany({
+          where: { eventId: ev.id, itemType: { in: ['plan_q', 'venue_q'] } },
+          select: { itemType: true, itemId: true },
+        });
+        const approvedSet = new Set(approvals.map((a: any) => `${a.itemType}:${a.itemId}`));
+        const unconfirmed = approvalChecks.filter(c => !approvedSet.has(`${c.itemType}:${c.itemId}`)).length;
+        if (unconfirmed > 0) missing.push('planConfirmed');
+      }
+
+      if (missing.length > 0) {
+        results.push({ id: ev.id, name: ev.name, startAt: ev.startAt, missing });
+      }
+    }
+
+    return { success: true, withinDays, events: results };
+  });
+
   // Create event
   app.post('/', { preHandler: [requireAuth, requireRole(['admin', 'event_owner', 'operator'])] }, async (request, reply) => {
     const user = (request as any).user;
