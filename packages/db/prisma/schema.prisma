@@ -282,6 +282,10 @@ model Venue {
   capacity       Int?
   contactName    String?
   contactPhone   String?
+  // Link do local no Google Maps pra pedir avaliação (ex.: "Avaliar no Google" na pesquisa
+  // de satisfação do cliente quando a nota é 10) — cada espaço tem endereço próprio, então
+  // o link é por Venue, não fixo no sistema.
+  googleReviewUrl String?
   // Cor do local no calendário de eventos (hex, ex. "#3b82f6") — mostrada como borda do evento;
   // evento com 2+ locais mostra a borda dividida entre as cores de cada um.
   color          String?

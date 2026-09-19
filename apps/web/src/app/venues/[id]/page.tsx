@@ -7,7 +7,7 @@ import Layout from '@/components/Layout';
 import VenueSpotifyCard from '@/components/VenueSpotifyCard';
 import VenueColorPicker from '@/components/VenueColorPicker';
 import { venuesApiExtended } from '@/lib/api';
-import { MapPin, Users, Phone, User, ArrowLeft, Edit2, Trash2, Plus, HelpCircle, X, Check, GripVertical, Upload, Image, Package, Save, Loader2, LayoutGrid, RotateCw, AlertCircle, Clock, ListChecks } from 'lucide-react';
+import { MapPin, Users, Phone, User, ArrowLeft, Edit2, Trash2, Plus, HelpCircle, X, Check, GripVertical, Upload, Image, Package, Save, Loader2, LayoutGrid, RotateCw, AlertCircle, Clock, ListChecks, Star } from 'lucide-react';
 import { ELEMENT_ICONS } from '@/components/layout-element-icons';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
@@ -47,6 +47,7 @@ interface Venue {
   contactName: string | null;
   contactPhone: string | null;
   color: string | null;
+  googleReviewUrl: string | null;
   floorPlanWidthMeters: number | null;
   floorPlanHeightMeters: number | null;
   layoutStock: Record<string, number> | null;
@@ -118,6 +119,9 @@ export default function VenueDetailPage() {
   const [stockMsg, setStockMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [savingColor, setSavingColor] = useState(false);
   const [colorMsg, setColorMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [googleReviewUrlDraft, setGoogleReviewUrlDraft] = useState('');
+  const [savingGoogleUrl, setSavingGoogleUrl] = useState(false);
+  const [googleUrlMsg, setGoogleUrlMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   // Calibration state
   const [calMode, setCalMode] = useState<'off' | 'p1' | 'p2' | 'confirm'>('off');
@@ -243,6 +247,7 @@ export default function VenueDetailPage() {
         const v = venueRes.value.venue;
         setVenue(v);
         setLayoutStock(v.layoutStock ?? {});
+        setGoogleReviewUrlDraft(v.googleReviewUrl ?? '');
       }
       if (planRes.status === 'fulfilled') setFloorPlanUrl(planRes.value.url ?? null);
       if (configRes.status === 'fulfilled') {
@@ -297,6 +302,29 @@ export default function VenueDetailPage() {
     } finally {
       setSavingColor(false);
       setTimeout(() => setColorMsg(null), 3000);
+    }
+  }
+
+  async function saveGoogleReviewUrl() {
+    if (!venue) return;
+    setSavingGoogleUrl(true);
+    setGoogleUrlMsg(null);
+    try {
+      const url = googleReviewUrlDraft.trim() || null;
+      const res = await fetch(`${API_URL}/api/v2/venues/${venueId}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ googleReviewUrl: url }),
+      });
+      if (!res.ok) throw new Error();
+      setVenue({ ...venue, googleReviewUrl: url });
+      setGoogleUrlMsg({ ok: true, text: 'Link salvo!' });
+    } catch {
+      setGoogleUrlMsg({ ok: false, text: 'Erro ao salvar.' });
+    } finally {
+      setSavingGoogleUrl(false);
+      setTimeout(() => setGoogleUrlMsg(null), 3000);
     }
   }
 
@@ -744,6 +772,41 @@ export default function VenueDetailPage() {
               </p>
               <VenueColorPicker value={venue.color} onChange={saveColor} />
               {savingColor && <p className="text-xs text-muted-foreground mt-2">Salvando...</p>}
+            </div>
+          </div>
+
+          {/* Link de Avaliação no Google */}
+          <div className="bg-card rounded-lg border shadow-sm">
+            <div className="px-6 py-4 border-b flex items-center justify-between">
+              <h2 className="text-lg font-medium text-card-foreground flex items-center gap-2">
+                <Star className="size-4 text-muted-foreground" /> Avaliação no Google
+              </h2>
+              {googleUrlMsg && (
+                <span className={`text-xs ${googleUrlMsg.ok ? 'text-green-600' : 'text-destructive'}`}>{googleUrlMsg.text}</span>
+              )}
+            </div>
+            <div className="p-6">
+              <p className="text-xs text-muted-foreground mb-3">
+                Link do local no Google Maps (ex.: "maps.app.goo.gl/..."). Quando o cliente dá
+                nota 10 na pesquisa de satisfação do evento, ele vê um convite pra avaliar aqui —
+                usando o link do espaço em que o evento aconteceu.
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  value={googleReviewUrlDraft}
+                  onChange={(e) => setGoogleReviewUrlDraft(e.target.value)}
+                  placeholder="https://maps.app.goo.gl/..."
+                  className="flex-1 rounded-lg border px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+                <button
+                  onClick={saveGoogleReviewUrl}
+                  disabled={savingGoogleUrl}
+                  className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+                >
+                  {savingGoogleUrl ? 'Salvando...' : 'Salvar'}
+                </button>
+              </div>
             </div>
           </div>
 

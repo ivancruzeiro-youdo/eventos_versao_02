@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { npsOrgApi } from '@/lib/api';
-import { CheckCircle, Upload, X } from 'lucide-react';
+import { CheckCircle, Upload, X, Star } from 'lucide-react';
 
 const SCORE_LABELS: Record<number, string> = {
   0: 'Péssimo', 1: 'Muito ruim', 2: 'Ruim', 3: 'Abaixo do esperado', 4: 'Insatisfatório',
@@ -30,6 +30,7 @@ export default function NpsOrgPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [event, setEvent] = useState<{ name: string; clientName?: string } | null>(null);
+  const [googleReviewVenues, setGoogleReviewVenues] = useState<{ id: string; name: string; googleReviewUrl: string }[]>([]);
   const [alreadySubmitted, setAlreadySubmitted] = useState(false);
   const [existingScore, setExistingScore] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -52,6 +53,7 @@ export default function NpsOrgPage() {
     try {
       const res = await npsOrgApi.get(token);
       setEvent(res.event);
+      setGoogleReviewVenues(res.googleReviewVenues || []);
       setAlreadySubmitted(res.alreadySubmitted);
       if (res.score !== null && res.score !== undefined) setExistingScore(res.score);
     } catch {
@@ -125,9 +127,13 @@ export default function NpsOrgPage() {
   }
 
   if (alreadySubmitted || submitted) {
+    // Nota efetiva: se acabou de enviar agora, é a nota escolhida nesta sessão; se a pesquisa
+    // já tinha sido respondida antes (recarregou a página, por exemplo), é a nota já salva.
+    const finalScore = submitted ? selectedScore : existingScore;
+
     return (
       <div className="min-h-screen flex items-center justify-center bg-background p-4">
-        <div className="text-center max-w-sm">
+        <div className="text-center max-w-sm w-full">
           <CheckCircle className="text-green-500 mx-auto mb-4" size={56} />
           <h1 className="text-2xl font-bold mb-2">Obrigado!</h1>
           <p className="text-muted-foreground">
@@ -135,9 +141,42 @@ export default function NpsOrgPage() {
               ? 'Sua avaliação foi registrada com sucesso.'
               : 'Esta pesquisa já foi respondida.'}
           </p>
-          {submitted && existingScore !== null && (
+          {finalScore !== null && (
             <div className="mt-4 text-4xl font-bold">
-              {existingScore >= 9 ? '🌟' : existingScore >= 7 ? '👍' : '🙏'}
+              {finalScore >= 9 ? '🌟' : finalScore >= 7 ? '👍' : '🙏'}
+            </div>
+          )}
+
+          {/* Nota máxima: convida a espalhar a experiência com uma avaliação pública também —
+              só nesse caso, pra não pedir pra quem teve uma experiência mediana ou ruim. O link
+              é por espaço (cada Venue tem endereço/perfil próprio no Google) — se o evento usou
+              mais de um espaço com link cadastrado, mostra um botão pra cada um. Some da tela
+              se nenhum espaço do evento tiver link cadastrado ainda. */}
+          {finalScore === 10 && googleReviewVenues.length > 0 && (
+            <div className="mt-8 bg-card border rounded-2xl p-6 text-left">
+              <div className="flex justify-center gap-1 mb-3">
+                {Array.from({ length: 5 }, (_, i) => (
+                  <Star key={i} size={22} className="fill-yellow-400 text-yellow-400" />
+                ))}
+              </div>
+              <p className="text-center font-semibold mb-1">Que ótimo que você adorou! 🎉</p>
+              <p className="text-center text-sm text-muted-foreground mb-5">
+                Você poderia deixar essa mesma nota pra gente no Google? Ajuda muito outras pessoas a conhecerem nosso trabalho.
+              </p>
+              <div className="space-y-2">
+                {googleReviewVenues.map(v => (
+                  <a
+                    key={v.id}
+                    href={v.googleReviewUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-primary text-primary-foreground font-semibold text-base hover:bg-primary/90 transition-opacity"
+                  >
+                    <Star size={18} className="fill-current" />
+                    Avaliar {googleReviewVenues.length > 1 ? v.name : 'no Google'}
+                  </a>
+                ))}
+              </div>
             </div>
           )}
         </div>

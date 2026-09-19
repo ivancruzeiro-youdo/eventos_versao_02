@@ -205,15 +205,28 @@ export async function closureRoutes(app: FastifyInstance) {
     const nps = await (prisma as any).eventNPSOrganizador.findUnique({
       where: { token },
       include: {
-        event: { select: { name: true, startAt: true, clientName: true } },
+        event: {
+          select: {
+            name: true, startAt: true, clientName: true,
+            // Link de avaliação no Google é por espaço (cada Venue tem endereço/perfil
+            // próprio) — manda todos os espaços do evento com link cadastrado, pra tela
+            // de nota 10 oferecer o(s) botão(ões) certo(s).
+            venues: { select: { venue: { select: { id: true, name: true, googleReviewUrl: true } } } },
+          },
+        },
       },
     });
 
     if (!nps) return reply.status(404).send({ error: 'Pesquisa não encontrada' });
 
+    const googleReviewVenues = (nps.event.venues ?? [])
+      .map((ev: any) => ev.venue)
+      .filter((v: any) => !!v.googleReviewUrl);
+
     return {
       success: true,
-      event: nps.event,
+      event: { ...nps.event, venues: undefined },
+      googleReviewVenues,
       alreadySubmitted: !!nps.submittedAt,
       score: nps.score,
     };

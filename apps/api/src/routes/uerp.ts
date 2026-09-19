@@ -420,6 +420,7 @@ export async function uerpRoutes(app: FastifyInstance) {
       contactName?: string;
       contactPhone?: string;
       color?: string | null;
+      googleReviewUrl?: string | null;
       floorPlanWidthMeters?: number;
       floorPlanHeightMeters?: number;
       layoutStock?: Record<string, number>;
