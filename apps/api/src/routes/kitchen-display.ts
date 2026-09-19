@@ -9,6 +9,7 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '../server.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { publishKitchenEvent, subscribeKitchenEvents } from '../lib/kitchen-events.js';
+import { mergeServiceWindows } from '../lib/service-windows.js';
 
 const WRITE_ROLES = ['admin', 'event_owner', 'operator'];
 
@@ -198,6 +199,7 @@ const itemInclude = {
   choices: true,
   answers: true,
   product: { select: { id: true, name: true, questions: { select: { id: true, text: true, type: true } } } },
+  serviceWindows: { orderBy: { sortOrder: 'asc' } },
 } as const;
 
 export async function kitchenDisplayRoutes(app: FastifyInstance) {
@@ -512,16 +514,33 @@ export async function kitchenDisplayRoutes(app: FastifyInstance) {
         // Aqui vão TODOS os itens de A&B com horário, bebidas incluídas — é o mesmo conteúdo
         // do cronograma normal do evento, e saber que o bar abre às 20h é contexto útil pra
         // cozinha. O filtro de bebida vale pra lista de produção/sequência, não pro cronograma.
+        // Item com 2+ janelas vira uma entrada por janela, com uma linha "PAUSA SERVIÇO"
+        // sintética logo após o fim de cada janela — sinaliza pra cozinha que o serviço desse
+        // item para ali (e, quando houver próxima janela, volta a andar a partir dela).
         abServiceEntries: items
-          .filter(i => i.serviceStartAt)
-          .map(i => ({
-            eventItemId: i.id,
-            name: i.name,
-            kind: classifyPackage(i.name),
-            startAt: i.serviceStartAt,
-            endAt: i.serviceEndAt,
-            virtual: true as const,
-          }))
+          .flatMap(i => {
+            const windows = mergeServiceWindows(i);
+            const entries = windows.map((w, idx) => ({
+              eventItemId: idx === 0 ? i.id : `${i.id}#${idx}`,
+              name: i.name,
+              kind: classifyPackage(i.name),
+              startAt: w.startAt,
+              endAt: w.endAt,
+              virtual: true as const,
+              isPause: false as const,
+            }));
+            if (windows.length < 2) return entries;
+            const pauses = windows.map((w, idx) => ({
+              eventItemId: `${i.id}#pause${idx}`,
+              name: 'PAUSA SERVIÇO',
+              kind: 'pausa' as const,
+              startAt: w.endAt,
+              endAt: null,
+              virtual: true as const,
+              isPause: true as const,
+            }));
+            return [...entries, ...pauses];
+          })
           .sort((a, b) => a.startAt!.getTime() - b.startAt!.getTime()),
       },
     };

@@ -55,7 +55,7 @@ export interface ServiceData {
   };
   schedule: {
     activities: { id: string; name: string; description: string | null; startAt: string; endAt: string; team: { id: string; name: string } | null; isKitchen: boolean }[];
-    abServiceEntries: { eventItemId: string; name: string; kind: string; startAt: string; endAt: string | null }[];
+    abServiceEntries: { eventItemId: string; name: string; kind: string; startAt: string; endAt: string | null; isPause?: boolean }[];
   };
 }
 
@@ -587,23 +587,37 @@ export default function ServicePanel({ data, cmd, lateAlerts, audioOn, onEnableA
         ) : (
           <div className="space-y-1.5">
             {timeline.map(t => t.kind === 'ab' ? (
-              <div
-                key={`ab-${t.ab.eventItemId}`}
-                className="rounded-lg border border-dashed border-amber-400 bg-amber-50/50 p-2"
-              >
-                <div className="flex flex-wrap items-baseline gap-2">
-                  <span className="text-sm font-bold tabular-nums text-amber-700">
-                    {fmtTime(t.ab.startAt)}{t.ab.endAt && `–${fmtTime(t.ab.endAt)}`}
-                  </span>
-                  <span className="text-sm font-medium text-slate-700">{t.ab.name}</span>
-                  <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-200 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
-                    <UtensilsCrossed className="size-2.5" /> A&amp;B
-                  </span>
-                  {t.ab.kind === 'bebida' && (
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">bar</span>
-                  )}
+              t.ab.isPause ? (
+                <div
+                  key={`ab-${t.ab.eventItemId}`}
+                  className="rounded-lg border border-dashed border-slate-300 bg-slate-100 p-2"
+                >
+                  <div className="flex flex-wrap items-baseline gap-2">
+                    <span className="text-sm font-bold tabular-nums text-slate-500">
+                      {fmtTime(t.ab.startAt)}
+                    </span>
+                    <span className="text-sm font-bold uppercase tracking-wide text-slate-500">{t.ab.name}</span>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div
+                  key={`ab-${t.ab.eventItemId}`}
+                  className="rounded-lg border border-dashed border-amber-400 bg-amber-50/50 p-2"
+                >
+                  <div className="flex flex-wrap items-baseline gap-2">
+                    <span className="text-sm font-bold tabular-nums text-amber-700">
+                      {fmtTime(t.ab.startAt)}{t.ab.endAt && `–${fmtTime(t.ab.endAt)}`}
+                    </span>
+                    <span className="text-sm font-medium text-slate-700">{t.ab.name}</span>
+                    <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-200 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                      <UtensilsCrossed className="size-2.5" /> A&amp;B
+                    </span>
+                    {t.ab.kind === 'bebida' && (
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">bar</span>
+                    )}
+                  </div>
+                </div>
+              )
             ) : (
               <div
                 key={t.act.id}
