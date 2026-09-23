@@ -1,0 +1,16 @@
+{
+  "name": "YouDO Freelancer",
+  "short_name": "YouDO Vagas",
+  "description": "Encontre e candidate-se a vagas de trabalho freelance",
+  "start_url": "/freelancer/dashboard",
+  "scope": "/freelancer/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1a1f2e",
+  "theme_color": "#1a1f2e",
+  "icons": [
+    { "src": "/freelancer-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/freelancer-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/freelancer-icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
