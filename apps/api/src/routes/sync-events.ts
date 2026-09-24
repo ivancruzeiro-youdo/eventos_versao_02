@@ -282,6 +282,13 @@ function groupContracts(contracts: any[]): Map<string, any[]> {
 function buildItemsSnapshot(contracts: any[]): { name: string; qty: number; unit: string; externalProductCode: string | null; categoryName: string | null; occurrenceIndex: number; sourceContractExternalId: string | null }[] {
   type Item = { name: string; qty: number; unit: string; externalProductCode: string | null; categoryName: string | null; occurrenceIndex: number; sourceContractExternalId: string | null };
   const primary = new Map<string, Item>();
+  // Achado real: a Userp tem DUAS entradas de catálogo diferentes chamadas "Finger Food 6"
+  // (product_id 275 e 20) — quando um contrato secundário lança um ajuste negativo (-100) usando
+  // o SKU 20 pra cancelar o positivo (+100) lançado com o SKU 275, os dois viram `key` diferentes
+  // aqui e nunca se encontram: o negativo cai como um item "novo" sem nada pra descontar, e o
+  // positivo original nunca é zerado (some do saldo mas continua aparecendo em A&B). Índice por
+  // nome normalizado resolve isso — mesmo nome, produtos catalogados diferentes, soma junto.
+  const byName = new Map<string, Item>();
   const extras: Item[] = [];
   const extraCounts: Record<string, number> = {};
 
@@ -330,7 +337,17 @@ function buildItemsSnapshot(contracts: any[]): { name: string; qty: number; unit
         if (existing) {
           existing.qty += qty; // additive across contracts — main + secondary compose, never replace
         } else {
-          primary.set(key, base);
+          const nameKey = base.name.trim().toLowerCase();
+          const existingByName = byName.get(nameKey);
+          if (existingByName) {
+            // Mesmo nome, product_id diferente (catálogo duplicado na Userp) — soma no item já
+            // existente em vez de criar um segundo, pra um ajuste negativo com outro SKU
+            // conseguir zerar/reduzir o total de verdade.
+            existingByName.qty += qty;
+          } else {
+            primary.set(key, base);
+            byName.set(nameKey, base);
+          }
         }
       }
     }
