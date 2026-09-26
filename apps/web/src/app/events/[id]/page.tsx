@@ -139,7 +139,7 @@ export default function EventDetailPage() {
   }[]>([]);
   const [confirmingRemovalId, setConfirmingRemovalId] = useState<string | null>(null);
   const [pendingItemRemovals, setPendingItemRemovals] = useState<{
-    itemId: string; name: string; category: string; quantity: number; contractExternalId: string;
+    itemId: string; name: string; category: string; quantity: number; contractExternalId: string | null;
   }[]>([]);
   const [confirmingItemRemovalId, setConfirmingItemRemovalId] = useState<string | null>(null);
 
@@ -1385,7 +1385,7 @@ export default function EventDetailPage() {
                 <AlertTriangle size={16} className="text-amber-600 mt-0.5 shrink-0" />
                 <div className="flex-1">
                   <p className="text-sm font-medium text-amber-900">
-                    "{pr.name}" não foi mais encontrado no contrato {pr.contractExternalId} do UERP.
+                    "{pr.name}" não foi mais encontrado {pr.contractExternalId ? `no contrato ${pr.contractExternalId}` : 'em nenhum contrato válido'} do UERP.
                   </p>
                   <p className="text-xs text-amber-800 mt-1">
                     {pr.category} — qtd. {pr.quantity}. O contrato ainda existe, mas esse produto não está mais nele.

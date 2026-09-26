@@ -1330,12 +1330,27 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     // from the whole-contract case above) — e.g. the contract still exists, but this one
     // product line was removed/replaced in Userp. Same detect-only, confirm-to-delete pattern
     // via POST /events/:id/items/:itemId/confirm-removal.
+    //
+    // Também inclui item com sourceContractId nulo, DESDE QUE tenha productId — sinal de que
+    // veio de sync (nunca é preenchido em item criado manualmente), só que de antes desse campo
+    // existir. Sem isso, um item importado nessa janela ficava invisível pra sempre nessa
+    // checagem mesmo depois do produto sumir de verdade do contrato na Userp — caso real: um
+    // "Pacote de Bebidas 1" (produto antigo, trocado por outro na Userp dentro do MESMO
+    // contrato) nunca aparecia como pendência de remoção, e o evento ficava com os dois pra
+    // sempre. A verificação contra allLiveNames logo abaixo (união de todos os contratos
+    // válidos, não só o que o item aponta) já cobre o caso de falso positivo.
     const pendingItemRemovals: {
-      itemId: string; name: string; category: string; quantity: number; contractExternalId: string;
+      itemId: string; name: string; category: string; quantity: number; contractExternalId: string | null;
     }[] = [];
     if (validExternalIds.length > 0) {
       const itemsFromValidContracts = await (prisma as any).eventItem.findMany({
-        where: { eventId, sourceContractId: { in: validExternalIds } },
+        where: {
+          eventId,
+          OR: [
+            { sourceContractId: { in: validExternalIds } },
+            { sourceContractId: null, productId: { not: null } },
+          ],
+        },
         select: { id: true, name: true, category: true, quantity: true, sourceContractId: true },
       });
       for (const it of itemsFromValidContracts) {
@@ -1521,7 +1536,14 @@ export async function syncEventsRoutes(app: FastifyInstance) {
 
     const item = await (prisma as any).eventItem.findFirst({ where: { id: itemId, eventId } });
     if (!item) return reply.status(404).send({ error: 'Item não encontrado neste evento.' });
-    if (!item.sourceContractId) return reply.status(400).send({ error: 'Este item não tem contrato de origem registrado.' });
+    // sourceContractId nulo só bloqueia aqui se o item também não tiver productId — aí sim é
+    // provavelmente manual, nunca veio de sync, e não faz sentido "confirmar remoção contra o
+    // Userp" dele. Item com productId e sourceContractId nulo é sync de antes desse campo
+    // existir (ver pendingItemRemovals acima) — a re-checagem abaixo já confirma contra TODOS
+    // os contratos válidos do evento antes de apagar, então não depende desse campo.
+    if (!item.sourceContractId && !item.productId) {
+      return reply.status(400).send({ error: 'Este item não tem contrato de origem registrado.' });
+    }
 
     try {
       await getUserpToken();
@@ -1563,7 +1585,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     await (prisma as any).eventComment.create({
       data: {
         eventId, userId: user.id || null, isSystem: true,
-        content: `Item "${item.name}" (${categoryLabel[item.category] || item.category}, qtd. ${item.quantity}) não foi mais encontrado no contrato ${item.sourceContractId} do Userp e foi removido por ${user.name || user.email}.`,
+        content: `Item "${item.name}" (${categoryLabel[item.category] || item.category}, qtd. ${item.quantity}) não foi mais encontrado ${item.sourceContractId ? `no contrato ${item.sourceContractId}` : 'em nenhum contrato válido'} do Userp e foi removido por ${user.name || user.email}.`,
       },
     });
 
