@@ -327,7 +327,32 @@ export async function clientRoutes(app: FastifyInstance) {
       orderBy: { startAt: 'asc' },
     });
 
-    return { success: true, schedules };
+    // Mesmo merge visual do cronograma do staff (schedules.ts) — sem isso o cliente só via o
+    // horário de A&B/Entretenimento dentro da própria aba do item, e ficava sem noção de como
+    // esse horário se encaixava no resto do cronograma do evento.
+    const abServiceItemsRaw = await prisma.eventItem.findMany({
+      where: { eventId: session.eventId, category: { in: ['ab', 'entretenimento'] }, serviceStartAt: { not: null } },
+      select: {
+        id: true, name: true, quantity: true, unit: true, category: true,
+        serviceStartAt: true, serviceEndAt: true,
+        serviceWindows: { orderBy: { sortOrder: 'asc' } },
+      },
+    });
+    const abServiceItems = abServiceItemsRaw
+      .flatMap((item) =>
+        mergeServiceWindows(item).map((w, idx) => ({
+          id: idx === 0 ? item.id : `${item.id}#${idx}`,
+          name: item.name,
+          quantity: item.quantity,
+          unit: item.unit,
+          category: item.category,
+          serviceStartAt: w.startAt,
+          serviceEndAt: w.endAt,
+        })),
+      )
+      .sort((a, b) => a.serviceStartAt.getTime() - b.serviceStartAt.getTime());
+
+    return { success: true, schedules, abServiceItems };
   });
 
   // Get client approvals (plan items + schedule items confirmed as correct)

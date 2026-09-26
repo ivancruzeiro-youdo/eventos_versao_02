@@ -7,7 +7,7 @@ import {
   Upload, Trash2, Plus, Search, CheckCircle, AlertCircle,
   FileImage, FileVideo, User, ChevronDown, ChevronRight, X,
   Utensils, Circle, LayoutGrid, Lock, MonitorPlay, Video, Music,
-  Image as ImageIcon, Pencil, Check, ZoomIn, ZoomOut, Wine, MapPin,
+  Image as ImageIcon, Pencil, Check, ZoomIn, ZoomOut, Wine, MapPin, PartyPopper,
 } from 'lucide-react';
 import { ELEMENT_ICONS } from '@/components/layout-element-icons';
 
@@ -1382,12 +1382,13 @@ function formatServiceTime(startAt: string, endAt: string | null): string {
   return startDay === endDay ? `${start} – ${end}` : `${start} – ${end} (${endDay})`;
 }
 
-function FoodTab({ token, jwt, approvals, onToggle, locked }: {
+function FoodTab({ token, jwt, approvals, onToggle, locked, category = 'ab' }: {
   token: string;
   jwt: string;
   approvals: ApprovalSet;
   onToggle: (itemType: string, itemId: string) => Promise<void>;
   locked?: boolean;
+  category?: 'ab' | 'entretenimento';
 }) {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -1406,15 +1407,18 @@ function FoodTab({ token, jwt, approvals, onToggle, locked }: {
     setToggling(t => ({ ...t, [itemId]: false }));
   }
 
-  if (loading) return <div className="py-8 text-center text-gray-400">Carregando itens de A&B...</div>;
+  const label = category === 'ab' ? 'A&B' : 'Entretenimento';
+  const Icon = category === 'ab' ? Utensils : PartyPopper;
 
-  const abItems: any[] = (data?.items || []).filter((i: any) => i.category === 'ab');
+  if (loading) return <div className="py-8 text-center text-gray-400">Carregando itens de {label}...</div>;
+
+  const abItems: any[] = (data?.items || []).filter((i: any) => i.category === category);
 
   if (abItems.length === 0) {
     return (
       <div className="py-12 text-center">
-        <Utensils size={40} className="mx-auto text-gray-300 mb-3" />
-        <p className="text-gray-500">Nenhum item de A&B contratado.</p>
+        <Icon size={40} className="mx-auto text-gray-300 mb-3" />
+        <p className="text-gray-500">Nenhum item de {label} contratado.</p>
       </div>
     );
   }
@@ -1498,19 +1502,23 @@ function ScheduleTab({ token, jwt, approvals, onToggle, locked }: {
   locked?: boolean;
 }) {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [abServiceItems, setAbServiceItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     fetch(`/api/v2/client/${token}/schedules`, { headers: { 'x-client-auth': jwt } })
       .then(r => r.json())
-      .then(d => setSchedules(d.schedules || []))
+      .then(d => {
+        setSchedules(d.schedules || []);
+        setAbServiceItems(d.abServiceItems || []);
+      })
       .finally(() => setLoading(false));
   }, [token, jwt]);
 
   if (loading) return <div className="py-8 text-center text-gray-400">Carregando cronograma...</div>;
 
-  if (schedules.length === 0) {
+  if (schedules.length === 0 && abServiceItems.length === 0) {
     return (
       <div className="py-12 text-center">
         <Clock size={40} className="mx-auto text-gray-300 mb-3" />
@@ -1525,31 +1533,88 @@ function ScheduleTab({ token, jwt, approvals, onToggle, locked }: {
     setToggling(t => ({ ...t, [scheduleId]: false }));
   }
 
+  async function handleToggleAbTime(itemId: string) {
+    setToggling(t => ({ ...t, [itemId]: true }));
+    await onToggle('ab_time', itemId);
+    setToggling(t => ({ ...t, [itemId]: false }));
+  }
+
+  // Mescla o cronograma "de verdade" (EventSchedule) com os horários de serviço de A&B/
+  // Entretenimento — só visual, ordenados juntos por horário — pra o cliente não precisar
+  // pular pra outra aba pra entender onde o horário do buffet encaixa no resto do evento.
+  type TL =
+    | { kind: 'schedule'; at: number; s: Schedule }
+    | { kind: 'ab'; at: number; item: any };
+  const timeline: TL[] = [
+    ...schedules.map((s): TL => ({ kind: 'schedule', at: new Date(s.startAt).getTime(), s })),
+    ...abServiceItems.map((item): TL => ({ kind: 'ab', at: new Date(item.serviceStartAt).getTime(), item })),
+  ].sort((a, b) => a.at - b.at);
+
   return (
     <div className="space-y-3">
-      {schedules.map(s => {
-        const approved = approvals.has(`schedule:${s.id}`);
+      {timeline.map(entry => {
+        if (entry.kind === 'schedule') {
+          const s = entry.s;
+          const approved = approvals.has(`schedule:${s.id}`);
+          return (
+            <div key={`s-${s.id}`} className={`bg-white border rounded-xl p-4 flex gap-4 items-start ${approved ? 'border-green-300' : ''}`}>
+              <div className="shrink-0 text-center min-w-[56px]">
+                <p className="text-xs text-gray-400">Início</p>
+                <p className="text-sm font-bold text-gray-900 leading-tight">
+                  {new Date(s.startAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })}
+                </p>
+                <p className="text-xs text-gray-400 mt-1">Fim</p>
+                <p className="text-sm font-medium text-gray-600 leading-tight">
+                  {new Date(s.endAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })}
+                </p>
+              </div>
+              <div className="border-l pl-4 flex-1 min-w-0">
+                <p className="font-semibold text-sm text-gray-900">{s.name}</p>
+                {s.team && <p className="text-xs text-primary mt-0.5">Equipe: {s.team.name}</p>}
+                {s.description && <p className="text-sm text-gray-500 mt-1">{s.description}</p>}
+              </div>
+              <ApproveButton
+                approved={approved}
+                onToggle={() => handleToggle(s.id)}
+                toggling={!!toggling[s.id]}
+                locked={locked}
+              />
+            </div>
+          );
+        }
+
+        const item = entry.item;
+        const approved = approvals.has(`ab_time:${item.id}`);
+        const Icon = item.category === 'entretenimento' ? PartyPopper : Utensils;
         return (
-          <div key={s.id} className={`bg-white border rounded-xl p-4 flex gap-4 items-start ${approved ? 'border-green-300' : ''}`}>
+          <div key={`ab-${item.id}`} className={`bg-amber-50/60 border border-dashed border-amber-300 rounded-xl p-4 flex gap-4 items-start ${approved ? 'border-green-300 bg-green-50/60' : ''}`}>
             <div className="shrink-0 text-center min-w-[56px]">
               <p className="text-xs text-gray-400">Início</p>
               <p className="text-sm font-bold text-gray-900 leading-tight">
-                {new Date(s.startAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })}
+                {new Date(item.serviceStartAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })}
               </p>
-              <p className="text-xs text-gray-400 mt-1">Fim</p>
-              <p className="text-sm font-medium text-gray-600 leading-tight">
-                {new Date(s.endAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })}
-              </p>
+              {item.serviceEndAt && (
+                <>
+                  <p className="text-xs text-gray-400 mt-1">Fim</p>
+                  <p className="text-sm font-medium text-gray-600 leading-tight">
+                    {new Date(item.serviceEndAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })}
+                  </p>
+                </>
+              )}
             </div>
             <div className="border-l pl-4 flex-1 min-w-0">
-              <p className="font-semibold text-sm text-gray-900">{s.name}</p>
-              {s.team && <p className="text-xs text-primary mt-0.5">Equipe: {s.team.name}</p>}
-              {s.description && <p className="text-sm text-gray-500 mt-1">{s.description}</p>}
+              <div className="flex items-center gap-1.5">
+                <Icon size={13} className="text-amber-600 shrink-0" />
+                <p className="font-semibold text-sm text-gray-900">{item.name}</p>
+              </div>
+              <p className="text-xs text-amber-700 mt-0.5">
+                Horário de serviço · {item.category === 'entretenimento' ? 'Entretenimento' : 'A&B'}
+              </p>
             </div>
             <ApproveButton
               approved={approved}
-              onToggle={() => handleToggle(s.id)}
-              toggling={!!toggling[s.id]}
+              onToggle={() => handleToggleAbTime(item.id)}
+              toggling={!!toggling[item.id]}
               locked={locked}
             />
           </div>
@@ -1600,7 +1665,7 @@ function StatusBanner({ token, jwt, approvals }: { token: string; jwt: string; a
     });
   });
 
-  const abItemsWithTime: any[] = (planData.items || []).filter((i: any) => i.category === 'ab' && i.serviceStartAt);
+  const abItemsWithTime: any[] = (planData.items || []).filter((i: any) => (i.category === 'ab' || i.category === 'entretenimento') && i.serviceStartAt);
 
   const unanswered = allQs.filter(q => !q.answered && q.required).length;
   const answeredUnconfirmed = allQs.filter(q => q.answered && !approvals.has(q.key)).length;
@@ -2268,6 +2333,7 @@ const TABS = [
   { id: 'plan', label: 'Plano', icon: CheckCircle },
   { id: 'schedule', label: 'Cronograma', icon: Clock },
   { id: 'ab', label: 'A&B', icon: Utensils },
+  { id: 'entretenimento', label: 'Entretenimento', icon: PartyPopper },
   { id: 'degustacoes', label: 'Degustações', icon: Wine },
   { id: 'guests', label: 'Convidados', icon: Users },
   { id: 'fornecedores', label: 'Fornecedores', icon: User },
@@ -2390,7 +2456,8 @@ export default function ClientPortalPage() {
         {activeTab === 'guests' && <GuestsTab token={token} jwt={jwt} />}
         {activeTab === 'fornecedores' && <FornecedoresTab token={token} jwt={jwt} />}
         {activeTab === 'checkin' && <CheckinReportTab token={token} jwt={jwt} />}
-        {activeTab === 'ab' && <FoodTab token={token} jwt={jwt} approvals={approvals} onToggle={toggleApproval} locked={locked} />}
+        {activeTab === 'ab' && <FoodTab token={token} jwt={jwt} approvals={approvals} onToggle={toggleApproval} locked={locked} category="ab" />}
+        {activeTab === 'entretenimento' && <FoodTab token={token} jwt={jwt} approvals={approvals} onToggle={toggleApproval} locked={locked} category="entretenimento" />}
         {activeTab === 'degustacoes' && <DegustacoesTab token={token} jwt={jwt} />}
         {activeTab === 'plan' && <PlanTab token={token} jwt={jwt} approvals={approvals} onToggle={toggleApproval} locked={locked} />}
         {activeTab === 'schedule' && <ScheduleTab token={token} jwt={jwt} approvals={approvals} onToggle={toggleApproval} locked={locked} />}
