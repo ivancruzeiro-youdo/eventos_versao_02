@@ -405,6 +405,53 @@ export async function clientRoutes(app: FastifyInstance) {
     }
   });
 
+  // Get venue rules for this event's venue(s) + whether client already accepted them all
+  app.get('/client/:token/rules', async (request, reply) => {
+    const session = await getClientSession(app, request, reply);
+    if (!session) return;
+
+    const event = await prisma.event.findUnique({
+      where: { id: session.eventId },
+      select: {
+        venues: { include: { venue: { select: { id: true, name: true, rules: { orderBy: { order: 'asc' } } } } } },
+      },
+    });
+    if (!event) return reply.status(404).send({ error: 'Evento não encontrado' });
+
+    const rules = event.venues.flatMap(ev => ev.venue.rules.map(r => ({
+      id: r.id,
+      text: r.text,
+      venueName: ev.venue.name,
+    })));
+
+    const acceptance = await (prisma as any).venueRuleAcceptance.findUnique({
+      where: { eventId: session.eventId },
+      select: { acceptedAt: true },
+    });
+
+    return { success: true, rules, accepted: !!acceptance, acceptedAt: acceptance?.acceptedAt ?? null };
+  });
+
+  // Final wizard confirmation: client accepts the full set of venue rules at once
+  app.post('/client/:token/rules/accept', async (request, reply) => {
+    const session = await getClientSession(app, request, reply);
+    if (!session) return;
+
+    const ip = (request.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+      ?? request.headers['x-real-ip'] as string
+      ?? request.ip
+      ?? null;
+    const userAgent = (request.headers['user-agent'] as string) ?? null;
+
+    await (prisma as any).venueRuleAcceptance.upsert({
+      where: { eventId: session.eventId },
+      create: { eventId: session.eventId, ip, userAgent },
+      update: {},
+    });
+
+    return { success: true, accepted: true };
+  });
+
   // ── Fornecedores (EventProfessional) — client-facing ────────────────────────
 
   // List professionals/fornecedores linked to the event

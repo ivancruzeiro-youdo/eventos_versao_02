@@ -378,6 +378,7 @@ export async function uerpRoutes(app: FastifyInstance) {
       include: {
         _count: { select: { events: true } },
         questions: { orderBy: { order: 'asc' } },
+        rules: { orderBy: { order: 'asc' } },
         events: {
           take: 5,
           orderBy: { event: { startAt: 'desc' } },

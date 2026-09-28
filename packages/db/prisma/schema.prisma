@@ -213,6 +213,7 @@ model Event {
   members         EventMember[]
   npsOrganizador  EventNPSOrganizador?
   clientApprovals ClientApproval[]
+  ruleAcceptance  VenueRuleAcceptance?
 
   activities            EventActivity[]
   layouts               EventLayout[]
@@ -305,8 +306,36 @@ model Venue {
   devices          VenueDevice[]
   spotifyConnection VenueSpotifyConnection?
   activityTemplates VenueActivityTemplate[]
+  rules            VenueRule[]
 
   @@index([employerId])
+}
+
+// Regra do espaço que o cliente precisa aceitar (uma a uma, num wizard) antes de acessar
+// o plano do evento no portal do cliente — ex. "Não é permitido fogos de artifício".
+model VenueRule {
+  id        String   @id @default(uuid())
+  venueId   String
+  text      String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  venue Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
+
+  @@index([venueId])
+}
+
+// Aceite final (todo-ou-nada) do cliente ao conjunto de regras do(s) espaço(s) do evento —
+// é o gate de acesso ao plano, distinto das aprovações de conteúdo em ClientApproval.
+model VenueRuleAcceptance {
+  id         String   @id @default(uuid())
+  eventId    String   @unique
+  acceptedAt DateTime @default(now())
+  ip         String?
+  userAgent  String?
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
 }
 
 // Atividade obrigatória de um espaço, replicada como EventActivity de verdade sempre que um

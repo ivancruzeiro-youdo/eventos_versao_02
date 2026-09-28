@@ -8,6 +8,7 @@ import {
   FileImage, FileVideo, User, ChevronDown, ChevronRight, X,
   Utensils, Circle, LayoutGrid, Lock, MonitorPlay, Video, Music,
   Image as ImageIcon, Pencil, Check, ZoomIn, ZoomOut, Wine, MapPin, PartyPopper,
+  ShieldCheck, ArrowRight, ArrowLeft,
 } from 'lucide-react';
 import { ELEMENT_ICONS } from '@/components/layout-element-icons';
 
@@ -2327,6 +2328,167 @@ function LayoutTab({ token, jwt }: { token: string; jwt: string }) {
   );
 }
 
+// ── Regras do Espaço (wizard de aceite obrigatório) ──────────────────────────
+
+interface VenueRule {
+  id: string;
+  text: string;
+  venueName: string;
+}
+
+function RulesWizard({ token, jwt, onAccepted }: { token: string; jwt: string; onAccepted: () => void }) {
+  const [rules, setRules] = useState<VenueRule[] | null>(null);
+  const [step, setStep] = useState(0);
+  const [checked, setChecked] = useState<Record<string, boolean>>({});
+  const [finalChecked, setFinalChecked] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    fetch(`/api/v2/client/${token}/rules`, { headers: { 'x-client-auth': jwt } })
+      .then(r => r.json())
+      .then(d => {
+        if (d.accepted || (d.rules || []).length === 0) {
+          onAccepted();
+          return;
+        }
+        setRules(d.rules);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, jwt]);
+
+  if (rules === null) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <p className="text-sm text-gray-400">Carregando...</p>
+      </div>
+    );
+  }
+
+  const isSummary = step === rules.length;
+  const currentRule = !isSummary ? rules[step] : null;
+  const progress = ((step + 1) / (rules.length + 1)) * 100;
+
+  function toggleCurrent() {
+    if (!currentRule) return;
+    const nowChecked = !checked[currentRule.id];
+    setChecked(prev => ({ ...prev, [currentRule.id]: nowChecked }));
+    if (nowChecked) {
+      fetch(`/api/v2/client/${token}/approvals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-client-auth': jwt },
+        body: JSON.stringify({ itemType: 'venue_rule', itemId: currentRule.id }),
+      }).catch(() => {});
+    }
+  }
+
+  async function confirmAll() {
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/v2/client/${token}/rules/accept`, {
+        method: 'POST',
+        headers: { 'x-client-auth': jwt },
+      });
+      if (res.ok) onAccepted();
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-lg w-full max-w-sm overflow-hidden">
+        {/* Progress bar */}
+        <div className="h-1.5 bg-gray-100">
+          <div className="h-full bg-primary transition-all duration-300" style={{ width: `${progress}%` }} />
+        </div>
+
+        <div className="p-8">
+          <div className="text-center mb-6">
+            <div className="w-14 h-14 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-3">
+              <ShieldCheck size={24} className="text-primary" />
+            </div>
+            <h1 className="text-lg font-bold text-gray-900">Regras do Espaço</h1>
+            <p className="text-xs text-gray-400 mt-1">
+              {isSummary ? 'Confirmação final' : `Regra ${step + 1} de ${rules.length}`}
+            </p>
+          </div>
+
+          {!isSummary && currentRule && (
+            <div className="space-y-4">
+              <p className="text-xs text-primary font-medium">{currentRule.venueName}</p>
+              <p className="text-sm text-gray-700 leading-relaxed min-h-[3.5rem]">{currentRule.text}</p>
+              <label className="flex items-center gap-2 px-3 py-3 border rounded-xl cursor-pointer hover:bg-gray-50 transition">
+                <input
+                  type="checkbox"
+                  checked={!!checked[currentRule.id]}
+                  onChange={toggleCurrent}
+                  className="size-4 accent-current text-primary"
+                />
+                <span className="text-sm text-gray-700">Li e estou de acordo com esta regra</span>
+              </label>
+
+              <div className="flex items-center gap-2 pt-2">
+                {step > 0 && (
+                  <button
+                    onClick={() => setStep(s => s - 1)}
+                    className="px-4 py-2.5 border rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition flex items-center gap-1"
+                  >
+                    <ArrowLeft size={14} />
+                  </button>
+                )}
+                <button
+                  onClick={() => setStep(s => s + 1)}
+                  disabled={!checked[currentRule.id]}
+                  className="flex-1 py-2.5 bg-primary text-primary-foreground rounded-xl font-medium text-sm hover:bg-primary/90 disabled:opacity-40 transition flex items-center justify-center gap-1.5"
+                >
+                  Próxima <ArrowRight size={14} />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {isSummary && (
+            <div className="space-y-4">
+              <div className="space-y-1.5 max-h-52 overflow-y-auto">
+                {rules.map(r => (
+                  <div key={r.id} className="flex items-start gap-2 text-xs text-gray-600">
+                    <Check size={13} className="text-green-500 mt-0.5 shrink-0" />
+                    <span>{r.text}</span>
+                  </div>
+                ))}
+              </div>
+              <label className="flex items-center gap-2 px-3 py-3 border rounded-xl cursor-pointer hover:bg-gray-50 transition bg-primary/5">
+                <input
+                  type="checkbox"
+                  checked={finalChecked}
+                  onChange={e => setFinalChecked(e.target.checked)}
+                  className="size-4 accent-current text-primary"
+                />
+                <span className="text-sm text-gray-700 font-medium">Confirmo que li e aceito todas as regras do espaço</span>
+              </label>
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  onClick={() => setStep(s => s - 1)}
+                  className="px-4 py-2.5 border rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition flex items-center gap-1"
+                >
+                  <ArrowLeft size={14} />
+                </button>
+                <button
+                  onClick={confirmAll}
+                  disabled={!finalChecked || submitting}
+                  className="flex-1 py-2.5 bg-primary text-primary-foreground rounded-xl font-medium text-sm hover:bg-primary/90 disabled:opacity-40 transition"
+                >
+                  {submitting ? 'Confirmando...' : 'Confirmar e acessar'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 const TABS = [
@@ -2352,6 +2514,7 @@ export default function ClientPortalPage() {
   const [event, setEvent] = useState<EventSummary | null>(null);
   const [activeTab, setActiveTab] = useState('plan');
   const [approvals, setApprovals] = useState<ApprovalSet>(new Set());
+  const [rulesAccepted, setRulesAccepted] = useState(false);
 
   useEffect(() => {
     const stored = sessionStorage.getItem(`client_jwt_${token}`);
@@ -2398,6 +2561,10 @@ export default function ClientPortalPage() {
 
   if (!jwt || !event) {
     return <AuthScreen token={token} onAuth={onAuth} />;
+  }
+
+  if (!rulesAccepted) {
+    return <RulesWizard token={token} jwt={jwt} onAccepted={() => setRulesAccepted(true)} />;
   }
 
   const locked = event.status === 'encerrado';

@@ -21,6 +21,12 @@ interface VenueQuestion {
   order: number;
 }
 
+interface VenueRule {
+  id: string;
+  text: string;
+  order: number;
+}
+
 interface VenueActivityTemplate {
   id: string;
   title: string;
@@ -53,6 +59,7 @@ interface Venue {
   layoutStock: Record<string, number> | null;
   createdAt: string;
   questions: VenueQuestion[];
+  rules: VenueRule[];
   _count?: { events: number };
 }
 
@@ -152,6 +159,13 @@ export default function VenueDetailPage() {
   const [savingQ, setSavingQ] = useState(false);
   const [editingQId, setEditingQId] = useState<string | null>(null);
   const [editQ, setEditQ] = useState({ text: '', type: 'text', required: false, options: '' });
+
+  // Venue rule form state
+  const [addingR, setAddingR] = useState(false);
+  const [newR, setNewR] = useState('');
+  const [savingR, setSavingR] = useState(false);
+  const [editingRId, setEditingRId] = useState<string | null>(null);
+  const [editR, setEditR] = useState('');
 
   // Activity template form state
   const [activityTemplates, setActivityTemplates] = useState<VenueActivityTemplate[]>([]);
@@ -596,6 +610,44 @@ export default function VenueDetailPage() {
     await loadVenue();
   }
 
+  // ── Venue rule functions ─────────────────────────────────────────────────
+
+  async function createRule() {
+    if (!newR.trim()) return;
+    setSavingR(true);
+    try {
+      await fetch(`/api/v2/venues/${venueId}/rules`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: newR }),
+      });
+      setNewR('');
+      setAddingR(false);
+      await loadVenue();
+    } finally { setSavingR(false); }
+  }
+
+  async function updateRule(ruleId: string) {
+    await fetch(`/api/v2/venues/${venueId}/rules/${ruleId}`, {
+      method: 'PATCH', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: editR }),
+    });
+    setEditingRId(null);
+    await loadVenue();
+  }
+
+  async function deleteRule(ruleId: string) {
+    if (!confirm('Excluir esta regra?')) return;
+    await fetch(`/api/v2/venues/${venueId}/rules/${ruleId}`, { method: 'DELETE', credentials: 'include' });
+    await loadVenue();
+  }
+
+  function startEditRule(r: VenueRule) {
+    setEditingRId(r.id);
+    setEditR(r.text);
+  }
+
   // ── Activity template functions ─────────────────────────────────────────────
 
   async function createActivityTemplate() {
@@ -967,6 +1019,91 @@ export default function VenueDetailPage() {
                     <button onClick={() => setAddingQ(false)} className="text-xs px-2 py-1 border rounded hover:bg-muted transition flex items-center gap-1"><X size={11} /> Cancelar</button>
                     <button onClick={createQuestion} disabled={savingQ} className="text-xs px-3 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 transition flex items-center gap-1 disabled:opacity-50">
                       <Check size={11} /> {savingQ ? 'Salvando...' : 'Criar pergunta'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── Regras do Espaço ─────────────────────────────────────────── */}
+          <div className="bg-card rounded-lg border shadow-sm">
+            <div className="px-6 py-4 border-b flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ListChecks className="size-4 text-muted-foreground" />
+                <h2 className="text-lg font-medium text-card-foreground">Regras do Espaço</h2>
+                <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                  {venue.rules?.length ?? 0} regra{(venue.rules?.length ?? 0) !== 1 ? 's' : ''}
+                </span>
+              </div>
+              <button
+                onClick={() => setAddingR(true)}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition"
+              >
+                <Plus className="size-3.5" /> Adicionar
+              </button>
+            </div>
+
+            <div className="p-4 space-y-2">
+              <p className="text-xs text-muted-foreground mb-3">
+                O cliente precisa aceitar cada uma destas regras num wizard antes de acessar o plano do evento no portal do cliente.
+              </p>
+
+              {(venue.rules ?? []).length === 0 && !addingR && (
+                <p className="text-sm text-muted-foreground text-center py-4 italic">
+                  Nenhuma regra cadastrada.
+                </p>
+              )}
+
+              {(venue.rules ?? []).map(r => (
+                <div key={r.id} className="border rounded-lg overflow-hidden">
+                  {editingRId === r.id ? (
+                    <div className="p-3 space-y-2 bg-muted/20">
+                      <textarea
+                        autoFocus
+                        value={editR}
+                        onChange={e => setEditR(e.target.value)}
+                        rows={2}
+                        className="w-full text-sm px-2 py-1.5 border rounded bg-background resize-none"
+                      />
+                      <div className="flex justify-end gap-2 pt-1">
+                        <button onClick={() => setEditingRId(null)} className="text-xs px-2 py-1 border rounded hover:bg-muted transition flex items-center gap-1"><X size={11} /> Cancelar</button>
+                        <button onClick={() => updateRule(r.id)} className="text-xs px-3 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 transition flex items-center gap-1"><Check size={11} /> Salvar</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-start justify-between px-3 py-2.5 hover:bg-muted/30 transition">
+                      <div className="flex items-start gap-2 flex-1 min-w-0">
+                        <GripVertical size={14} className="text-muted-foreground/40 mt-0.5 shrink-0" />
+                        <p className="text-sm leading-snug">{r.text}</p>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0 ml-2">
+                        <button onClick={() => startEditRule(r)} className="p-1 rounded hover:bg-muted transition text-muted-foreground hover:text-foreground">
+                          <Edit2 size={13} />
+                        </button>
+                        <button onClick={() => deleteRule(r.id)} className="p-1 rounded hover:bg-muted transition text-muted-foreground hover:text-destructive">
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {addingR && (
+                <div className="border rounded-lg p-3 bg-muted/20 space-y-2">
+                  <textarea
+                    autoFocus
+                    placeholder="Texto da regra..."
+                    value={newR}
+                    onChange={e => setNewR(e.target.value)}
+                    rows={2}
+                    className="w-full text-sm px-2 py-1.5 border rounded bg-background resize-none"
+                  />
+                  <div className="flex justify-end gap-2 pt-1">
+                    <button onClick={() => setAddingR(false)} className="text-xs px-2 py-1 border rounded hover:bg-muted transition flex items-center gap-1"><X size={11} /> Cancelar</button>
+                    <button onClick={createRule} disabled={savingR} className="text-xs px-3 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 transition flex items-center gap-1 disabled:opacity-50">
+                      <Check size={11} /> {savingR ? 'Salvando...' : 'Criar regra'}
                     </button>
                   </div>
                 </div>

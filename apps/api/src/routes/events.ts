@@ -602,6 +602,42 @@ export async function eventRoutes(app: FastifyInstance) {
     return { success: true };
   });
 
+  // GET /venues/:venueId/rules
+  app.get('/venues/:venueId/rules', { preHandler: requireAuth }, async (request) => {
+    const { venueId } = request.params as { venueId: string };
+    const rules = await (prisma as any).venueRule.findMany({
+      where: { venueId },
+      orderBy: { order: 'asc' },
+    });
+    return { success: true, rules };
+  });
+
+  // POST /venues/:venueId/rules
+  app.post('/venues/:venueId/rules', { preHandler: requireAuth }, async (request) => {
+    const { venueId } = request.params as { venueId: string };
+    const body = request.body as { text: string; order?: number };
+    const count = await (prisma as any).venueRule.count({ where: { venueId } });
+    const rule = await (prisma as any).venueRule.create({
+      data: { venueId, text: body.text, order: body.order ?? count },
+    });
+    return { success: true, rule };
+  });
+
+  // PATCH /venues/:venueId/rules/:ruleId
+  app.patch('/venues/:venueId/rules/:ruleId', { preHandler: requireAuth }, async (request) => {
+    const { ruleId } = request.params as { venueId: string; ruleId: string };
+    const body = request.body as { text?: string; order?: number };
+    const rule = await (prisma as any).venueRule.update({ where: { id: ruleId }, data: body });
+    return { success: true, rule };
+  });
+
+  // DELETE /venues/:venueId/rules/:ruleId
+  app.delete('/venues/:venueId/rules/:ruleId', { preHandler: requireAuth }, async (request) => {
+    const { ruleId } = request.params as { venueId: string; ruleId: string };
+    await (prisma as any).venueRule.delete({ where: { id: ruleId } });
+    return { success: true };
+  });
+
   // Generate (or regenerate) unique client portal link for an event
   app.post('/:id/generate-client-token', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
