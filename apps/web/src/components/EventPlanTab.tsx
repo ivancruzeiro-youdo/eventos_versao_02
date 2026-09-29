@@ -111,10 +111,14 @@ function QuestionRow({
       ) : q.type === 'textarea' ? (
         <textarea value={current ?? ''} onChange={e => setDraft(e.target.value)} rows={2}
           className="w-full text-sm px-2 py-1.5 border rounded bg-background mb-2 resize-none" />
-      ) : (
-        <input type={q.type === 'number' ? 'number' : 'text'} value={current ?? ''}
-          onChange={e => setDraft(e.target.value)}
+      ) : q.type === 'number' ? (
+        <input type="number" value={current ?? ''} onChange={e => setDraft(e.target.value)}
           className="w-full text-sm px-2 py-1.5 border rounded bg-background mb-2" />
+      ) : (
+        // Texto livre já foi respondido com mais de uma linha antes (colado, ou digitado com
+        // quebra) — <input> não permite Enter nenhum; <textarea> deixa quebrar linha de verdade.
+        <textarea value={current ?? ''} onChange={e => setDraft(e.target.value)} rows={2}
+          className="w-full text-sm px-2 py-1.5 border rounded bg-background mb-2 resize-y" />
       )}
 
       {isDirty && (
@@ -173,8 +177,11 @@ export default function EventPlanTab({ eventId }: Props) {
 
   useEffect(() => { load(); }, [eventId]);
 
-  async function load() {
-    setLoading(true);
+  // `silent` evita o flash de "Carregando..." (que colapsa a página inteira e some com a
+  // posição de rolagem) ao recarregar depois de salvar — só o primeiro load, no mount, precisa
+  // mostrar o estado de carregando; um refresh depois de uma ação já tem conteúdo na tela.
+  async function load(silent = false) {
+    if (!silent) setLoading(true);
     try {
       const res = await fetch(`/api/v2/events/${eventId}/plan-overview`, { credentials: 'include' });
       if (res.ok) {
@@ -183,7 +190,7 @@ export default function EventPlanTab({ eventId }: Props) {
         setEventVenues(data.eventVenues ?? []);
         setVenueAnswers(data.venueAnswers ?? []);
       }
-    } finally { setLoading(false); }
+    } finally { if (!silent) setLoading(false); }
   }
 
   async function saveItemAnswer(itemId: string, questionId: string, answer: any) {
@@ -192,7 +199,7 @@ export default function EventPlanTab({ eventId }: Props) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ answer }),
     });
-    await load();
+    await load(true);
   }
 
   async function saveVenueAnswer(questionId: string, answer: any) {
@@ -201,7 +208,7 @@ export default function EventPlanTab({ eventId }: Props) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ answer }),
     });
-    await load();
+    await load(true);
   }
 
   async function addVenueQuestion(venueId: string) {
@@ -213,12 +220,12 @@ export default function EventPlanTab({ eventId }: Props) {
       body: JSON.stringify({ text: form.text, type: form.type, required: form.required }),
     });
     setAddingQ(prev => ({ ...prev, [venueId]: null }));
-    await load();
+    await load(true);
   }
 
   async function deleteVenueQuestion(venueId: string, qId: string) {
     await fetch(`/api/v2/events/venues/${venueId}/questions/${qId}`, { method: 'DELETE', credentials: 'include' });
-    await load();
+    await load(true);
   }
 
   if (loading) return <div className="py-12 text-center text-muted-foreground">Carregando...</div>;

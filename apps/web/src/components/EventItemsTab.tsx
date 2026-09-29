@@ -95,8 +95,11 @@ export default function EventItemsTab({ eventId, category, eventStartAt }: Props
 
   useEffect(() => { load(); }, [eventId]);
 
-  async function load() {
-    setLoading(true);
+  // `silent` evita o flash de "Carregando..." (que colapsa a página inteira e some com a posição
+  // de rolagem) ao recarregar depois de escolher/confirmar/salvar — só o load inicial precisa
+  // mostrar o estado de carregando.
+  async function load(silent = false) {
+    if (!silent) setLoading(true);
     try {
       const res = await fetch(`/api/v2/events/${eventId}/items`, { credentials: 'include' });
       if (res.ok) {
@@ -111,7 +114,7 @@ export default function EventItemsTab({ eventId, category, eventStartAt }: Props
         for (const item of filtered) loadAnswers(item.id);
       }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }
 
@@ -182,7 +185,7 @@ export default function EventItemsTab({ eventId, category, eventStartAt }: Props
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ choices }),
       });
-      await load();
+      await load(true);
     } finally {
       setSaving(prev => ({ ...prev, [item.id]: false }));
     }
@@ -197,7 +200,7 @@ export default function EventItemsTab({ eventId, category, eventStartAt }: Props
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ choices }),
       });
-      await load();
+      await load(true);
     } finally {
       setSaving(prev => ({ ...prev, [item.id]: false }));
     }
@@ -209,7 +212,7 @@ export default function EventItemsTab({ eventId, category, eventStartAt }: Props
       await fetch(`/api/v2/events/${eventId}/items/${item.id}/choices/confirm`, {
         method: 'POST', credentials: 'include',
       });
-      await load();
+      await load(true);
     } finally {
       setConfirming(prev => ({ ...prev, [item.id]: false }));
     }
@@ -431,12 +434,18 @@ export default function EventItemsTab({ eventId, category, eventStartAt }: Props
                                 <option value="">Selecionar...</option>
                                 {opts.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
                               </select>
-                            ) : (
-                              <input type={q.type === 'number' ? 'number' : 'text'}
+                            ) : q.type === 'number' ? (
+                              <input type="number"
                                 value={currentAnswer ?? ''}
                                 onClick={e => e.stopPropagation()}
                                 onChange={e => { e.stopPropagation(); setAnswerDrafts(prev => ({ ...prev, [item.id]: { ...(prev[item.id] ?? {}), [q.id]: e.target.value } })); }}
                                 className="w-full text-sm px-2 py-1.5 border rounded bg-background focus:ring-2 focus:ring-ring" />
+                            ) : (
+                              <textarea rows={2}
+                                value={currentAnswer ?? ''}
+                                onClick={e => e.stopPropagation()}
+                                onChange={e => { e.stopPropagation(); setAnswerDrafts(prev => ({ ...prev, [item.id]: { ...(prev[item.id] ?? {}), [q.id]: e.target.value } })); }}
+                                className="w-full text-sm px-2 py-1.5 border rounded bg-background focus:ring-2 focus:ring-ring resize-y" />
                             )}
 
                             {draftVal !== undefined && (
