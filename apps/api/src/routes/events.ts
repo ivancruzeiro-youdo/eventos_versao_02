@@ -489,20 +489,43 @@ export async function eventRoutes(app: FastifyInstance) {
       where: { freelancerId, eventId, role },
     });
 
-    if (existing) {
-      if (existing.status !== 'approved') {
-        await (prisma as any).freelancerApplication.update({
-          where: { id: existing.id },
-          data: { status: 'approved' },
-        });
-        return { success: true };
-      }
+    if (existing?.status === 'approved') {
       return reply.status(409).send({ error: 'Freelancer já confirmado para esta função.' });
     }
 
-    await (prisma as any).freelancerApplication.create({
-      data: { freelancerId, eventId, role, status: 'approved', appliedAt: new Date() },
+    // Mesmo limite de vagas que a aprovação manual em freelancers.ts já respeita — essa
+    // atribuição direta pelo operador criava a application já como 'approved' sem checar
+    // maxSlots (bug real: evento com Bartender maxSlots=2 acabou com 3 aprovados).
+    const slot = await (prisma as any).eventService.findFirst({
+      where: { eventId, service: { name: role } },
     });
+
+    try {
+      await prisma.$transaction(async (tx: any) => {
+        if (slot) {
+          const approvedCount = await tx.freelancerApplication.count({
+            where: { eventId, role, status: 'approved' },
+          });
+          if (approvedCount >= slot.maxSlots) {
+            throw new Error('SLOT_FULL');
+          }
+        }
+        if (existing) {
+          await tx.freelancerApplication.update({ where: { id: existing.id }, data: { status: 'approved' } });
+        } else {
+          await tx.freelancerApplication.create({
+            data: { freelancerId, eventId, role, status: 'approved', appliedAt: new Date() },
+          });
+        }
+      });
+    } catch (err: any) {
+      if (err.message === 'SLOT_FULL') {
+        return reply.status(409).send({
+          error: `As ${slot!.maxSlots} vaga(s) de ${role} já estão preenchidas. Aumente o número de vagas no evento antes de atribuir mais alguém.`,
+        });
+      }
+      throw err;
+    }
     return reply.status(201).send({ success: true });
   });
 
