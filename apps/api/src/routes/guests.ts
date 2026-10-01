@@ -522,6 +522,7 @@ export async function guestRoutes(app: FastifyInstance) {
       created: 0,
       updated: 0,
       skipped: 0,
+      skippedGuests: [] as { name: string; email?: string; cpf?: string; reason: string }[],
       errors: [] as string[],
     };
 
@@ -550,6 +551,12 @@ export async function guestRoutes(app: FastifyInstance) {
               results.updated++;
             } else {
               results.skipped++;
+              results.skippedGuests.push({
+                name: guestData.name,
+                email: guestData.email,
+                cpf: guestData.cpf,
+                reason: `já cadastrado com o mesmo ${existing.email === guestData.email && guestData.email ? 'email' : 'CPF'}`,
+              });
             }
             continue;
           }

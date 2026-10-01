@@ -39,8 +39,8 @@ export default function EventGuestsTab({ eventId }: EventGuestsTabProps) {
   const [showCsvModal, setShowCsvModal] = useState(false);
   const [csvText, setCsvText] = useState('');
 
-  function openCsvModal() { setCsvText(''); setDupAlert(null); setShowCsvModal(true); }
-  function closeCsvModal() { setShowCsvModal(false); setDupAlert(null); setCsvText(''); }
+  function openCsvModal() { setCsvText(''); setDupAlert(null); setImportResult(null); setShowCsvModal(true); }
+  function closeCsvModal() { setShowCsvModal(false); setDupAlert(null); setCsvText(''); setImportResult(null); }
   const [importAsConfirmed, setImportAsConfirmed] = useState(false);
   const [selectedGuest, setSelectedGuest] = useState<Guest | null>(null);
   const [qrData, setQrData] = useState<string>('');
@@ -52,6 +52,13 @@ export default function EventGuestsTab({ eventId }: EventGuestsTabProps) {
     all: any[];
   } | null>(null);
   const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{
+    created: number;
+    updated: number;
+    skipped: number;
+    skippedGuests: { name: string; email?: string; cpf?: string; reason: string }[];
+    errors: string[];
+  } | null>(null);
   
   // Form state
   const [newGuest, setNewGuest] = useState({
@@ -144,9 +151,9 @@ export default function EventGuestsTab({ eventId }: EventGuestsTabProps) {
       });
       const data = await response.json();
       if (data.success) {
-        alert(`Importação concluída: ${data.results.created} criados, ${data.results.skipped} ignorados`);
+        setDupAlert(null);
+        setImportResult(data.results);
         setImportAsConfirmed(false);
-        closeCsvModal();
         loadGuests();
       }
     } catch {
@@ -404,84 +411,118 @@ export default function EventGuestsTab({ eventId }: EventGuestsTabProps) {
       {/* CSV Modal */}
       {showCsvModal && (
         <div className="bg-card rounded-lg border p-4 space-y-3">
-          <h4 className="font-medium">Importar CSV</h4>
-          <p className="text-sm text-muted-foreground">
-            Colunas: nome, email, telefone, cpf (status opcional). Uma linha por convidado; a primeira linha pode ser o cabeçalho.
-          </p>
-          <label className="flex items-center gap-2 px-4 py-2 border rounded-lg cursor-pointer hover:bg-accent w-fit">
-            <Upload className="size-4" />
-            <span className="text-sm">Selecionar arquivo .csv</span>
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              onChange={handleCsvFile}
-              className="hidden"
-            />
-          </label>
-          <p className="text-xs text-muted-foreground">Ou cole o conteúdo abaixo:</p>
-          <textarea
-            value={csvText}
-            onChange={(e) => setCsvText(e.target.value)}
-            placeholder="João Silva, joao@email.com, 11999999999, 12345678901&#10;Maria Souza, maria@email.com, 11888888888, 98765432109"
-            className="w-full h-32 px-3 py-2 bg-background border rounded-lg font-mono text-sm"
-          />
-          <label className="flex items-center gap-2 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={importAsConfirmed}
-              onChange={e => setImportAsConfirmed(e.target.checked)}
-              className="w-4 h-4"
-            />
-            <span className="text-sm">Importar todos como <strong>confirmados</strong></span>
-          </label>
-          {/* Duplicate warning */}
-          {dupAlert && (
-            <div className="border border-amber-300 bg-amber-50 rounded-lg p-3 space-y-2">
-              <p className="text-sm font-medium text-amber-800">
-                {dupAlert.duplicateNames.length} convidado{dupAlert.duplicateNames.length !== 1 ? 's' : ''} já existe{dupAlert.duplicateNames.length !== 1 ? 'm' : ''} com o mesmo nome:
+          {importResult ? (
+            <>
+              <h4 className="font-medium">Resultado da importação</h4>
+              <p className="text-sm">
+                <span className="text-green-700">{importResult.created} criado{importResult.created !== 1 ? 's' : ''}</span>
+                {importResult.updated > 0 && <span>, <span className="text-blue-700">{importResult.updated} atualizado{importResult.updated !== 1 ? 's' : ''}</span></span>}
+                {importResult.skipped > 0 && <span>, <span className="text-amber-700">{importResult.skipped} ignorado{importResult.skipped !== 1 ? 's' : ''}</span></span>}
               </p>
-              <ul className="text-xs text-amber-700 max-h-28 overflow-y-auto space-y-0.5">
-                {dupAlert.duplicateNames.map(n => <li key={n}>• {n}</li>)}
-              </ul>
-              <p className="text-xs text-amber-700">O que deseja fazer?</p>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={() => doImport(dupAlert.newOnly)}
-                  disabled={importing || dupAlert.newOnly.length === 0}
-                  className="px-3 py-1.5 bg-primary text-primary-foreground rounded text-xs font-medium disabled:opacity-50"
-                >
-                  {importing ? 'Importando...' : `Importar apenas os ${dupAlert.newOnly.length} novos`}
-                </button>
-                <button
-                  onClick={() => doImport(dupAlert.all)}
-                  disabled={importing}
-                  className="px-3 py-1.5 border border-amber-400 text-amber-800 rounded text-xs font-medium disabled:opacity-50"
-                >
-                  {importing ? 'Importando...' : `Importar todos os ${dupAlert.all.length} (incluindo duplicatas)`}
-                </button>
-                <button onClick={() => setDupAlert(null)} className="px-3 py-1.5 border rounded text-xs">
-                  Cancelar
-                </button>
-              </div>
-            </div>
-          )}
+              {importResult.skippedGuests.length > 0 && (
+                <div className="border border-amber-300 bg-amber-50 rounded-lg p-3 space-y-1">
+                  <p className="text-sm font-medium text-amber-800">Convidados ignorados:</p>
+                  <ul className="text-xs text-amber-700 max-h-36 overflow-y-auto space-y-0.5">
+                    {importResult.skippedGuests.map((g, i) => (
+                      <li key={i}>• {g.name}{g.email ? ` (${g.email})` : g.cpf ? ` (${g.cpf})` : ''} — {g.reason}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {importResult.errors.length > 0 && (
+                <div className="border border-red-300 bg-red-50 rounded-lg p-3 space-y-1">
+                  <p className="text-sm font-medium text-red-800">Erros:</p>
+                  <ul className="text-xs text-red-700 max-h-36 overflow-y-auto space-y-0.5">
+                    {importResult.errors.map((e, i) => <li key={i}>• {e}</li>)}
+                  </ul>
+                </div>
+              )}
+              <button onClick={closeCsvModal} className="px-4 py-2 border rounded-lg">
+                Fechar
+              </button>
+            </>
+          ) : (
+            <>
+              <h4 className="font-medium">Importar CSV</h4>
+              <p className="text-sm text-muted-foreground">
+                Colunas: nome, email, telefone, cpf (status opcional). Uma linha por convidado; a primeira linha pode ser o cabeçalho.
+              </p>
+              <label className="flex items-center gap-2 px-4 py-2 border rounded-lg cursor-pointer hover:bg-accent w-fit">
+                <Upload className="size-4" />
+                <span className="text-sm">Selecionar arquivo .csv</span>
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={handleCsvFile}
+                  className="hidden"
+                />
+              </label>
+              <p className="text-xs text-muted-foreground">Ou cole o conteúdo abaixo:</p>
+              <textarea
+                value={csvText}
+                onChange={(e) => setCsvText(e.target.value)}
+                placeholder="João Silva, joao@email.com, 11999999999, 12345678901&#10;Maria Souza, maria@email.com, 11888888888, 98765432109"
+                className="w-full h-32 px-3 py-2 bg-background border rounded-lg font-mono text-sm"
+              />
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={importAsConfirmed}
+                  onChange={e => setImportAsConfirmed(e.target.checked)}
+                  className="w-4 h-4"
+                />
+                <span className="text-sm">Importar todos como <strong>confirmados</strong></span>
+              </label>
+              {/* Duplicate warning */}
+              {dupAlert && (
+                <div className="border border-amber-300 bg-amber-50 rounded-lg p-3 space-y-2">
+                  <p className="text-sm font-medium text-amber-800">
+                    {dupAlert.duplicateNames.length} convidado{dupAlert.duplicateNames.length !== 1 ? 's' : ''} já existe{dupAlert.duplicateNames.length !== 1 ? 'm' : ''} com o mesmo nome:
+                  </p>
+                  <ul className="text-xs text-amber-700 max-h-28 overflow-y-auto space-y-0.5">
+                    {dupAlert.duplicateNames.map(n => <li key={n}>• {n}</li>)}
+                  </ul>
+                  <p className="text-xs text-amber-700">O que deseja fazer?</p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => doImport(dupAlert.newOnly)}
+                      disabled={importing || dupAlert.newOnly.length === 0}
+                      className="px-3 py-1.5 bg-primary text-primary-foreground rounded text-xs font-medium disabled:opacity-50"
+                    >
+                      {importing ? 'Importando...' : `Importar apenas os ${dupAlert.newOnly.length} novos`}
+                    </button>
+                    <button
+                      onClick={() => doImport(dupAlert.all)}
+                      disabled={importing}
+                      className="px-3 py-1.5 border border-amber-400 text-amber-800 rounded text-xs font-medium disabled:opacity-50"
+                    >
+                      {importing ? 'Importando...' : `Importar todos os ${dupAlert.all.length} (incluindo duplicatas)`}
+                    </button>
+                    <button onClick={() => setDupAlert(null)} className="px-3 py-1.5 border rounded text-xs">
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              )}
 
-          {!dupAlert && (
-            <div className="flex gap-2">
-              <button
-                onClick={importCsv}
-                disabled={importing || !csvText.trim()}
-                className="px-4 py-2 bg-primary text-primary-foreground rounded-lg disabled:opacity-50"
-              >
-                {importing ? 'Importando...' : 'Importar'}
-              </button>
-              <button
-                onClick={closeCsvModal}
-                className="px-4 py-2 border rounded-lg"
-              >
-                Cancelar
-              </button>
-            </div>
+              {!dupAlert && (
+                <div className="flex gap-2">
+                  <button
+                    onClick={importCsv}
+                    disabled={importing || !csvText.trim()}
+                    className="px-4 py-2 bg-primary text-primary-foreground rounded-lg disabled:opacity-50"
+                  >
+                    {importing ? 'Importando...' : 'Importar'}
+                  </button>
+                  <button
+                    onClick={closeCsvModal}
+                    className="px-4 py-2 border rounded-lg"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
