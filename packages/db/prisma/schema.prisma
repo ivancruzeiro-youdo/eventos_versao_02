@@ -214,6 +214,7 @@ model Event {
   npsOrganizador  EventNPSOrganizador?
   clientApprovals ClientApproval[]
   ruleAcceptance  VenueRuleAcceptance?
+  itemRemovalSnapshots EventItemRemovalSnapshot[]
 
   activities            EventActivity[]
   layouts               EventLayout[]
@@ -1384,6 +1385,30 @@ model EventItemAnswerHistory {
 
   @@index([answerId])
   @@index([createdAt])
+}
+
+// Snapshot do plano já preenchido (respostas, escolhas, horário de serviço) de um EventItem,
+// tirado logo antes dele ser apagado por POST .../contracts/:id/confirm-removal. Achado real:
+// contrato removido (sumiu do Userp) cujos produtos continuavam vigentes sob OUTRO contrato do
+// mesmo evento — a reconciliação automática recriava o item (mesmo nome) minutos depois, mas
+// como um EventItem novo, sem nenhuma memória do que já tinha sido preenchido no antigo. Esse
+// snapshot é consultado por nome assim que um item reaparece, aplicado no item novo e apagado
+// (uso único) — recorrência do mesmo nome sem remoção correspondente nunca o consome.
+model EventItemRemovalSnapshot {
+  id             String    @id @default(uuid())
+  eventId        String
+  name           String
+  notes          String?
+  serviceStartAt DateTime?
+  serviceEndAt   DateTime?
+  answers        Json      // [{ questionId, answer, updatedById }]
+  choices        Json      // [{ label, chosen, maxChoices, confirmedAt, confirmedById }]
+  serviceWindows Json      // [{ startAt, endAt, sortOrder }]
+  createdAt      DateTime  @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId, name])
 }
 
 // Vaga de freelancer criada a partir de item do tipo "staff"

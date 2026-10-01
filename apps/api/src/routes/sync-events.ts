@@ -1270,14 +1270,57 @@ export async function syncEventsRoutes(app: FastifyInstance) {
           if (qty <= 0) continue;
 
           const category = mapCategory(product.categoryName) || 'other';
-          await (prisma as any).eventItem.create({
+          const newItem = await (prisma as any).eventItem.create({
             data: {
               eventId, productId: product.id, sourceContractId: h.externalId,
               category, name: pname, quantity: qty, unit: p.details?.unity || null,
             },
           });
           existingNames.add(pname.toLowerCase());
-          reimportedNames.push(pname);
+
+          // Devolve o plano já preenchido se esse mesmo nome tinha sido removido por
+          // confirm-removal há pouco (ver EventItemRemovalSnapshot) — produto que voltou a
+          // existir sob outro contrato não deveria perder respostas/escolhas/horário.
+          const snapshot = await (prisma as any).eventItemRemovalSnapshot.findFirst({
+            where: { eventId, name: { equals: pname, mode: 'insensitive' } },
+            orderBy: { createdAt: 'desc' },
+          });
+          let restored = false;
+          if (snapshot) {
+            // answer/escolha/janela vêm de um campo Json — datas voltam como string ISO, não
+            // Date, e um questionId de pergunta removida do produto depois quebraria a FK; não
+            // deixa um snapshot problemático travar a reconciliação do resto dos itens.
+            try {
+              const answers = (snapshot.answers as any[]) || [];
+              const choices = (snapshot.choices as any[]) || [];
+              const serviceWindows = (snapshot.serviceWindows as any[]) || [];
+              await prisma.$transaction([
+                ...(snapshot.notes || snapshot.serviceStartAt
+                  ? [(prisma as any).eventItem.update({
+                      where: { id: newItem.id },
+                      data: { notes: snapshot.notes, serviceStartAt: snapshot.serviceStartAt, serviceEndAt: snapshot.serviceEndAt },
+                    })]
+                  : []),
+                ...answers.map((a: any) => (prisma as any).eventItemAnswer.create({
+                  data: { eventItemId: newItem.id, questionId: a.questionId, answer: a.answer, updatedById: a.updatedById },
+                })),
+                ...choices.map((c: any) => (prisma as any).eventItemChoice.create({
+                  data: {
+                    eventItemId: newItem.id, label: c.label, chosen: c.chosen, maxChoices: c.maxChoices,
+                    confirmedAt: c.confirmedAt ? new Date(c.confirmedAt) : null, confirmedById: c.confirmedById,
+                  },
+                })),
+                ...serviceWindows.map((w: any) => (prisma as any).eventItemServiceWindow.create({
+                  data: { eventItemId: newItem.id, startAt: new Date(w.startAt), endAt: new Date(w.endAt), sortOrder: w.sortOrder },
+                })),
+                (prisma as any).eventItemRemovalSnapshot.delete({ where: { id: snapshot.id } }),
+              ]);
+              restored = true;
+            } catch (err) {
+              console.error(`[sync-events] falha ao restaurar snapshot do item "${pname}" (evento ${eventId}):`, err);
+            }
+          }
+          reimportedNames.push(restored ? `${pname} (plano recuperado)` : pname);
 
           // Staff: upsert EventService slots (never delete/duplicate — existingSvc short-circuits)
           if (category === 'staff') {
@@ -1620,9 +1663,33 @@ export async function syncEventsRoutes(app: FastifyInstance) {
 
     const items = await (prisma as any).eventItem.findMany({
       where: { eventId, sourceContractId: contract.externalId },
-      select: { id: true, name: true, category: true, quantity: true },
+      select: {
+        id: true, name: true, category: true, quantity: true, notes: true,
+        serviceStartAt: true, serviceEndAt: true,
+        answers: { select: { questionId: true, answer: true, updatedById: true } },
+        choices: { select: { label: true, chosen: true, maxChoices: true, confirmedAt: true, confirmedById: true } },
+        serviceWindows: { select: { startAt: true, endAt: true, sortOrder: true } },
+      },
     });
     const itemIds = items.map((i: any) => i.id);
+
+    // Achado real: contrato removido cujos produtos continuavam vigentes sob OUTRO contrato do
+    // mesmo evento — a reconciliação automática (abaixo, no próximo sync) recriava o mesmo item
+    // minutos depois, mas em branco, perdendo tudo que já tinha sido preenchido (respostas,
+    // escolhas, horário de serviço). Guarda um snapshot por item ANTES de apagar, pra essa
+    // reconciliação poder devolver o que já existia em vez de criar do zero.
+    const itemsWithPlanData = items.filter((i: any) =>
+      i.answers.length > 0 || i.choices.length > 0 || i.serviceWindows.length > 0 || i.serviceStartAt || i.notes
+    );
+    if (itemsWithPlanData.length > 0) {
+      await (prisma as any).eventItemRemovalSnapshot.createMany({
+        data: itemsWithPlanData.map((i: any) => ({
+          eventId, name: i.name, notes: i.notes,
+          serviceStartAt: i.serviceStartAt, serviceEndAt: i.serviceEndAt,
+          answers: i.answers, choices: i.choices, serviceWindows: i.serviceWindows,
+        })),
+      });
+    }
 
     if (itemIds.length > 0) {
       // KitchenEventMenu.eventItemId has no cascade rule — null it out before deleting the items.
