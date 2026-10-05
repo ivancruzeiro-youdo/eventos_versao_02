@@ -1,0 +1,3 @@
+ALTER TABLE "EventSchedule" ADD COLUMN IF NOT EXISTS "alarmMinutesBefore" INTEGER;
+ALTER TABLE "EventSchedule" ADD COLUMN IF NOT EXISTS "alarmMessage" TEXT;
+ALTER TABLE "EventSchedule" ADD COLUMN IF NOT EXISTS "alarmSentAt" TIMESTAMP(3);

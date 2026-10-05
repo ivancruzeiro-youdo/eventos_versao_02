@@ -11,7 +11,8 @@ const SEND_MESSAGE_URL = 'https://chat.youdobrasil.com.br/functions/v1/send-mess
 // ("avisos" for automated alerts/notices) instead of pasting a raw UUID inline.
 export const YOUDOCHAT_INBOX = {
   wppApiNaoOficial: 'f4292ff9-b0b0-449a-a9c5-a784c3c18f00', // Evolution — default if inbox_id omitted
-  avisos: 'debfb6c3-c501-456c-8771-b3223d62569e',           // Evolution — automated notices/alerts
+  avisos: 'debfb6c3-c501-456c-8771-b3223d62569e',           // Evolution — automated notices/alerts (sessão costuma cair: 'Connection Closed')
+  avisosOficial: '667ae5ba-a9c7-4890-85c4-bd02ba437758',    // Meta Cloud — padrão do servidor; fora da janela de 24h só aceita template
   wppOficialIA: 'd0e8800a-bf8e-4cf7-a7fd-8d8308489322',     // Meta Cloud — respects the 24h window
   wpOficial: '618077ce-c873-4e60-8709-337e4d2a8388',        // Meta Cloud — respects the 24h window
 } as const;
@@ -43,6 +44,31 @@ export async function sendWhatsAppMessage(
     body: JSON.stringify({
       phone,
       message,
+      ...(options.inboxId ? { inbox_id: options.inboxId } : {}),
+      ...(options.agentName ? { agent_name: options.agentName } : {}),
+    }),
+  });
+
+  const data = await res.json().catch(() => ({}) as any);
+  if (!res.ok) {
+    throw new Error(`YouDoChat send-message-api falhou: HTTP ${res.status} — ${data.error || JSON.stringify(data)}`);
+  }
+  return { conversationId: data.conversation_id, contactId: data.contact_id };
+}
+
+// Envio por template aprovado (obrigatório na API oficial fora da janela de 24h). `valores`
+// vai na ordem de {{1}} em diante; a Meta recusa valor vazio, com quebra de linha ou tab.
+export async function sendWhatsAppTemplate(
+  phone: string,
+  template: { name: string; language: string; valores: string[] },
+  options: { inboxId?: string; agentName?: string } = {}
+): Promise<SendWhatsAppResult> {
+  const res = await fetch(SEND_MESSAGE_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': getApiKey() },
+    body: JSON.stringify({
+      phone,
+      template,
       ...(options.inboxId ? { inbox_id: options.inboxId } : {}),
       ...(options.agentName ? { agent_name: options.agentName } : {}),
     }),

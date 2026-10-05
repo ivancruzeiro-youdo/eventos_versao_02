@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Clock, Plus, Trash2, Edit2, FileText, Calendar, Users, History, ChevronDown, ChevronUp, UtensilsCrossed, PartyPopper } from 'lucide-react';
+import { Clock, Plus, Trash2, Edit2, FileText, Calendar, Users, History, ChevronDown, ChevronUp, UtensilsCrossed, PartyPopper, Bell } from 'lucide-react';
 import { utcToLocalInput } from '@/lib/utils';
 
 interface Team {
@@ -15,6 +15,9 @@ interface Schedule {
   startAt: string;
   endAt: string;
   description: string | null;
+  alarmMinutesBefore: number | null;
+  alarmMessage: string | null;
+  alarmSentAt: string | null;
   team: {
     id: string;
     name: string;
@@ -46,6 +49,19 @@ interface HistoryEntry {
   user: { id: string; name: string } | null;
 }
 
+const ALARM_OPTIONS = [
+  { value: '', label: 'Sem alarme' },
+  { value: '0', label: 'Na hora do início' },
+  { value: '5', label: '5 min antes' },
+  { value: '10', label: '10 min antes' },
+  { value: '15', label: '15 min antes' },
+  { value: '30', label: '30 min antes' },
+  { value: '60', label: '1 hora antes' },
+  { value: '120', label: '2 horas antes' },
+];
+
+const EMPTY_FORM = { name: '', teamId: '', startAt: '', endAt: '', description: '', fileId: '', alarmMinutesBefore: '', alarmMessage: '' };
+
 interface EventScheduleTabProps {
   eventId: string;
 }
@@ -58,14 +74,7 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
   const [formError, setFormError] = useState('');
-  const [formData, setFormData] = useState({
-    name: '',
-    teamId: '',
-    startAt: '',
-    endAt: '',
-    description: '',
-    fileId: '',
-  });
+  const [formData, setFormData] = useState(EMPTY_FORM);
 
   // History state: scheduleId → entries (null = not yet loaded)
   const [history, setHistory] = useState<Record<string, HistoryEntry[] | null>>({});
@@ -136,6 +145,8 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
         endAt: formData.endAt ? new Date(formData.endAt).toISOString() : '',
         description: formData.description || null,
         fileId: formData.fileId || null,
+        alarmMinutesBefore: formData.alarmMinutesBefore === '' ? null : Number(formData.alarmMinutesBefore),
+        alarmMessage: formData.alarmMinutesBefore === '' ? null : (formData.alarmMessage.trim() || null),
       };
 
       const url = editingId
@@ -171,7 +182,7 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
       }
 
       setShowForm(false);
-      setFormData({ name: '', teamId: '', startAt: '', endAt: '', description: '', fileId: '' });
+      setFormData(EMPTY_FORM);
       setEditingId(null);
     } catch (error) {
       console.error(error);
@@ -189,6 +200,8 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
       endAt: utcToLocalInput(schedule.endAt),
       description: schedule.description || '',
       fileId: schedule.file?.id || '',
+      alarmMinutesBefore: schedule.alarmMinutesBefore == null ? '' : String(schedule.alarmMinutesBefore),
+      alarmMessage: schedule.alarmMessage || '',
     });
     setEditingId(schedule.id);
     setShowForm(true);
@@ -316,6 +329,33 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
                 rows={3}
               />
             </div>
+            <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3 space-y-2">
+              <label className="block text-sm font-medium flex items-center gap-1.5">
+                <Bell size={14} className="text-amber-600" /> Alarme
+              </label>
+              <select
+                value={formData.alarmMinutesBefore}
+                onChange={(e) => setFormData({ ...formData, alarmMinutesBefore: e.target.value })}
+                className="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-primary/20 focus:border-primary"
+              >
+                {ALARM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              {formData.alarmMinutesBefore !== '' && (
+                <>
+                  <textarea
+                    value={formData.alarmMessage}
+                    onChange={(e) => setFormData({ ...formData, alarmMessage: e.target.value })}
+                    placeholder="O que deve acontecer neste momento? (vai na mensagem do alarme)"
+                    maxLength={500}
+                    rows={2}
+                    className="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-primary/20 focus:border-primary resize-none text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Por WhatsApp, para os membros do time selecionado que têm telefone cadastrado.
+                  </p>
+                </>
+              )}
+            </div>
             <div>
               <label className="block text-sm font-medium mb-1">Arquivo Relacionado (opcional)</label>
               <select
@@ -335,7 +375,7 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
                 onClick={() => {
                   setShowForm(false);
                   setFormError('');
-                  setFormData({ name: '', teamId: '', startAt: '', endAt: '', description: '', fileId: '' });
+                  setFormData(EMPTY_FORM);
                   setEditingId(null);
                 }}
                 className="px-4 py-2 border rounded-lg hover:bg-gray-50 transition"
@@ -437,6 +477,16 @@ export default function EventScheduleTab({ eventId }: EventScheduleTabProps) {
                         <Users size={12} />
                         {schedule.team.name}
                       </span>
+                    )}
+                    {schedule.alarmMinutesBefore != null && (
+                      <p className="inline-flex items-center gap-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full ml-1 mb-1">
+                        <Bell size={11} />
+                        {schedule.alarmMinutesBefore === 0 ? 'Alarme na hora' : `Alarme ${schedule.alarmMinutesBefore} min antes`}
+                        {schedule.alarmSentAt && ` · enviado ${formatTimeOnly(schedule.alarmSentAt)}`}
+                      </p>
+                    )}
+                    {schedule.alarmMessage && (
+                      <p className="text-xs text-amber-800 mt-1">⏰ {schedule.alarmMessage}</p>
                     )}
                     {schedule.description && (
                       <p className="text-sm text-foreground mt-2">{schedule.description}</p>

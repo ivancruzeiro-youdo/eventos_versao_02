@@ -952,6 +952,12 @@ model EventSchedule {
   endAt       DateTime
   description String?
   fileId      String?
+  // Alarme: WhatsApp pro time responsável X minutos antes do início (0 = na hora). null = sem
+  // alarme. alarmSentAt marca o disparo (worker schedule-alarms) e é zerado quando o horário ou
+  // a configuração do alarme mudam, pra ele poder disparar de novo.
+  alarmMinutesBefore Int?
+  alarmMessage       String?
+  alarmSentAt        DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

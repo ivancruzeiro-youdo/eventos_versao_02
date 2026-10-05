@@ -1,7 +1,7 @@
 import { prisma } from '../server.js';
 import { normalizePhone, sendWhatsAppAlert } from '../lib/notifications.js';
 
-// Envia alerta via YouDoChat (inbox AVISOS) para atividades atrasadas, no máximo a cada
+// Envia alerta via YouDoChat (inbox Avisos Oficial) para atividades atrasadas, no máximo a cada
 // 30 min por atividade (antes ia por um webhook n8n; ver lib/notifications.ts).
 const CHECK_INTERVAL_MS = 5 * 60 * 1000;   // verifica a cada 5 min
 const TZ = 'America/Sao_Paulo';
@@ -59,13 +59,11 @@ async function checkOverdueActivities(log: (msg: string) => void) {
       continue;
     }
 
-    const mensagem =
-      `⚠️ *ATIVIDADE ATRASADA*\n\n` +
-      `Olá ${assigneeName}! Você tem uma atividade pendente que já passou do prazo.\n\n` +
-      `📋 *Atividade:* ${act.title}\n\n` +
-      `🎪 *Evento:* ${act.event?.name ?? '—'}\n\n` +
-      `🕐 *Prazo:* ${fmtDateTime(new Date(act.dueAt))}\n\n` +
-      `Acesse https://eventos.youdobrasil.com.br para concluir ou reagendar.`;
+    const mensagem = {
+      titulo: `⚠️ Atividade atrasada: ${act.title}`,
+      detalhe: `Olá ${assigneeName}! Você tem uma atividade pendente que já passou do prazo. Evento: ${act.event?.name ?? '—'} · Prazo: ${fmtDateTime(new Date(act.dueAt))}`,
+      acao: 'Acesse https://eventos.youdobrasil.com.br para concluir ou reagendar.',
+    };
 
     const ok = await sendWhatsAppAlert(phone, mensagem);
     if (ok) {
@@ -81,5 +79,5 @@ export function startActivityAlerts(log: (msg: string) => void = console.log) {
   const run = () => checkOverdueActivities(log).catch(err => log(`activity-alerts: ${err.message}`));
   setInterval(run, CHECK_INTERVAL_MS);
   setTimeout(run, 15_000); // primeira checagem 15s após o boot
-  log('activity-alerts iniciado (YouDoChat, inbox AVISOS)');
+  log('activity-alerts iniciado (YouDoChat, inbox Avisos Oficial)');
 }

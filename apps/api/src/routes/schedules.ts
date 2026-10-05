@@ -12,6 +12,8 @@ const createScheduleSchema = z.object({
   endAt: z.string(),
   description: z.string().nullable().optional(),
   fileId: z.string().nullable().optional(),
+  alarmMinutesBefore: z.number().int().min(0).max(1440).nullable().optional(),
+  alarmMessage: z.string().max(500).nullable().optional(),
 });
 
 const updateScheduleSchema = createScheduleSchema.partial();
@@ -33,6 +35,10 @@ function fmtDateTime(d: Date): string {
     hour: '2-digit', minute: '2-digit',
     timeZone: 'America/Sao_Paulo',
   });
+}
+
+function alarmLabel(minutes: number): string {
+  return minutes === 0 ? 'na hora do início' : `${minutes} min antes`;
 }
 
 function fmtTime(d: Date): string {
@@ -78,20 +84,17 @@ async function notifyTeamMembers(params: {
     });
     if (!team) return;
 
-    const BR = '\\n\\n';
-    const titulo = changeType === 'criada' ? '📅 *NOVA ATIVIDADE NO CRONOGRAMA*' : changeType === 'alterada' ? '📅 *ATIVIDADE DO CRONOGRAMA ALTERADA*' : '📅 *ATIVIDADE DO CRONOGRAMA REMOVIDA*';
+    const titulo = changeType === 'criada' ? '📅 Nova atividade no cronograma' : changeType === 'alterada' ? '📅 Atividade do cronograma alterada' : '📅 Atividade do cronograma removida';
 
     for (const member of team.members) {
       const phone = member.user?.phone ? normalizePhone(member.user.phone) : null;
       if (!phone) continue;
 
-      const mensagem =
-        `${titulo}${BR}` +
-        `Olá ${member.user.name}! Uma atividade do time *${team.name}* foi ${changeType}.${BR}` +
-        `🎪 *Evento:* ${eventName}${BR}` +
-        `📋 *Atividade:* ${scheduleName}${BR}` +
-        `🕐 *Horário:* ${fmtDateTime(startAt)}–${fmtTime(endAt)}${BR}` +
-        `Acesse https://eventos.youdobrasil.com.br para ver os detalhes.`;
+      const mensagem = {
+        titulo,
+        detalhe: `Olá ${member.user.name}! Uma atividade do time ${team.name} foi ${changeType}. Evento: ${eventName} · Atividade: ${scheduleName} · Horário: ${fmtDateTime(startAt)}–${fmtTime(endAt)}`,
+        acao: 'Acesse https://eventos.youdobrasil.com.br para ver os detalhes.',
+      };
 
       const ok = await sendWhatsAppAlert(phone, mensagem);
       if (!ok) console.error(`notifyTeamMembers: falha ao enviar WhatsApp para ${member.user.name} (time ${team.name})`);
@@ -228,6 +231,8 @@ export async function scheduleRoutes(app: FastifyInstance) {
         endAt,
         description: data.description,
         fileId: data.fileId,
+        alarmMinutesBefore: data.alarmMinutesBefore ?? null,
+        alarmMessage: data.alarmMessage?.trim() || null,
       },
       include: { ...scheduleInclude, team: { select: { id: true, name: true } } },
     });
@@ -236,7 +241,7 @@ export async function scheduleRoutes(app: FastifyInstance) {
       eventId,
       scheduleId: schedule.id,
       userId,
-      content: `Atividade criada: "${schedule.name}" · ${fmtDateTime(startAt)}–${fmtTime(endAt)}${schedule.team ? ` · Time: ${schedule.team.name}` : ''}`,
+      content: `Atividade criada: "${schedule.name}" · ${fmtDateTime(startAt)}–${fmtTime(endAt)}${schedule.team ? ` · Time: ${schedule.team.name}` : ''}${schedule.alarmMinutesBefore != null ? ` · Alarme: ${alarmLabel(schedule.alarmMinutesBefore)}` : ''}`,
     });
 
     if (schedule.teamId) {
@@ -301,6 +306,11 @@ export async function scheduleRoutes(app: FastifyInstance) {
     if (data.endAt && endAt.getTime() !== current.endAt.getTime()) changes.push(`fim: ${fmtTime(current.endAt)} → ${fmtTime(endAt)}`);
     if (data.teamId && data.teamId !== current.teamId) changes.push(`time alterado`);
     if (data.description !== undefined && data.description !== current.description) changes.push(`descrição atualizada`);
+    const newAlarm = data.alarmMinutesBefore !== undefined ? data.alarmMinutesBefore : current.alarmMinutesBefore;
+    const newAlarmMsg = data.alarmMessage !== undefined ? (data.alarmMessage?.trim() || null) : current.alarmMessage;
+    const alarmChanged = newAlarm !== current.alarmMinutesBefore || newAlarmMsg !== current.alarmMessage;
+    const startChanged = !!data.startAt && startAt.getTime() !== current.startAt.getTime();
+    if (alarmChanged) changes.push(newAlarm == null ? 'alarme removido' : `alarme: ${alarmLabel(newAlarm)}`);
 
     const schedule = await prisma.eventSchedule.update({
       where: { id },
@@ -311,6 +321,9 @@ export async function scheduleRoutes(app: FastifyInstance) {
         ...(data.endAt && { endAt }),
         ...(data.description !== undefined && { description: data.description }),
         ...(data.fileId !== undefined && { fileId: data.fileId }),
+        ...(data.alarmMinutesBefore !== undefined && { alarmMinutesBefore: data.alarmMinutesBefore }),
+        ...(data.alarmMessage !== undefined && { alarmMessage: data.alarmMessage?.trim() || null }),
+        ...((newAlarm !== current.alarmMinutesBefore || startChanged) && { alarmSentAt: null }),
       },
       include: scheduleInclude,
     });

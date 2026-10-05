@@ -236,6 +236,9 @@ const start = async () => {
 
     const { startAcessoSyncScheduler } = await import('./workers/acesso-sync.js');
     startAcessoSyncScheduler((msg) => app.log.info(msg));
+
+    const { startScheduleAlarms } = await import('./workers/schedule-alarms.js');
+    startScheduleAlarms((msg) => app.log.info(msg));
   } catch (err) {
     app.log.error(err);
     process.exit(1);
