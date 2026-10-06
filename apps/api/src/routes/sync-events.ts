@@ -1089,18 +1089,13 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: e.message });
     }
 
-    // 3. Fetch all USERP contract IDs (paginated, only IDs — fast)
-    let userpIds: number[];
-    try {
-      userpIds = await fetchContratoIds();
-    } catch (e: any) {
-      return reply.status(502).send({ error: e.message });
-    }
+    // A verificação ao abrir o evento usa SÓ o detalhe dos contratos do próprio evento
+    // (contracts-details). Antes ela também listava a Userp inteira e buscava o detalhe de cada
+    // contrato ainda não importado (~4.300) só pra ver se era do mesmo cliente/data — levava
+    // ~100 s por abertura (mediana medida nos logs). Contrato novo e independente continua
+    // sendo descoberto pelo sync global (Sincronizar Contratos / worker diário), não aqui.
 
-    // 4. Find IDs not yet in DB at all
-    const unknownIds = userpIds.filter(id => !globalImportedIds.has(String(id)));
-
-    // 4b. Check secondaries of already-imported event contracts for new entries.
+    // Check secondaries of already-imported event contracts for new entries.
     // Secondary contracts never appear in the paginated list — they're only accessible
     // via their parent main contract's details endpoint. We re-fetch each main contract
     // to detect secondaries added after the original import.
@@ -1406,28 +1401,13 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       }
     }
 
-    if (unknownIds.length === 0 && secondaryPending.length === 0) {
+    if (secondaryPending.length === 0) {
       return { success: true, status: 'up_to_date', contractHealth, pendingRemovals, pendingItemRemovals };
     }
 
-    // 5. Fetch details for unknown IDs in batches of 10, filter by this event's clientCode+startDate
     const pendingContracts: any[] = [];
-    for (let i = 0; i < unknownIds.length; i += 10) {
-      const batch = unknownIds.slice(i, i + 10);
-      const details = await Promise.all(batch.map(id => fetchContratoDetails(id)));
-      for (const d of details) {
-        if (!d?.main) continue;
-        const main = d.main;
-        // Must match how clientCode is derived in groupContracts/sync-import (uses main.cliente)
-        const contractClientCode = String(main.cliente || '');
-        const contractStartDate = String(main.data_checkin || '').slice(0, 10);
-        if (contractClientCode === clientCode && contractStartDate === startDate) {
-          pendingContracts.push({ ...main, _secondary: d.secondary || [] });
-        }
-      }
-    }
 
-    // 5b. For secondary-triggered updates, push the parent main contract (with full secondary list)
+    // For secondary-triggered updates, push the parent main contract (with full secondary list)
     // so buildItemsSnapshot sees all products. Secondary contracts can't be fetched individually.
     for (const { mainDetail } of secondaryPending) {
       const mainId = String(mainDetail.main?.codlocacontrato || '');
