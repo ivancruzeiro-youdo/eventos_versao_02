@@ -17,12 +17,16 @@ import { publishKitchenEvent } from '../lib/kitchen-events.js';
 // (mesmo fix já aplicado em degustacoes.ts/fetchUserpEntidade).
 
 // Fetch paginated list of contract IDs from the satelite experience API (includes real start/end times)
+// Só contratos "Vigente" (filtro do próprio endpoint) — sem isso a listagem trazia ~4,5 mil
+// contratos de qualquer status e cada um virava uma chamada de detalhe só pra ser descartado.
+// Quando o detalhe (contracts-details.php) passar a expor o campo status, a checagem de
+// vigência pode sair da listagem e ir pra lá, sem precisar carregar o contrato inteiro.
 async function fetchContratoIds(): Promise<number[]> {
   const all: number[] = [];
   let start = 0;
   const limit = 200;
   while (true) {
-    const res = await userpFetch(`/api/userp-satelite/experience/contracts-paginated.php?start=${start}&limit=${limit}&order_by=contrato_desc`, {
+    const res = await userpFetch(`/api/userp-satelite/experience/contracts-paginated.php?start=${start}&limit=${limit}&order_by=contrato_desc&status=Vigente`, {
       headers: { Accept: 'application/json' },
     });
     if (!res.ok) throw new Error(`Erro ao listar contratos: ${res.status}`);
