@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { RotateCw, X, Save, Loader2, AlertCircle, Lock, Unlock, Plus, Trash2, LayoutGrid, ZoomIn, ZoomOut } from 'lucide-react';
 import { ELEMENT_ICONS } from './layout-element-icons';
+import { sumLayoutStock } from '@/lib/layout-stock';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -219,7 +220,8 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
   const floorPlanUrl = activeVenue?.floorPlanUrl ?? null;
   const floorPlanW   = activeVenue?.floorPlanWidthMeters ?? null;
   const floorPlanH   = activeVenue?.floorPlanHeightMeters ?? null;
-  const maxCounts    = activeVenue?.layoutStock ?? {};
+  // Estoque somado entre todos os espaços do evento — qualquer layout pode usar o total.
+  const maxCounts    = sumLayoutStock(venues);
 
   // Layouts (all venues loaded once; filtered by activeVenueId for display)
   const [allLayouts,     setAllLayouts]     = useState<SavedLayout[]>([]);
@@ -447,14 +449,14 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
   function commitCombo(combo: ComboConfig, x: number, y: number, requestedQty: number) {
     const coreRoom = availableStock(combo.core.elementType);
     if (coreRoom < combo.core.qty) {
-      setSaveMsg({ ok: false, text: `Sem estoque suficiente de "${configByType[combo.core.elementType]?.label ?? combo.core.elementType}" neste espaço.` });
+      setSaveMsg({ ok: false, text: `Sem estoque suficiente de "${configByType[combo.core.elementType]?.label ?? combo.core.elementType}" neste evento.` });
       setTimeout(() => setSaveMsg(null), 3000);
       return;
     }
     const satRoom = availableStock(combo.satellite.elementType);
     const qty = Math.max(0, Math.min(requestedQty, satRoom));
     if (qty < requestedQty) {
-      setSaveMsg({ ok: false, text: `Só cabem mais ${qty} de "${configByType[combo.satellite.elementType]?.label ?? combo.satellite.elementType}" neste espaço — adicionadas ${qty} de ${requestedQty} solicitadas.` });
+      setSaveMsg({ ok: false, text: `Só cabem mais ${qty} de "${configByType[combo.satellite.elementType]?.label ?? combo.satellite.elementType}" neste evento — adicionadas ${qty} de ${requestedQty} solicitadas.` });
       setTimeout(() => setSaveMsg(null), 4000);
     }
     const placed = computeComboPlacement(combo, configByType, x, y, qty, floorPlanW, floorPlanH);

@@ -11,6 +11,7 @@ import {
   ShieldCheck, ArrowRight, ArrowLeft,
 } from 'lucide-react';
 import { ELEMENT_ICONS } from '@/components/layout-element-icons';
+import { sumLayoutStock } from '@/lib/layout-stock';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1803,7 +1804,8 @@ function LayoutTab({ token, jwt }: { token: string; jwt: string }) {
   const floorPlanUrl = activeVenue?.floorPlanUrl ?? null;
   const floorPlanW   = activeVenue?.floorPlanWidthMeters ?? null;
   const floorPlanH   = activeVenue?.floorPlanHeightMeters ?? null;
-  const maxCounts    = activeVenue?.layoutStock ?? {};
+  // Estoque somado entre todos os espaços do evento — qualquer layout pode usar o total.
+  const maxCounts    = sumLayoutStock(venues);
 
   const layouts = allLayouts.filter(l =>
     l.venueId ? l.venueId === activeVenueId : activeVenueId === venues[0]?.venueId
