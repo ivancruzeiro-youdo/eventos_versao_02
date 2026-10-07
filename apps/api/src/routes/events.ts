@@ -227,7 +227,7 @@ export async function eventRoutes(app: FastifyInstance) {
           orderBy: { createdAt: 'asc' },
         },
         npsOrganizador: { select: { submittedAt: true } },
-        degustacao: { include: { links: { orderBy: { createdAt: 'desc' } } } },
+        degustacao: { include: { links: { orderBy: { createdAt: 'desc' }, include: { guests: { select: { id: true, status: true, checkedInAt: true } } } } } },
       },
     });
 

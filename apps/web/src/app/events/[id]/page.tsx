@@ -68,7 +68,7 @@ interface Event {
   degustacao?: {
     visibility: string;
     maxGuests: number;
-    links: { id: string; token: string; nome: string; userpEntidadeId: number; email: string | null; enrolledEventId: string | null; enrolledGuestNames: string[]; notes: string | null }[];
+    links: { id: string; token: string; nome: string; userpEntidadeId: number; email: string | null; enrolledEventId: string | null; enrolledGuestNames: string[]; notes: string | null; guests?: { id: string; status: string; checkedInAt: string | null }[] }[];
   } | null;
 }
 
@@ -585,6 +585,16 @@ export default function EventDetailPage() {
     }
   }
 
+  // Convite de degustação: quantos dos convidados inscritos já fizeram check-in. Ordem da lista:
+  // 0 = inscrito sem nenhum check-in (precisa de atenção), 1 = check-in parcial, 2 = todos já
+  // entraram, 3 = link pendente (ninguém inscrito, não há quem esperar).
+  function linkCheckin(link: { enrolledEventId: string | null; guests?: { status: string; checkedInAt: string | null }[] }) {
+    const total = link.guests?.length ?? 0;
+    const done = (link.guests ?? []).filter(g => g.status === 'checked_in' || g.checkedInAt).length;
+    const rank = !link.enrolledEventId || total === 0 ? 3 : done === 0 ? 0 : done < total ? 1 : 2;
+    return { total, done, rank };
+  }
+
   function copyDegustacaoLinkUrl(token: string) {
     const url = `${window.location.origin}/degustacao/${token}`;
     navigator.clipboard.writeText(url);
@@ -945,8 +955,11 @@ export default function EventDetailPage() {
               <p className="text-xs text-muted-foreground italic">Nenhum link gerado ainda.</p>
             ) : (
               <div className="border rounded-lg divide-y overflow-hidden">
-                {event.degustacao.links.map(link => {
+                {[...event.degustacao.links]
+                  .sort((a, b) => linkCheckin(a).rank - linkCheckin(b).rank || a.nome.localeCompare(b.nome, 'pt-BR'))
+                  .map(link => {
                   const enrolled = !!link.enrolledEventId;
+                  const checkin = linkCheckin(link);
                   const guestCount = link.enrolledGuestNames?.length ?? 0;
                   const isExpanded = expandedLinkId === link.id;
                   return (
@@ -958,7 +971,17 @@ export default function EventDetailPage() {
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium truncate">{link.nome}</p>
                           <p className="text-xs text-muted-foreground">Userp #{link.userpEntidadeId}</p>
+                          {link.notes && (
+                            <p className="text-xs text-amber-800 truncate mt-0.5">📝 {link.notes}</p>
+                          )}
                         </div>
+                        {enrolled && checkin.total > 0 && (
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${
+                            checkin.rank === 2 ? 'bg-green-100 text-green-700' : checkin.rank === 1 ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'
+                          }`}>
+                            {checkin.rank === 0 ? 'Aguardando check-in' : `Check-in ${checkin.done}/${checkin.total}`}
+                          </span>
+                        )}
                         {enrolled ? (
                           <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium flex items-center gap-1 shrink-0">
                             <Check size={11} /> {guestCount} convidado{guestCount !== 1 ? 's' : ''}
@@ -1000,7 +1023,7 @@ export default function EventDetailPage() {
                                   rows={2}
                                   value={notesDraft}
                                   onChange={e => setNotesDraft(e.target.value)}
-                                  placeholder="Observação interna (só a equipe vê)"
+                                  placeholder="Observações do demonstrador (só a equipe vê)"
                                   className="w-full px-2.5 py-1.5 border rounded-lg text-xs bg-background"
                                 />
                                 {notesError && <p className="text-xs text-destructive">{notesError}</p>}
@@ -1020,7 +1043,7 @@ export default function EventDetailPage() {
                             ) : (
                               <div className="flex items-start gap-2">
                                 <p className="flex-1 text-xs text-muted-foreground italic">
-                                  {link.notes || 'Sem observações.'}
+                                  {link.notes || 'Sem observações do demonstrador.'}
                                 </p>
                                 <button
                                   onClick={() => startEditNotes(link.id, link.notes)}

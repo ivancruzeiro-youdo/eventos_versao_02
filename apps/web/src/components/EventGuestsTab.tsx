@@ -250,10 +250,15 @@ export default function EventGuestsTab({ eventId }: EventGuestsTabProps) {
           byLink.get(key)!.guests.push(g);
         }
         const groups = [...byLink.entries()].map(([key, v]) => ({ key, ...v }));
+        // Convites onde ninguém entrou ainda primeiro, depois parcial, por fim os já completos.
+        const rank = (guests: Guest[]) => {
+          const done = guests.filter(g => g.status === 'checked_in').length;
+          return done === 0 ? 0 : done < guests.length ? 1 : 2;
+        };
         groups.sort((a, b) => {
           if (a.key === '__none__') return 1;
           if (b.key === '__none__') return -1;
-          return a.label.localeCompare(b.label, 'pt-BR');
+          return rank(a.guests) - rank(b.guests) || a.label.localeCompare(b.label, 'pt-BR');
         });
         return groups;
       })()
