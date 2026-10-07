@@ -4,6 +4,22 @@ import type { UserpSimulation } from './userp-simulations.js';
 // Userp (a causa de verdade), contrato que sumiu de lá, ou desvinculado do contrato principal.
 export type RemovalReason = 'cancelled' | 'annulled' | 'missing' | 'unlinked';
 
+// Espaços (padrões da Userp) citados por contratos — no principal ou em qualquer secundário,
+// mesma regra do sync (collectPadraoIds em sync-events.ts).
+function padraoIdsOf(raws: any[]): Set<string> {
+  const ids = new Set<string>();
+  const scan = (rc: any) => {
+    if (!rc) return;
+    if (rc.padrao_id) ids.add(String(rc.padrao_id));
+    for (const p of rc.padroes || []) if (p.padrao) ids.add(String(p.padrao));
+  };
+  for (const rc of raws) {
+    scan(rc);
+    for (const sec of rc?._secondary || []) scan(sec);
+  }
+  return ids;
+}
+
 // Retira o contrato do evento SEM apagar nada de verdade: tudo que dependia dele (itens,
 // respostas e escolhas com histórico, horários de serviço, comentários, vagas e os vínculos da
 // cozinha) é guardado em EventContractArchive com os ids originais, e só então sai das tabelas
@@ -33,6 +49,34 @@ export async function archiveContract(db: any, params: {
   });
   const contractUsers = await (db as any).eventContractUser.findMany({ where: { eventContractId: contract.id } });
 
+  // Espaço que só este contrato justificava (nenhum contrato que sobrou no evento cita o mesmo
+  // padrão) sai junto — senão o evento fica com um local de um contrato que não existe mais.
+  // Só sai se não tiver nada pendurado (respostas, layout, playlists); com dado, fica.
+  const remaining = await (db as any).eventContract.findMany({
+    where: { eventId, id: { not: contract.id } },
+    select: { rawJson: true },
+  });
+  const stillNeeded = padraoIdsOf(remaining.map((r: any) => r.rawJson));
+  const orphanPadroes = [...padraoIdsOf([contract.rawJson])].filter(p => !stillNeeded.has(p));
+  const removedVenueLinkIds: string[] = [];
+  const removedVenueIds: string[] = [];
+  if (orphanPadroes.length > 0) {
+    const links = await (db as any).eventVenue.findMany({
+      where: { eventId, venue: { externalId: { in: orphanPadroes } } },
+      select: { id: true, venueId: true, _count: { select: { spotifyPlaylists: true } } },
+    });
+    for (const l of links) {
+      const [answers, layouts] = await Promise.all([
+        (db as any).eventVenueAnswer.count({ where: { eventId, question: { venueId: l.venueId } } }),
+        (db as any).eventLayout.count({ where: { eventId, venueId: l.venueId } }),
+      ]);
+      if (answers === 0 && layouts === 0 && l._count.spotifyPlaylists === 0) {
+        removedVenueLinkIds.push(l.id);
+        removedVenueIds.push(l.venueId);
+      }
+    }
+  }
+
   const snapshotItems = items.map((it: any) => {
     const { answers, choices, serviceWindows, comments, slots, kitchenMenuLink, servicePlanEntries, prepChecks, ...scalars } = it;
     return {
@@ -53,7 +97,7 @@ export async function archiveContract(db: any, params: {
       data: {
         eventId,
         contractExternalId: contract.externalId,
-        contract: { ...contractScalars, users: contractUsers },
+        contract: { ...contractScalars, users: contractUsers, removedVenueIds },
         items: snapshotItems,
         reason,
         reasonDetail: simulation ?? undefined,
@@ -66,9 +110,10 @@ export async function archiveContract(db: any, params: {
     (db as any).kitchenEventMenu.updateMany({ where: { eventItemId: { in: itemIds } }, data: { eventItemId: null } }),
     (db as any).eventItem.deleteMany({ where: { id: { in: itemIds } } }),
     (db as any).eventContract.delete({ where: { id: contract.id } }),
+    ...(removedVenueLinkIds.length ? [(db as any).eventVenue.deleteMany({ where: { id: { in: removedVenueLinkIds } } })] : []),
   ]);
 
-  return { archive, items };
+  return { archive, items, removedVenueIds };
 }
 
 // Colunas de data viram string ISO no JSON do snapshot — todas as de data dessas tabelas
@@ -92,7 +137,11 @@ export async function restoreContractArchive(db: any, archiveId: string, eventId
   if (clash) return { error: `O contrato ${archive.contractExternalId} já está vinculado a um evento — não dá pra restaurar por cima.`, status: 409 };
 
   const snap = archive.items as any[];
-  const { users: archivedUsers, ...contractRow } = archive.contract as any;
+  const { users: archivedUsers, removedVenueIds: archivedVenueIds, ...contractRow } = archive.contract as any;
+  const venueIdsToRelink: string[] = Array.isArray(archivedVenueIds) ? archivedVenueIds : [];
+  const alreadyLinked = new Set<string>(
+    (await (db as any).eventVenue.findMany({ where: { eventId, venueId: { in: venueIdsToRelink } }, select: { venueId: true } })).map((v: any) => v.venueId),
+  );
 
   // Referências que podem ter deixado de existir desde o arquivamento — não derrubam a restauração.
   const questionIds = [...new Set(snap.flatMap(s => s.answers.map((a: any) => a.questionId)))] as string[];
@@ -113,6 +162,7 @@ export async function restoreContractArchive(db: any, archiveId: string, eventId
   const ops: any[] = [
     (db as any).eventContract.create({ data: reviveDates(contractRow) }),
     ...(archivedUsers?.length ? [(db as any).eventContractUser.createMany({ data: archivedUsers.map(reviveDates) })] : []),
+    ...venueIdsToRelink.filter(v => !alreadyLinked.has(v)).map(venueId => (db as any).eventVenue.create({ data: { eventId, venueId } })),
   ];
   let skippedAnswers = 0;
   for (const s of snap) {
