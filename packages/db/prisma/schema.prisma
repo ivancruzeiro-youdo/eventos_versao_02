@@ -215,6 +215,7 @@ model Event {
   clientApprovals ClientApproval[]
   ruleAcceptance  VenueRuleAcceptance?
   itemRemovalSnapshots EventItemRemovalSnapshot[]
+  contractArchives     EventContractArchive[]
 
   activities            EventActivity[]
   layouts               EventLayout[]
@@ -1261,6 +1262,32 @@ model EventContractUser {
 
   @@unique([eventContractId, usuarioId])
   @@index([eventContractId])
+}
+
+// Contrato retirado do evento (simulação cancelada/anulada na Userp, contrato que sumiu, ou
+// desvinculado do principal) — NUNCA é apagado de verdade: o contrato e tudo que dependia dele
+// (itens, respostas e escolhas com histórico, horários, comentários, vagas, vínculos da
+// cozinha) ficam aqui em JSON, com os ids originais, pra poder ser restaurado depois
+// (POST /events/:id/contract-archives/:archiveId/restore). `restoredAt` preenchido = já voltou.
+model EventContractArchive {
+  id                 String    @id @default(uuid())
+  eventId            String
+  contractExternalId String
+  contract           Json      // linha do EventContract (+ users)
+  items              Json      // itens com tudo que pendurava neles (ver archiveContract em sync-events.ts)
+  reason             String    // 'cancelled' | 'annulled' | 'missing' | 'unlinked'
+  reasonDetail       Json?     // dados da simulação na Userp no momento (sim_numero, datas, flags)
+  eventStatusBefore  String?   // status do evento antes — se o arquivamento cancelou o evento, restaurar devolve
+  archivedAt         DateTime  @default(now())
+  archivedById       String?
+  archivedByName     String?
+  restoredAt         DateTime?
+  restoredByName     String?
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+  @@index([contractExternalId])
 }
 
 // Item contratado dentro de um evento (A&B, Infraestrutura, Equipe, Locação)

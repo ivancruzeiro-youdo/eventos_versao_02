@@ -5,6 +5,8 @@ import { applyVenueActivityTemplates } from '../lib/venue-activity-templates.js'
 import { getUserpToken, userpFetch } from '../lib/userp-auth.js';
 import { mergeServiceWindows } from '../lib/service-windows.js';
 import { publishKitchenEvent } from '../lib/kitchen-events.js';
+import { collectSimulationEmails, lookupSimulations, type UserpSimulation } from '../lib/userp-simulations.js';
+import { archiveContract, restoreContractArchive, type RemovalReason } from '../lib/contract-archive.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -124,6 +126,64 @@ async function contratoStatus(codlocacontrato: number): Promise<'found' | 'not_f
   if (res.ok && data?.success) return 'found';
   if (data?.error === 'not_found' || res.status === 404) return 'not_found';
   return 'error';
+}
+
+async function getArchivedContractIds(): Promise<string[]> {
+  const rows = await (prisma as any).eventContractArchive.findMany({
+    where: { restoredAt: null },
+    select: { contractExternalId: true },
+  });
+  return rows.map((r: any) => String(r.contractExternalId));
+}
+
+// Datas da Userp vêm como "2026-06-29 12:16:06" — mostra como o operador lê.
+function fmtUserpDate(s: string | null | undefined): string {
+  const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]} ${m[4]}:${m[5]}` : String(s || '');
+}
+
+function describeRemovalReason(reason: RemovalReason, externalId: string, sim: UserpSimulation | null): string {
+  const num = sim?.numero ? ` (nº ${sim.numero})` : '';
+  if (reason === 'cancelled') return `Contrato ${externalId}: a simulação${num} foi CANCELADA na Userp em ${fmtUserpDate(sim?.canceladaEm)}.`;
+  if (reason === 'annulled') return `Contrato ${externalId}: a simulação${num} foi ANULADA na Userp em ${fmtUserpDate(sim?.anuladaEm)}.`;
+  if (reason === 'missing') return `Contrato ${externalId} não foi mais encontrado na Userp.`;
+  return `Contrato ${externalId} foi desvinculado do contrato principal na Userp.`;
+}
+
+// Reavalia na hora de confirmar (nada de confiar só na proposta de antes): simulação
+// cancelada/anulada tem precedência; senão vale o mesmo critério da proposta — contrato
+// principal = não existe mais; secundário = saiu da lista de secundários do principal. (Antes o
+// secundário era checado por consulta avulsa, que SEMPRE dá 404 pra secundário ainda vinculado e
+// 200 pra um que foi desvinculado mas ainda existe — ou seja, travava justamente o caso real.)
+async function verifyContractRemoval(
+  eventContracts: any[],
+  contract: any,
+): Promise<{ ok: true; reason: RemovalReason; simulation: UserpSimulation | null } | { ok: false; message: string }> {
+  const main = eventContracts[0];
+  const isMain = main.id === contract.id;
+  const mainDetail = await fetchContratoDetails(Number(main.externalId));
+  const fresh = isMain
+    ? mainDetail?.main
+    : (mainDetail?.secondary ?? []).find((s: any) => String(s.codlocacontrato || '') === String(contract.externalId));
+
+  const simId = Number(fresh?.sim_id ?? (contract.rawJson as any)?.sim_id);
+  const sims = simId > 0
+    ? await lookupSimulations([simId], collectSimulationEmails(mainDetail?.main, main.rawJson))
+    : new Map<number, UserpSimulation>();
+  const simulation = sims.get(simId) ?? null;
+  if (simulation?.cancelada) return { ok: true, reason: 'cancelled', simulation };
+  if (simulation?.anulada) return { ok: true, reason: 'annulled', simulation };
+
+  if (isMain) {
+    const status = await contratoStatus(Number(contract.externalId));
+    if (status === 'not_found') return { ok: true, reason: 'missing', simulation };
+    return { ok: false, message: 'O contrato voltou a existir no Userp (ou a checagem falhou) — remoção cancelada.' };
+  }
+  if (mainDetail === null) {
+    return { ok: false, message: 'Não foi possível consultar o contrato principal no Userp agora — tente de novo em instantes.' };
+  }
+  if (fresh) return { ok: false, message: 'O contrato ainda está vinculado ao contrato principal no Userp — remoção cancelada.' };
+  return { ok: true, reason: 'unlinked', simulation };
 }
 
 // Fetch all contracts with details, filtering to today-or-future by data_checkin (date-only comparison)
@@ -475,6 +535,14 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       rawContracts = await fetchContratos();
     } catch (e: any) {
       return reply.status(502).send({ error: e.message });
+    }
+    // Contrato arquivado (cancelado/anulado/removido do evento, ainda não restaurado) não volta
+    // sozinho pela sincronização — só a restauração manual o traz de volta.
+    const archivedIds = new Set(await getArchivedContractIds());
+    if (archivedIds.size > 0) {
+      rawContracts = rawContracts
+        .map(c => ({ ...c, _secondary: (c._secondary || []).filter((s: any) => !archivedIds.has(String(s.codlocacontrato))) }))
+        .filter(c => !archivedIds.has(String(c.codlocacontrato)));
     }
 
     // Load all products and venues once
@@ -1071,7 +1139,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     // 1. Get this event's already-imported contracts
     const eventContracts = await (prisma as any).eventContract.findMany({
       where: { eventId },
-      select: { id: true, externalId: true, clientCode: true, startDate: true },
+      select: { id: true, externalId: true, clientCode: true, startDate: true, rawJson: true },
       orderBy: { createdAt: 'asc' },
     });
 
@@ -1086,6 +1154,10 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       select: { externalId: true },
     });
     const globalImportedIds = new Set(allImportedContracts.map((c: any) => String(c.externalId)));
+    // Contrato arquivado (cancelado/anulado/removido, ainda não restaurado) não conta como
+    // "novo" — senão, se ele continuasse na lista de secundários do principal, seria proposto
+    // pra importar de novo logo depois de ser retirado.
+    for (const a of await getArchivedContractIds()) globalImportedIds.add(a);
 
     try {
       await getUserpToken();
@@ -1144,36 +1216,66 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     const mainSecondaryIds = new Set(
       (mainDetail?.secondary ?? []).map((s: any) => String(s.codlocacontrato || ''))
     );
+    // Status da simulação de cada contrato (cancelada/anulada) — é a causa real de um contrato
+    // "sumir" ou ser desvinculado do principal (ex.: simulação cancelada e substituída por
+    // outra), e o que a gente precisa mostrar pro operador. O detalhe do contrato traz o sim_id;
+    // o e-mail de quem pediu a simulação é a ponte pro endpoint de simulações.
+    const simIdByExternalId = new Map<string, number>();
+    eventContracts.forEach((ec: any, i: number) => {
+      const fresh = i === 0
+        ? detailByExternalId.get(ec.externalId)?.main
+        : (mainDetail?.secondary ?? []).find((s: any) => String(s.codlocacontrato || '') === String(ec.externalId));
+      const simId = Number(fresh?.sim_id ?? (ec.rawJson as any)?.sim_id);
+      if (simId > 0) simIdByExternalId.set(ec.externalId, simId);
+    });
+    const simulations = await lookupSimulations(
+      [...simIdByExternalId.values()],
+      collectSimulationEmails(mainDetail?.main, eventContracts[0].rawJson),
+    );
+
     const contractHealth = eventContracts.map((ec: any, i: number) => {
+      const simId = simIdByExternalId.get(ec.externalId);
+      const simulation: UserpSimulation | null = (simId && simulations.get(simId)) || null;
+      const cancelledInUerp = !!simulation && (simulation.cancelada || simulation.anulada);
       if (i === 0) {
         const detail = detailByExternalId.get(ec.externalId);
-        return { id: ec.id, externalId: ec.externalId, missing: detail === null, unlinkedInUerp: false };
+        return { id: ec.id, externalId: ec.externalId, missing: detail === null, unlinkedInUerp: false, simulation, cancelledInUerp };
       }
       const unlinkedInUerp = mainDetail !== null && !mainSecondaryIds.has(String(ec.externalId));
-      return { id: ec.id, externalId: ec.externalId, missing: false, unlinkedInUerp };
+      return { id: ec.id, externalId: ec.externalId, missing: false, unlinkedInUerp, simulation, cancelledInUerp };
     });
 
-    // Removal proposals: contracts confirmed gone from UERP — list what would be removed, but
-    // never delete anything here. Actual deletion only happens via
-    // POST /events/:id/contracts/:contractId/confirm-removal, after the operator explicitly confirms.
+    // Removal proposals: contracts that left UERP (simulação cancelada/anulada, contrato que
+    // sumiu, ou desvinculado do principal) — list what would be retired, but never touch
+    // anything here. O arquivamento só acontece via
+    // POST /events/:id/contracts/:contractId/confirm-removal, depois do operador confirmar — e
+    // mesmo ali nada é apagado de verdade (ver archiveContract).
     const pendingRemovals: {
       contractId: string; externalId: string; clientCode: string; startDate: string;
+      reason: RemovalReason;
+      simulation: UserpSimulation | null;
       items: { id: string; name: string; category: string; quantity: number }[];
     }[] = [];
     for (let i = 0; i < contractHealth.length; i++) {
       const h = contractHealth[i];
-      let confirmedGone = false;
-      if (i === 0 && h.missing) {
+      let reason: RemovalReason | null = null;
+      if (h.simulation?.cancelada) {
+        // A simulação do contrato foi cancelada na Userp — é a explicação de verdade, tem
+        // precedência sobre "sumiu"/"desvinculado" (que são só o efeito dela).
+        reason = 'cancelled';
+      } else if (h.simulation?.anulada) {
+        reason = 'annulled';
+      } else if (i === 0 && h.missing) {
         // Primary contract: a direct lookup is meaningful, but double-check via contratoStatus
         // to distinguish a real 404 from a transient error before proposing removal.
         const status = await contratoStatus(Number(h.externalId));
-        confirmedGone = status === 'not_found';
+        if (status === 'not_found') reason = 'missing';
       } else if (i > 0 && h.unlinkedInUerp) {
         // Secondary contract: already confirmed via the primary's own secondary[] list above —
         // no further (unreliable) standalone lookup needed.
-        confirmedGone = true;
+        reason = 'unlinked';
       }
-      if (!confirmedGone) continue;
+      if (!reason) continue;
       const ec = eventContracts.find((c: any) => c.id === h.id);
       const items = await (prisma as any).eventItem.findMany({
         where: { eventId, sourceContractId: h.externalId },
@@ -1182,6 +1284,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       pendingRemovals.push({
         contractId: h.id, externalId: h.externalId,
         clientCode: ec?.clientCode ?? '', startDate: ec?.startDate ?? '',
+        reason, simulation: h.simulation,
         items,
       });
     }
@@ -1192,7 +1295,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     const liveNamesByContract = new Map<string, Set<string>>();
     for (let i = 0; i < contractHealth.length; i++) {
       const h = contractHealth[i];
-      if (h.missing || h.unlinkedInUerp) continue; // gone entirely — handled by pendingRemovals above
+      if (h.missing || h.unlinkedInUerp || h.cancelledInUerp) continue; // gone entirely — handled by pendingRemovals above
       const liveProducts: any[] | undefined = i === 0
         ? detailByExternalId.get(h.externalId)?.main?.produtos
         : (mainDetail?.secondary ?? []).find((s: any) => String(s.codlocacontrato || '') === String(h.externalId))?.produtos;
@@ -1639,29 +1742,24 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: e.message });
     }
 
-    // Re-check right before deleting — avoid removing something that came back since the proposal was shown.
-    const status = await contratoStatus(Number(contract.externalId));
-    if (status !== 'not_found') {
-      return reply.status(409).send({ error: 'O contrato voltou a existir no Userp (ou a checagem falhou) — remoção cancelada.' });
-    }
+    // Re-avalia na hora de confirmar — evita retirar algo que voltou desde que a proposta foi
+    // mostrada. Simulação cancelada/anulada na Userp tem precedência (é a causa real).
+    const eventContracts = await (prisma as any).eventContract.findMany({ where: { eventId }, orderBy: { createdAt: 'asc' } });
+    const verdict = await verifyContractRemoval(eventContracts, contract);
+    if (!verdict.ok) return reply.status(409).send({ error: verdict.message });
 
-    const items = await (prisma as any).eventItem.findMany({
-      where: { eventId, sourceContractId: contract.externalId },
-      select: {
-        id: true, name: true, category: true, quantity: true, notes: true,
-        serviceStartAt: true, serviceEndAt: true,
-        answers: { select: { questionId: true, answer: true, updatedById: true } },
-        choices: { select: { label: true, chosen: true, maxChoices: true, confirmedAt: true, confirmedById: true } },
-        serviceWindows: { select: { startAt: true, endAt: true, sortOrder: true } },
-      },
+    // Nada é apagado de verdade: contrato + itens + escolhas/respostas (com histórico) + horários
+    // + comentários + vagas + vínculos da cozinha ficam em EventContractArchive e podem ser
+    // restaurados (POST .../contract-archives/:archiveId/restore).
+    const { archive, items } = await archiveContract(prisma, {
+      eventId, contract, reason: verdict.reason, simulation: verdict.simulation, user,
     });
-    const itemIds = items.map((i: any) => i.id);
 
     // Achado real: contrato removido cujos produtos continuavam vigentes sob OUTRO contrato do
-    // mesmo evento — a reconciliação automática (abaixo, no próximo sync) recriava o mesmo item
-    // minutos depois, mas em branco, perdendo tudo que já tinha sido preenchido (respostas,
-    // escolhas, horário de serviço). Guarda um snapshot por item ANTES de apagar, pra essa
-    // reconciliação poder devolver o que já existia em vez de criar do zero.
+    // mesmo evento — a reconciliação automática (no próximo sync) recriava o mesmo item minutos
+    // depois, mas em branco, perdendo tudo que já tinha sido preenchido (respostas, escolhas,
+    // horário de serviço). Guarda um snapshot por item pra essa reconciliação poder devolver o
+    // que já existia (o arquivo acima continua com o original completo, pra restauração manual).
     const itemsWithPlanData = items.filter((i: any) =>
       i.answers.length > 0 || i.choices.length > 0 || i.serviceWindows.length > 0 || i.serviceStartAt || i.notes
     );
@@ -1670,21 +1768,12 @@ export async function syncEventsRoutes(app: FastifyInstance) {
         data: itemsWithPlanData.map((i: any) => ({
           eventId, name: i.name, notes: i.notes,
           serviceStartAt: i.serviceStartAt, serviceEndAt: i.serviceEndAt,
-          answers: i.answers, choices: i.choices, serviceWindows: i.serviceWindows,
+          answers: i.answers.map((a: any) => ({ questionId: a.questionId, answer: a.answer, updatedById: a.updatedById })),
+          choices: i.choices.map((c: any) => ({ label: c.label, chosen: c.chosen, maxChoices: c.maxChoices, confirmedAt: c.confirmedAt, confirmedById: c.confirmedById })),
+          serviceWindows: i.serviceWindows.map((w: any) => ({ startAt: w.startAt, endAt: w.endAt, sortOrder: w.sortOrder })),
         })),
       });
     }
-
-    if (itemIds.length > 0) {
-      // KitchenEventMenu.eventItemId has no cascade rule — null it out before deleting the items.
-      await (prisma as any).kitchenEventMenu.updateMany({
-        where: { eventItemId: { in: itemIds } },
-        data: { eventItemId: null },
-      });
-      await (prisma as any).eventItem.deleteMany({ where: { id: { in: itemIds } } });
-    }
-
-    await (prisma as any).eventContract.delete({ where: { id: contractId } });
 
     // Sem nenhum contrato sobrando, o evento não representa mais nada real no Userp — sem
     // isso ele ficava "Confirmado" pra sempre e nunca saía do calendário, mesmo depois do
@@ -1693,19 +1782,22 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     const remainingContracts = await (prisma as any).eventContract.count({ where: { eventId } });
     const willCancelEvent = remainingContracts === 0;
     if (willCancelEvent) {
+      const before = await prisma.event.findUnique({ where: { id: eventId }, select: { status: true } });
       await prisma.event.update({ where: { id: eventId }, data: { status: 'cancelled' as any } });
+      await (prisma as any).eventContractArchive.update({ where: { id: archive.id }, data: { eventStatusBefore: before?.status ?? null } });
     }
 
     const categoryLabel: Record<string, string> = { ab: 'A&B', infra: 'Infraestrutura', staff: 'Mão de Obra', venue: 'Local' };
     const lines = [
-      `Contrato ${contract.externalId} não foi mais encontrado no Userp e foi removido por ${user.name || user.email}.`,
+      `${describeRemovalReason(verdict.reason, contract.externalId, verdict.simulation)} Retirado do sistema por ${user.name || user.email}.`,
+      'Nada foi apagado: o contrato e os itens ficaram arquivados, com escolhas, respostas e comentários, e podem ser restaurados.',
     ];
     if (items.length > 0) {
       lines.push('');
-      lines.push('Itens removidos:');
+      lines.push('Itens arquivados:');
       items.forEach((i: any) => lines.push(`- ${i.name} (${categoryLabel[i.category] || i.category}) — qtd. ${i.quantity}`));
     } else {
-      lines.push('Nenhum item vinculado a esse contrato para remover.');
+      lines.push('Nenhum item vinculado a esse contrato.');
     }
     if (willCancelEvent) {
       lines.push('');
@@ -1716,7 +1808,51 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       data: { eventId, userId: user.id || null, isSystem: true, content: lines.join('\n') },
     });
 
-    return { success: true, removedItems: items.length, eventCancelled: willCancelEvent };
+    return { success: true, removedItems: items.length, eventCancelled: willCancelEvent, archiveId: archive.id };
+  });
+
+  // GET /events/:id/contract-archives — contratos retirados do evento (cancelados/anulados/
+  // removidos) que ainda podem ser restaurados, com o resumo do que cada um guarda.
+  app.get('/events/:id/contract-archives', { preHandler: requireAuth }, async (request) => {
+    const { id: eventId } = request.params as { id: string };
+    const rows = await (prisma as any).eventContractArchive.findMany({
+      where: { eventId },
+      orderBy: { archivedAt: 'desc' },
+    });
+    return {
+      success: true,
+      archives: rows.map((a: any) => ({
+        id: a.id,
+        contractExternalId: a.contractExternalId,
+        reason: a.reason,
+        reasonDetail: a.reasonDetail,
+        archivedAt: a.archivedAt,
+        archivedByName: a.archivedByName,
+        restoredAt: a.restoredAt,
+        restoredByName: a.restoredByName,
+        items: (a.items as any[]).map(s => ({
+          name: s.item.name, category: s.item.category, quantity: s.item.quantity,
+          answers: s.answers.length, choices: s.choices.length, comments: s.comments.length,
+        })),
+      })),
+    };
+  });
+
+  // POST /events/:id/contract-archives/:archiveId/restore — devolve o contrato arquivado e tudo
+  // que dependia dele (mesmos ids). Recusa se o contrato já foi vinculado a outro evento.
+  app.post('/events/:id/contract-archives/:archiveId/restore', { preHandler: requireAuth }, async (request, reply) => {
+    const { id: eventId, archiveId } = request.params as { id: string; archiveId: string };
+    const user = (request as any).user;
+    const result = await restoreContractArchive(prisma, archiveId, eventId, user);
+    if ('error' in result) return reply.status((result as { status: number }).status).send({ error: result.error });
+
+    await (prisma as any).eventComment.create({
+      data: {
+        eventId, userId: user.id || null, isSystem: true,
+        content: `Contrato ${result.archive.contractExternalId} restaurado por ${user.name || user.email} — ${result.restoredItems} item(ns) de volta, com escolhas, respostas e comentários.${result.reopened ? ' Evento reaberto.' : ''}${result.skippedAnswers ? ` ${result.skippedAnswers} resposta(s) ignorada(s) porque a pergunta do produto não existe mais.` : ''}`,
+      },
+    });
+    return { success: true, restoredItems: result.restoredItems, reopened: result.reopened };
   });
 
   // GET /events/:id/sync-history

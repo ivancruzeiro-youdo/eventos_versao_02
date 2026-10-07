@@ -108,6 +108,30 @@ const tabs = [
   { id: 'spotify', label: 'Spotify', icon: Music },
 ];
 
+// Datas da Userp vêm como "2026-06-29 12:16:06".
+function fmtUserpDate(v: string | null | undefined): string {
+  const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]} às ${m[4]}:${m[5]}` : String(v || '');
+}
+
+function removalHeadline(pr: {
+  externalId: string; reason: 'cancelled' | 'annulled' | 'missing' | 'unlinked';
+  simulation: { numero: string | null; canceladaEm: string | null; anuladaEm: string | null } | null;
+}): string {
+  const num = pr.simulation?.numero ? ` (nº ${pr.simulation.numero})` : '';
+  if (pr.reason === 'cancelled') return `Contrato ${pr.externalId}: a simulação${num} foi CANCELADA no UERP em ${fmtUserpDate(pr.simulation?.canceladaEm)}.`;
+  if (pr.reason === 'annulled') return `Contrato ${pr.externalId}: a simulação${num} foi ANULADA no UERP em ${fmtUserpDate(pr.simulation?.anuladaEm)}.`;
+  if (pr.reason === 'missing') return `Contrato ${pr.externalId} não foi mais encontrado no UERP.`;
+  return `Contrato ${pr.externalId} foi desvinculado do contrato principal no UERP.`;
+}
+
+function removalExplanation(reason: 'cancelled' | 'annulled' | 'missing' | 'unlinked'): string {
+  if (reason === 'cancelled') return 'Uma simulação cancelada deixa de valer — o contrato costuma ser substituído por outro. Para sair do sistema, é preciso confirmar.';
+  if (reason === 'annulled') return 'Uma simulação anulada deixa de valer. Para sair do sistema, é preciso confirmar.';
+  if (reason === 'missing') return 'O contrato não existe mais no UERP. Para sair do sistema, é preciso confirmar.';
+  return 'O contrato ainda existe no UERP, mas não está mais ligado a este como secundário. Para sair do sistema, é preciso confirmar.';
+}
+
 export default function EventDetailPage() {
   const params = useParams();
   const eventId = params.id as string;
@@ -132,9 +156,11 @@ export default function EventDetailPage() {
 
   // Tab badges (pending indicators)
   const [tabBadges, setTabBadges] = useState<Record<string, boolean>>({});
-  const [contractHealth, setContractHealth] = useState<Record<string, { missing: boolean; unlinkedInUerp: boolean }>>({});
+  const [contractHealth, setContractHealth] = useState<Record<string, { missing: boolean; unlinkedInUerp: boolean; cancelledInUerp: boolean }>>({});
   const [pendingRemovals, setPendingRemovals] = useState<{
     contractId: string; externalId: string; clientCode: string; startDate: string;
+    reason: 'cancelled' | 'annulled' | 'missing' | 'unlinked';
+    simulation: { numero: string | null; canceladaEm: string | null; anuladaEm: string | null } | null;
     items: { id: string; name: string; category: string; quantity: number }[];
   }[]>([]);
   const [confirmingRemovalId, setConfirmingRemovalId] = useState<string | null>(null);
@@ -274,8 +300,8 @@ export default function EventDetailPage() {
       const r = await fetch(`/api/v2/events/${eventId}/userp-status`, { credentials: 'include' });
       if (!r.ok) return;
       const data = await r.json();
-      const map: Record<string, { missing: boolean; unlinkedInUerp: boolean }> = {};
-      for (const h of data.contractHealth ?? []) map[h.id] = { missing: h.missing, unlinkedInUerp: h.unlinkedInUerp };
+      const map: Record<string, { missing: boolean; unlinkedInUerp: boolean; cancelledInUerp: boolean }> = {};
+      for (const h of data.contractHealth ?? []) map[h.id] = { missing: h.missing, unlinkedInUerp: h.unlinkedInUerp, cancelledInUerp: !!h.cancelledInUerp };
       setContractHealth(map);
       setPendingRemovals(data.pendingRemovals ?? []);
       setPendingItemRemovals(data.pendingItemRemovals ?? []);
@@ -1263,7 +1289,9 @@ export default function EventDetailPage() {
                   </span>
                   {event.contracts!.map((c, i) => {
                     const health = contractHealth[c.id];
-                    const warning = health?.missing
+                    const warning = health?.cancelledInUerp
+                      ? 'A simulação deste contrato foi cancelada/anulada no UERP'
+                      : health?.missing
                       ? 'Contrato não encontrado no UERP'
                       : health?.unlinkedInUerp
                         ? 'Este contrato não está mais vinculado como secundário no UERP'
@@ -1348,11 +1376,12 @@ export default function EventDetailPage() {
                 <AlertTriangle size={16} className="text-amber-600 mt-0.5 shrink-0" />
                 <div className="flex-1">
                   <p className="text-sm font-medium text-amber-900">
-                    Contrato {pr.externalId} não foi mais encontrado no UERP.
+                    {removalHeadline(pr)}
                   </p>
+                  <p className="text-xs text-amber-800 mt-1">{removalExplanation(pr.reason)}</p>
                   {pr.items.length > 0 ? (
                     <>
-                      <p className="text-xs text-amber-800 mt-1">Confirmar a remoção vai apagar estes itens do evento:</p>
+                      <p className="text-xs text-amber-800 mt-1">Confirmar vai retirar do sistema estes itens (ficam arquivados, com escolhas, respostas e comentários, e podem ser restaurados):</p>
                       <ul className="text-xs text-amber-800 mt-1 list-disc list-inside">
                         {pr.items.map(i => (
                           <li key={i.id}>{i.name} ({i.category}) — qtd. {i.quantity}</li>
@@ -1367,7 +1396,7 @@ export default function EventDetailPage() {
                     disabled={confirmingRemovalId === pr.contractId}
                     className="mt-2 flex items-center gap-1 px-3 py-1.5 text-xs rounded bg-amber-600 text-white hover:bg-amber-700 transition disabled:opacity-50"
                   >
-                    {confirmingRemovalId === pr.contractId ? 'Removendo...' : 'Confirmar remoção'}
+                    {confirmingRemovalId === pr.contractId ? 'Retirando...' : 'Confirmar saída do sistema'}
                   </button>
                 </div>
               </div>
