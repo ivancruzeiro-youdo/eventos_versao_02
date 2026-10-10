@@ -572,7 +572,9 @@ export async function uerpRoutes(app: FastifyInstance) {
           where: { id: existing.id },
           data: {
             name: item.name,
-            address: item.address || null,
+            // Endereço cadastrado à mão (aparece pro freelancer) não pode ser zerado só porque
+            // a Userp não trouxe um na reimportação.
+            address: item.address || existing.address || null,
             city: item.city || null,
             state: item.state || null,
             capacity: item.capacity ? Number(item.capacity) : null,

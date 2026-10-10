@@ -50,7 +50,7 @@ interface Application {
     name: string;
     startAt: string | null;
     status: string;
-    venues: { venue: { name: string; city: string } }[];
+    venues: { venue: { name: string; city: string; address?: string | null } }[];
     employer: { name: string };
     npsOrganizador?: { score: number | null; submittedAt: string | null } | null;
   };
@@ -328,9 +328,14 @@ export default function FreelancerApplicationsPage() {
                               </span>
                             )}
                             {app.event.venues[0] && (
-                              <span className="flex items-center gap-1">
-                                <MapPin className="size-4" />
-                                {app.event.venues[0].venue.city}
+                              <span className="flex items-start gap-1">
+                                <MapPin className="size-4 mt-0.5 shrink-0" />
+                                <span>
+                                  {app.event.venues.map(v => v.venue.name).join(' · ')}
+                                  {[...new Set(app.event.venues.map(v => v.venue.address?.trim()).filter(Boolean))].map(a => (
+                                    <span key={a as string} className="block text-xs">{a}</span>
+                                  ))}
+                                </span>
                               </span>
                             )}
                           </div>

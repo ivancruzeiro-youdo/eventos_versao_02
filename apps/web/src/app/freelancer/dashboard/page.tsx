@@ -6,6 +6,13 @@ import { authApi, freelancerApi, ApiError } from '@/lib/api';
 import FreelancerHeader from '@/components/FreelancerHeader';
 import { Search, Calendar as CalendarIcon, List, ChevronLeft, ChevronRight, MapPin, X, Users } from 'lucide-react';
 
+// Locais do evento: nomes juntos e endereços sem repetir (Lounge 1 e Rooftop dividem a mesma rua).
+function venueInfo(venues: { venue: { name: string; address?: string | null } }[]) {
+  const names = venues.map(v => v.venue.name).join(' · ');
+  const addresses = [...new Set(venues.map(v => v.venue.address?.trim()).filter((a): a is string => !!a))];
+  return { names, addresses };
+}
+
 interface Slot {
   id: string;
   code: number;
@@ -362,11 +369,19 @@ export default function FreelancerDashboardPage() {
                           </p>
                         );
                       })()}
-                      {v.event.venues[0]?.venue && (
-                        <p className="text-sm text-gray-600 mt-1.5 flex items-center gap-1.5">
-                          <MapPin className="w-3.5 h-3.5 text-gray-400" /> {v.event.venues[0].venue.name}
-                        </p>
-                      )}
+                      {v.event.venues[0]?.venue && (() => {
+                        const info = venueInfo(v.event.venues);
+                        return (
+                          <div className="mt-1.5">
+                            <p className="text-sm text-gray-600 flex items-center gap-1.5">
+                              <MapPin className="w-3.5 h-3.5 text-gray-400 shrink-0" /> {info.names}
+                            </p>
+                            {info.addresses.map(a => (
+                              <p key={a} className="text-xs text-gray-500 ml-5">{a}</p>
+                            ))}
+                          </div>
+                        );
+                      })()}
                       {(v.slot.notes || v.slot.service.description) && (
                         <p className="text-sm text-gray-500 mt-2 line-clamp-2">
                           {v.slot.notes || v.slot.service.description}
@@ -417,10 +432,10 @@ export default function FreelancerDashboardPage() {
                   <MapPin className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
                   <div>
                     <p className="text-xs text-gray-400">Localização</p>
-                    <p className="text-sm font-semibold text-[#1a1f2e]">{selectedVaga.event.venues[0].venue.name}</p>
-                    {selectedVaga.event.venues[0].venue.address && (
-                      <p className="text-xs text-gray-500">{selectedVaga.event.venues[0].venue.address}</p>
-                    )}
+                    <p className="text-sm font-semibold text-[#1a1f2e]">{venueInfo(selectedVaga.event.venues).names}</p>
+                    {venueInfo(selectedVaga.event.venues).addresses.map(a => (
+                      <p key={a} className="text-xs text-gray-500">{a}</p>
+                    ))}
                   </div>
                 </div>
               )}

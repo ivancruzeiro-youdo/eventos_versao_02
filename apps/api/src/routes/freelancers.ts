@@ -598,7 +598,7 @@ export async function freelancerRoutes(app: FastifyInstance) {
             name: true,
             status: true,
             startAt: true,
-            venues: { include: { venue: { select: { name: true, city: true } } } },
+            venues: { include: { venue: { select: { name: true, city: true, address: true } } } },
             services: {
             include: {
               service: { select: { name: true } },
