@@ -286,6 +286,7 @@ export default function EventDetailPage() {
     loadChecklist();
     loadTabBadges();
     loadContractHealth();
+    loadSlotOverflow();
   }, [eventId]);
 
   async function loadTabBadges() {
@@ -293,6 +294,53 @@ export default function EventDetailPage() {
       const r = await fetch(`/api/v2/events/${eventId}/tab-badges`, { credentials: 'include' });
       if (r.ok) setTabBadges(await r.json());
     } catch { /* silent */ }
+  }
+
+  type SlotOverflow = {
+    role: string; maxSlots: number; approvedCount: number; excess: number;
+    applications: { id: string; name: string; phone: string | null }[];
+  };
+  const [slotOverflows, setSlotOverflows] = useState<SlotOverflow[]>([]);
+  const [overflowSelection, setOverflowSelection] = useState<Record<string, string[]>>({});
+  const [resolvingOverflowRole, setResolvingOverflowRole] = useState<string | null>(null);
+
+  async function loadSlotOverflow() {
+    try {
+      const r = await fetch(`/api/v2/events/${eventId}/slot-overflow`, { credentials: 'include' });
+      if (!r.ok) return;
+      const data = await r.json();
+      setSlotOverflows(data.overflows ?? []);
+    } catch { /* silent */ }
+  }
+
+  function toggleOverflowPick(role: string, appId: string) {
+    setOverflowSelection(prev => {
+      const cur = prev[role] ?? [];
+      return { ...prev, [role]: cur.includes(appId) ? cur.filter(i => i !== appId) : [...cur, appId] };
+    });
+  }
+
+  async function resolveOverflow(o: SlotOverflow) {
+    const ids = overflowSelection[o.role] ?? [];
+    const names = o.applications.filter(a => ids.includes(a.id)).map(a => a.name).join(', ');
+    if (!confirm(`Remover da vaga de ${o.role}: ${names}?\n\nA candidatura fica como "Removido" e o acesso é revogado.`)) return;
+    setResolvingOverflowRole(o.role);
+    try {
+      const r = await fetch(`/api/v2/events/${eventId}/slot-overflow/resolve`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: o.role, removeApplicationIds: ids }),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        alert(err.error || 'Erro ao remover da vaga.');
+        return;
+      }
+      setOverflowSelection(prev => ({ ...prev, [o.role]: [] }));
+      await loadSlotOverflow();
+    } finally {
+      setResolvingOverflowRole(null);
+    }
   }
 
   async function loadContractHealth() {
@@ -1391,6 +1439,51 @@ export default function EventDetailPage() {
       </div>
 
       {/* Contract removal proposals */}
+      {slotOverflows.length > 0 && (
+        <div className="mb-4 space-y-2">
+          {slotOverflows.map(o => {
+            const picked = overflowSelection[o.role] ?? [];
+            return (
+              <div key={o.role} className="border border-amber-300 bg-amber-50 rounded-xl px-4 py-3">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle size={16} className="text-amber-600 mt-0.5 shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-amber-900">
+                      Vaga de {o.role}: {o.approvedCount} aprovados para {o.maxSlots} vaga{o.maxSlots !== 1 ? 's' : ''}
+                    </p>
+                    <p className="text-xs text-amber-800 mt-1">
+                      A quantidade contratada diminuiu depois de já haver gente confirmada. Selecione {o.excess} pessoa{o.excess !== 1 ? 's' : ''} para sair da vaga
+                      {' '}({picked.length}/{o.excess} selecionada{picked.length !== 1 ? 's' : ''}).
+                    </p>
+                    <div className="mt-2 space-y-1">
+                      {o.applications.map(a => (
+                        <label key={a.id} className="flex items-center gap-2 text-xs text-amber-900 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={picked.includes(a.id)}
+                            onChange={() => toggleOverflowPick(o.role, a.id)}
+                            disabled={!picked.includes(a.id) && picked.length >= o.excess}
+                          />
+                          <span className="font-medium">{a.name}</span>
+                          {a.phone && <span className="text-amber-700">{a.phone}</span>}
+                        </label>
+                      ))}
+                    </div>
+                    <button
+                      onClick={() => resolveOverflow(o)}
+                      disabled={picked.length !== o.excess || resolvingOverflowRole === o.role}
+                      className="mt-2 flex items-center gap-1 px-3 py-1.5 text-xs rounded bg-amber-600 text-white hover:bg-amber-700 transition disabled:opacity-50"
+                    >
+                      {resolvingOverflowRole === o.role ? 'Removendo...' : 'Remover selecionados da vaga'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {pendingRemovals.length > 0 && (
         <div className="mb-4 space-y-2">
           {pendingRemovals.map(pr => (

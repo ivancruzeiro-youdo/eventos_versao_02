@@ -838,6 +838,10 @@ model EventService {
   endAt        DateTime?
   valuePerHour Float     @default(0)
   maxSlots     Int       @default(1)
+  // Preenchido quando o sync REDUZ maxSlots abaixo do nº de aprovados — o operador precisa
+  // escolher quem sai (ver /events/:id/slot-overflow). Só esses casos pedem decisão: vaga
+  // desatualizada pra menos, por si só, não indica que alguém deva sair.
+  overflowSince DateTime?
   createdAt    DateTime  @default(now())
 
   event           Event                   @relation(fields: [eventId], references: [id], onDelete: Cascade)

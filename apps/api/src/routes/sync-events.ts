@@ -18,6 +18,24 @@ import { archiveContract, restoreContractArchive, type RemovalReason } from '../
 // mesmo com credenciais corretas. userpFetch já refaz a chamada 1x com token novo nesse caso
 // (mesmo fix já aplicado em degustacoes.ts/fetchUserpEntidade).
 
+// Atualiza o maxSlots de uma vaga vinda do sync. Quando o sync REDUZ a vaga abaixo do número de
+// freelancers já aprovados, o sync não mexe em ninguém — marca overflowSince e o operador
+// escolhe quem sai (GET/POST /events/:id/slot-overflow). A marca some sozinha quando deixa de
+// haver excesso (alguém removido ou vaga voltou a subir).
+async function applyMaxSlots(existingSvc: any, newMax: number): Promise<void> {
+  let overflowSince: Date | null = existingSvc.overflowSince ?? null;
+  if (newMax < existingSvc.maxSlots || overflowSince) {
+    const svc = await (prisma as any).freelancerService.findUnique({ where: { id: existingSvc.serviceId }, select: { name: true } });
+    const approved = svc
+      ? await (prisma as any).freelancerApplication.count({ where: { eventId: existingSvc.eventId, role: svc.name, status: 'approved' } })
+      : 0;
+    overflowSince = approved > newMax ? (overflowSince ?? new Date()) : null;
+  }
+  const changed = newMax !== existingSvc.maxSlots || overflowSince?.getTime() !== (existingSvc.overflowSince?.getTime() ?? undefined);
+  if (!changed) return;
+  await (prisma as any).eventService.update({ where: { id: existingSvc.id }, data: { maxSlots: newMax, overflowSince } });
+}
+
 // Fetch paginated list of contract IDs from the satelite experience API (includes real start/end times)
 // Só contratos "Vigente" (filtro do próprio endpoint) — sem isso a listagem trazia ~4,5 mil
 // contratos de qualquer status e cada um virava uma chamada de detalhe só pra ser descartado.
@@ -1003,10 +1021,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
               const existingSvc = await (prisma as any).eventService.findFirst({ where: { eventId, serviceId: alloc.serviceId } });
               if (existingSvc) {
                 // Update maxSlots only — preserve all operator-entered data
-                await (prisma as any).eventService.update({
-                  where: { id: existingSvc.id },
-                  data: { maxSlots: alloc.maxSlots },
-                });
+                await applyMaxSlots(existingSvc, alloc.maxSlots);
               } else {
                 const svcData = await (prisma as any).freelancerService.findUnique({ where: { id: alloc.serviceId } });
                 if (!svcData) {
@@ -1436,7 +1451,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
               for (const alloc of allocations) {
                 const existingSvc = await (prisma as any).eventService.findFirst({ where: { eventId, serviceId: alloc.serviceId } });
                 if (existingSvc) {
-                  await (prisma as any).eventService.update({ where: { id: existingSvc.id }, data: { maxSlots: alloc.maxSlots } });
+                  await applyMaxSlots(existingSvc, alloc.maxSlots);
                 } else {
                   const svcData = await (prisma as any).freelancerService.findUnique({ where: { id: alloc.serviceId } });
                   const startOffset: number = svcData?.startOffsetMinutes ?? -60;

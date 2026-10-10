@@ -207,6 +207,57 @@ const registerSchema = z.object({
   password: z.string().min(6),
 });
 
+// Vagas (EventService ativo) em que o sync REDUZIU o maxSlots abaixo do número de aprovados
+// (overflowSince marcado por applyMaxSlots em sync-events.ts) e que continuam excedidas. Só essas
+// pedem decisão: uma vaga desatualizada por outro motivo (ex.: não subiu junto com o contrato)
+// não significa que alguém deva sair. O sync nunca mexe em quem já foi aprovado. Eventos que
+// já começaram (data de hoje ou anterior, fuso de SP) ficam de fora — pedir pra cancelar
+// alguém no dia do evento, ou depois, não faz sentido; a decisão vira operacional.
+async function computeSlotOverflow(eventId: string) {
+  const event = await prisma.event.findUnique({
+    where: { id: eventId },
+    select: { employerId: true, status: true, startAt: true },
+  });
+  if (!event) return null;
+
+  const sp = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(d);
+  const started = event.startAt ? sp(event.startAt) <= sp(new Date()) : false;
+  if (started || event.status === 'encerrado' || event.status === 'cancelled') {
+    return { event, overflows: [] as any[] };
+  }
+
+  const services = await prisma.eventService.findMany({
+    where: { eventId, status: 'active', overflowSince: { not: null } },
+    select: { maxSlots: true, service: { select: { name: true } } },
+  });
+  const slotsByRole = new Map<string, number>();
+  for (const s of services) slotsByRole.set(s.service.name, (slotsByRole.get(s.service.name) ?? 0) + s.maxSlots);
+  if (slotsByRole.size === 0) return { event, overflows: [] as any[] };
+
+  const approved = await prisma.freelancerApplication.findMany({
+    where: { eventId, status: 'approved', role: { in: [...slotsByRole.keys()] } },
+    select: {
+      id: true, role: true, appliedAt: true,
+      freelancer: { select: { id: true, name: true, phone: true } },
+    },
+    orderBy: { appliedAt: 'asc' },
+  });
+
+  const byRole = new Map<string, typeof approved>();
+  for (const a of approved) byRole.set(a.role, [...(byRole.get(a.role) ?? []), a]);
+
+  const overflows = [...byRole.entries()]
+    .filter(([role, apps]) => apps.length > (slotsByRole.get(role) ?? 0))
+    .map(([role, apps]) => ({
+      role,
+      maxSlots: slotsByRole.get(role) ?? 0,
+      approvedCount: apps.length,
+      excess: apps.length - (slotsByRole.get(role) ?? 0),
+      applications: apps.map(a => ({ id: a.id, name: a.freelancer.name, phone: a.freelancer.phone, appliedAt: a.appliedAt })),
+    }));
+  return { event, overflows };
+}
+
 export async function freelancerRoutes(app: FastifyInstance) {
   // Freelancer login
   app.post('/freelancers/auth/login', async (request, reply) => {
@@ -776,6 +827,74 @@ export async function freelancerRoutes(app: FastifyInstance) {
     });
 
     return { success: true, applications };
+  });
+
+  // Vagas excedidas do evento (mais aprovados que vagas) — ver computeSlotOverflow.
+  app.get('/events/:id/slot-overflow', { preHandler: requireAuth }, async (request, reply) => {
+    const { id: eventId } = request.params as { id: string };
+    const user = (request as any).user;
+    const result = await computeSlotOverflow(eventId);
+    if (!result) return reply.status(404).send({ error: 'Event not found' });
+    if (user.role !== 'admin' && result.event.employerId !== user.employerId) {
+      return reply.status(403).send({ error: 'Access denied' });
+    }
+    return { success: true, overflows: result.overflows };
+  });
+
+  // O operador escolhe QUEM sai de uma vaga excedida — exatamente o excesso, nem mais nem
+  // menos, pra não sobrar ninguém além das vagas e não tirar gente à toa. Remove do mesmo jeito
+  // que o botão "Remover" da Mão de Obra (status rejected + revoga o acesso).
+  app.post('/events/:id/slot-overflow/resolve', { preHandler: requireAuth }, async (request, reply) => {
+    const { id: eventId } = request.params as { id: string };
+    const user = (request as any).user;
+    const { role, removeApplicationIds } = z.object({
+      role: z.string().min(1),
+      removeApplicationIds: z.array(z.string().min(1)),
+    }).parse(request.body);
+
+    const result = await computeSlotOverflow(eventId);
+    if (!result) return reply.status(404).send({ error: 'Event not found' });
+    if (user.role !== 'admin' && result.event.employerId !== user.employerId) {
+      return reply.status(403).send({ error: 'Access denied' });
+    }
+
+    const overflow = result.overflows.find((o: any) => o.role === role);
+    if (!overflow) {
+      return reply.status(409).send({ error: `A vaga de ${role} não está mais excedida.` });
+    }
+
+    const ids = [...new Set(removeApplicationIds)];
+    const allowed = new Set(overflow.applications.map((a: any) => a.id));
+    if (ids.some(id => !allowed.has(id))) {
+      return reply.status(400).send({ error: 'Seleção inválida: há candidatura que não está aprovada nesta vaga.' });
+    }
+    if (ids.length !== overflow.excess) {
+      return reply.status(400).send({ error: `Selecione exatamente ${overflow.excess} pessoa(s) para remover da vaga de ${role}.` });
+    }
+
+    const removed = overflow.applications.filter((a: any) => ids.includes(a.id));
+    await prisma.freelancerApplication.updateMany({
+      where: { id: { in: ids }, eventId, role, status: 'approved' },
+      data: { status: 'rejected' },
+    });
+    await prisma.eventService.updateMany({
+      where: { eventId, status: 'active', overflowSince: { not: null }, service: { name: role } },
+      data: { overflowSince: null },
+    });
+    for (const id of ids) {
+      handleAcessoRevoke(id).catch(err => console.error(`[freelancers] Falha ao revogar acesso pra candidatura ${id}:`, err.message));
+    }
+
+    await (prisma as any).eventComment.create({
+      data: {
+        eventId,
+        userId: (request.user as any)?.sub ?? null,
+        isSystem: true,
+        content: `Vaga de ${role} excedida (${overflow.approvedCount} aprovados para ${overflow.maxSlots} vaga(s)): removido(s) da vaga por ${user.name || user.email}: ${removed.map((a: any) => a.name).join(', ')}.`,
+      },
+    });
+
+    return { success: true, removed: removed.map((a: any) => a.id) };
   });
 
   // Update application status (approve/reject)

@@ -1,0 +1,1 @@
+ALTER TABLE "EventService" ADD COLUMN IF NOT EXISTS "overflowSince" TIMESTAMP(3);
