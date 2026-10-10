@@ -178,6 +178,7 @@ export default function PlacasBuffetPage() {
         * { box-sizing: border-box; }
         @media print {
           @page { size: A4 portrait; margin: 0; }
+          * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
           html, body { margin: 0; padding: 0; }
           .no-print { display: none !important; }
           .screen-wrap { padding: 0 !important; background: white !important; }
