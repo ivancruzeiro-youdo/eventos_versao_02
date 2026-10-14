@@ -313,8 +313,10 @@ export async function authRoutes(app: FastifyInstance) {
     }
 
     try {
-      const decoded = app.jwt.verify(token);
-      const newToken = app.jwt.sign(decoded, { expiresIn: '24h' });
+      // O payload decodificado traz iat/exp/nbf — reassinar com eles ignora o expiresIn e devolve
+      // o token com a MESMA validade restante (testado), ou seja, a sessão nunca era estendida.
+      const { iat: _iat, exp: _exp, nbf: _nbf, ...claims } = app.jwt.verify(token) as Record<string, any>;
+      const newToken = app.jwt.sign(claims, { expiresIn: '24h' });
       
       reply.setCookie('token', newToken, {
         path: '/',

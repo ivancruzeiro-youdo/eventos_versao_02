@@ -3,8 +3,12 @@
 import { useEffect, useState } from 'react';
 import { Download, Share, SquarePlus, X } from 'lucide-react';
 
-const DISMISS_KEY = 'freelancer_pwa_prompt_dismissed_at';
-const INSTALLED_KEY = 'freelancer_pwa_installed';
+// As chaves de localStorage levam o prefixo do app (freelancer | gestao) — cada PWA tem o seu
+// próprio "dispensei" / "já instalei", um não silencia o outro.
+const keysFor = (prefix: string) => ({
+  dismiss: `${prefix}_pwa_prompt_dismissed_at`,
+  installed: `${prefix}_pwa_installed`,
+});
 const COOLDOWN_MS = 14 * 24 * 60 * 60 * 1000; // 14 dias
 
 function isStandaloneNow(): boolean {
@@ -15,18 +19,18 @@ function isStandaloneNow(): boolean {
   );
 }
 
-function isDismissedRecently(): boolean {
+function isDismissedRecently(dismissKey: string): boolean {
   try {
-    const at = Number(localStorage.getItem(DISMISS_KEY) || 0);
+    const at = Number(localStorage.getItem(dismissKey) || 0);
     return Date.now() - at < COOLDOWN_MS;
   } catch {
     return false;
   }
 }
 
-function dismiss() {
+function dismiss(dismissKey: string) {
   try {
-    localStorage.setItem(DISMISS_KEY, String(Date.now()));
+    localStorage.setItem(dismissKey, String(Date.now()));
   } catch {
     // localStorage indisponível (modo privado etc.) — só não persiste a preferência, sem quebrar nada.
   }
@@ -41,7 +45,8 @@ function isRealIosSafari(): boolean {
   return isIos && !isOtherBrowser;
 }
 
-export default function InstallPwaPrompt() {
+export default function InstallPwaPrompt({ appName = 'YouDO Vagas', storagePrefix = 'freelancer' }: { appName?: string; storagePrefix?: string } = {}) {
+  const KEYS = keysFor(storagePrefix);
   const [platform, setPlatform] = useState<'none' | 'android' | 'ios'>('none');
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [installing, setInstalling] = useState(false);
@@ -49,11 +54,11 @@ export default function InstallPwaPrompt() {
   useEffect(() => {
     if (isStandaloneNow()) return;
     try {
-      if (localStorage.getItem(INSTALLED_KEY) === '1') return;
+      if (localStorage.getItem(KEYS.installed) === '1') return;
     } catch {
       // segue normalmente sem a checagem
     }
-    if (isDismissedRecently()) return;
+    if (isDismissedRecently(KEYS.dismiss)) return;
 
     if (isRealIosSafari()) {
       setPlatform('ios');
@@ -67,7 +72,7 @@ export default function InstallPwaPrompt() {
     }
     function onAppInstalled() {
       try {
-        localStorage.setItem(INSTALLED_KEY, '1');
+        localStorage.setItem(KEYS.installed, '1');
       } catch {
         // sem localStorage, só não persiste — a checagem de display-mode ainda cobre o caso normal
       }
@@ -83,7 +88,7 @@ export default function InstallPwaPrompt() {
   }, []);
 
   function handleClose() {
-    dismiss();
+    dismiss(KEYS.dismiss);
     setPlatform('none');
   }
 
@@ -97,7 +102,7 @@ export default function InstallPwaPrompt() {
       // O evento só serve uma vez — sempre limpa, tenha o usuário aceitado ou não.
       setDeferredPrompt(null);
       setInstalling(false);
-      dismiss();
+      dismiss(KEYS.dismiss);
       setPlatform('none');
     }
   }
@@ -112,7 +117,7 @@ export default function InstallPwaPrompt() {
             <Download className="w-5 h-5 text-orange-400" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="font-semibold text-sm">Instale o app YouDO Vagas</p>
+            <p className="font-semibold text-sm">Instale o app {appName}</p>
             {platform === 'android' ? (
               <p className="text-xs text-white/70 mt-0.5">
                 Acesse mais rápido, direto da tela inicial do celular.

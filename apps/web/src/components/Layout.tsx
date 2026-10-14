@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronRight, LayoutDashboard, Calendar, MapPin, Users, FileText, Settings, LogOut, ChefHat, Package, UtensilsCrossed, ShoppingCart, ClipboardList, BrainCircuit, SlidersHorizontal, Menu, X, Truck, UserRound, Monitor, Download, Plug, Wine } from 'lucide-react';
 import { logoutHub } from '@/lib/sso';
 import { authApi, ApiError } from '@/lib/api';
+import GestaoPwa from '@/components/GestaoPwa';
 
 const roleLabels: Record<string, string> = {
   admin: 'Administrador',
@@ -373,6 +374,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-background flex">
+      <GestaoPwa />
       {/* Mobile overlay */}
       {mobileOpen && (
         <div

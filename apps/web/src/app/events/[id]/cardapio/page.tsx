@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
+import { printPage } from '@/lib/print';
 
 // ─── Brand tokens ──────────────────────────────────────────────────────────
 const ORANGE  = '#E55A1C';
@@ -321,7 +322,7 @@ export default function CardapioPage() {
             padding: '7px 16px', backgroundColor: 'rgba(255,255,255,0.12)', color: '#fff',
             borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontFamily: 'Arial, sans-serif',
           }}>← Voltar</a>
-          <button onClick={() => window.print()} style={{
+          <button onClick={() => printPage()} style={{
             padding: '7px 20px', backgroundColor: ORANGE, color: '#fff',
             border: 'none', borderRadius: '6px', cursor: 'pointer',
             fontSize: '13px', fontWeight: 700, fontFamily: 'Arial, sans-serif',
