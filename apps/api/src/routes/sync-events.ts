@@ -59,6 +59,25 @@ async function fetchContratoIds(): Promise<number[]> {
   return all;
 }
 
+// Ids dos secundários VIGENTES de um principal. contracts-details lista TODOS os secundários
+// (inclusive os de simulação anulada/cancelada, sem status neles — o `status` do detalhe só vem no
+// principal), enquanto contracts-secondary devolve só os vigentes. Medido nos eventos recentes: dos
+// 8 secundários que o detalhe lista e este endpoint não, 7 tinham simulação anulada/cancelada.
+// null = consulta falhou (inconclusivo) — quem chama NÃO pode tratar isso como "nenhum vigente".
+async function fetchValidSecondaryIds(mainContractId: number): Promise<Set<string> | null> {
+  try {
+    const res = await userpFetch(`/api/userp-satelite/experience/contracts-secondary.php?codlocacontrato=${mainContractId}`, {
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) return null;
+    const data: any = await res.json();
+    if (!data?.success) return null;
+    return new Set((data.items || []).map((s: any) => String(s.codlocacontrato)));
+  } catch {
+    return null;
+  }
+}
+
 // Fetch full contract details (has inicio_evento/fim_evento/data_checkin with real time, and produtos)
 async function fetchContratoDetails(codlocacontrato: number): Promise<any | null> {
   const res = await userpFetch(`/api/userp-satelite/experience/contracts-details.php?codlocacontrato=${codlocacontrato}`, {
@@ -68,7 +87,18 @@ async function fetchContratoDetails(codlocacontrato: number): Promise<any | null
   let data: any;
   try { data = await res.json(); } catch { return null; }
   if (!data?.success) return null;
-  return data?.contracts ?? null;
+  const contracts = data?.contracts ?? null;
+
+  // Secundário anulado/cancelado sai de TUDO que o sync calcula a partir daqui (soma de
+  // quantidades, itens vivos, vínculo): cada produto perde só a quantidade que vinha dele, e só
+  // some por inteiro se não sobrar nenhum outro contrato com o mesmo produto. Só filtra quando o
+  // principal está Vigente — principal Encerrado = evento encerrado, o filtro só geraria ruído —
+  // e nunca quando a consulta dos vigentes falha.
+  if (contracts?.secondary?.length && String(contracts.main?.status ?? 'Vigente') === 'Vigente') {
+    const valid = await fetchValidSecondaryIds(codlocacontrato);
+    if (valid) contracts.secondary = contracts.secondary.filter((s: any) => valid.has(String(s.codlocacontrato)));
+  }
+  return contracts;
 }
 
 // Usuários vinculados ao contrato (tb_loca_contrato_usuarios) — vem do endpoint de LISTAGEM
