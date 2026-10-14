@@ -18,6 +18,14 @@ import { archiveContract, restoreContractArchive, type RemovalReason } from '../
 // mesmo com credenciais corretas. userpFetch já refaz a chamada 1x com token novo nesse caso
 // (mesmo fix já aplicado em degustacoes.ts/fetchUserpEntidade).
 
+// Atualização automática de quantidades ao abrir o evento (userp-status): a tela chama a rota 2x
+// por abertura (banner + saúde dos contratos), então uma trava por evento impede duas importações
+// simultâneas, e o intervalo mínimo evita repetir se a Userp insistir em divergir do que a
+// importação consegue gravar.
+const quantitySyncLock = new Set<string>();
+const lastQuantitySync = new Map<string, number>();
+const QUANTITY_SYNC_MIN_GAP_MS = 10 * 60 * 1000;
+
 // Atualiza o maxSlots de uma vaga vinda do sync. Quando o sync REDUZ a vaga abaixo do número de
 // freelancers já aprovados, o sync não mexe em ninguém — marca overflowSince e o operador
 // escolhe quem sai (GET/POST /events/:id/slot-overflow). A marca some sozinha quando deixa de
@@ -1553,11 +1561,36 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       }
     }
 
-    if (secondaryPending.length === 0) {
+    // Quantidade dos itens que já existem x soma dos contratos VÁLIDOS (principal + secundários
+    // vigentes — o filtro está em fetchContratoDetails). Antes só o sync diário (05h) corrigia isso:
+    // abrir o evento não comparava nada, então uma quantidade errada ficava na tela até o dia
+    // seguinte. Só compara nomes que existem dos dois lados (item faltando/sobrando já tem fluxo
+    // próprio) e nunca com remoção de contrato pendente, que precisa ser resolvida antes.
+    const quantityDiffs: { name: string; from: number; to: number }[] = [];
+    const hasHealthIssue = pendingRemovals.length > 0 || contractHealth.some((h: any) => h.missing || h.unlinkedInUerp);
+    if (mainDetail?.main && !hasHealthIssue) {
+      const snap = buildItemsSnapshot([{ ...mainDetail.main, _secondary: mainDetail.secondary ?? [] }]);
+      const dbItems = await (prisma as any).eventItem.findMany({ where: { eventId }, select: { name: true, quantity: true } });
+      const norm = (n: string) => String(n || '').trim().toLowerCase();
+      const dbSum = new Map<string, number>();
+      for (const i of dbItems) dbSum.set(norm(i.name), (dbSum.get(norm(i.name)) ?? 0) + i.quantity);
+      const snapSum = new Map<string, number>();
+      for (const i of snap) snapSum.set(norm(i.name), (snapSum.get(norm(i.name)) ?? 0) + i.qty);
+      for (const [name, to] of snapSum) {
+        const from = dbSum.get(name);
+        if (from !== undefined && to > 0 && from !== to) quantityDiffs.push({ name, from, to });
+      }
+    }
+    const quantityOnly = secondaryPending.length === 0 && quantityDiffs.length > 0;
+
+    if (secondaryPending.length === 0 && quantityDiffs.length === 0) {
       return { success: true, status: 'up_to_date', contractHealth, pendingRemovals, pendingItemRemovals };
     }
 
     const pendingContracts: any[] = [];
+    if (quantityOnly) {
+      pendingContracts.push({ ...mainDetail.main, _secondary: mainDetail.secondary ?? [] });
+    }
 
     // For secondary-triggered updates, push the parent main contract (with full secondary list)
     // so buildItemsSnapshot sees all products. Secondary contracts can't be fetched individually.
@@ -1665,13 +1698,51 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       duplicateNames,
     };
 
+    // Só quantidades divergentes (nenhum contrato novo): aplica sozinho, pela MESMA importação que o
+    // sync diário usa (sync-import), só pra este evento. Se não puder (importação bloqueada, falha
+    // ou já tentou há pouco), cai no fluxo de sempre e oferece o botão de atualizar.
+    if (quantityOnly && preview.canImport && !quantitySyncLock.has(eventId)
+        && Date.now() - (lastQuantitySync.get(eventId) ?? 0) > QUANTITY_SYNC_MIN_GAP_MS) {
+      quantitySyncLock.add(eventId);
+      lastQuantitySync.set(eventId, Date.now());
+      try {
+        const inj = await app.inject({
+          method: 'POST',
+          url: '/api/v2/events/sync-import',
+          headers: {
+            'content-type': 'application/json',
+            cookie: (request.headers.cookie as string) ?? '',
+            ...(request.headers.authorization ? { authorization: request.headers.authorization as string } : {}),
+          },
+          payload: { previews: [preview], groupDuplicates: false },
+        });
+        const body = inj.statusCode === 200 ? JSON.parse(inj.payload || '{}') : null;
+        if (body?.success && !(body.errors?.length)) {
+          return { success: true, status: 'synced', quantityChanges: quantityDiffs, contractHealth, pendingRemovals, pendingItemRemovals };
+        }
+      } catch (err: any) {
+        console.error(`[userp-status] falha ao atualizar quantidades do evento ${eventId}:`, err.message);
+      } finally {
+        quantitySyncLock.delete(eventId);
+      }
+    }
+    if (quantityOnly && quantitySyncLock.has(eventId)) {
+      return { success: true, status: 'up_to_date', contractHealth, pendingRemovals, pendingItemRemovals };
+    }
+
     // Build display list: new main contracts + newly-discovered secondary contracts
     const mainContractDisplayIds = new Set(
       pendingContracts
         .filter((c: any) => !secondaryPending.some(s => String(s.mainDetail.main?.codlocacontrato) === String(c.codlocacontrato)))
         .map((c: any) => String(c.codlocacontrato))
     );
-    const displayContracts = [
+    const displayContracts = quantityOnly
+      ? [{
+          id: String(mainDetail.main.codlocacontrato),
+          clientName: `Quantidades diferentes da Userp: ${quantityDiffs.map(d => `${d.name} ${d.from}→${d.to}`).join(', ')}`,
+          startDate,
+        }]
+      : [
       ...pendingContracts
         .filter((c: any) => mainContractDisplayIds.has(String(c.codlocacontrato)))
         .map((c: any) => ({

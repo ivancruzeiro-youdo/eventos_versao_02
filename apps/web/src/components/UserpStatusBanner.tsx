@@ -9,7 +9,7 @@ interface PendingContract {
   startDate: string;
 }
 
-type Status = 'loading' | 'up_to_date' | 'no_contracts' | 'closed' | 'pending' | 'error' | 'importing' | 'imported';
+type Status = 'loading' | 'up_to_date' | 'no_contracts' | 'closed' | 'pending' | 'error' | 'importing' | 'imported' | 'synced';
 
 interface Props {
   eventId: string;
@@ -21,6 +21,7 @@ export default function UserpStatusBanner({ eventId }: Props) {
   const [preview, setPreview] = useState<any>(null);
   const [blockingReasons, setBlockingReasons] = useState<string[]>([]);
   const [groupDuplicates, setGroupDuplicates] = useState(false);
+  const [quantityChanges, setQuantityChanges] = useState<{ name: string; from: number; to: number }[]>([]);
 
   useEffect(() => {
     check();
@@ -35,6 +36,20 @@ export default function UserpStatusBanner({ eventId }: Props) {
       if (data.status === 'no_contracts') { setStatus('no_contracts'); return; }
       if (data.status === 'closed') { setStatus('closed'); return; }
       if (data.status === 'up_to_date') { setStatus('up_to_date'); return; }
+      if (data.status === 'synced') {
+        // Quantidades corrigidas na abertura — recarrega UMA vez (por evento, no máx. a cada
+        // minuto) pra a página mostrar os números novos, sem risco de laço de recarga.
+        setQuantityChanges(data.quantityChanges || []);
+        setStatus('synced');
+        try {
+          const key = `userp_synced_reload_${eventId}`;
+          if (Date.now() - Number(sessionStorage.getItem(key) || 0) > 60_000) {
+            sessionStorage.setItem(key, String(Date.now()));
+            setTimeout(() => window.location.reload(), 1500);
+          }
+        } catch { /* sem sessionStorage: só não recarrega sozinho */ }
+        return;
+      }
       if (data.status === 'pending') {
         setPendingContracts(data.pendingContracts || []);
         setPreview(data.preview || null);
@@ -79,6 +94,19 @@ export default function UserpStatusBanner({ eventId }: Props) {
       <div className="flex items-center gap-2 text-xs text-muted-foreground py-1 px-3">
         <Loader2 size={12} className="animate-spin" />
         Verificando USERP...
+      </div>
+    );
+  }
+
+  if (status === 'synced') {
+    return (
+      <div className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+        <p className="flex items-center gap-2 font-medium">
+          <CheckCircle2 size={14} className="shrink-0" /> Quantidades atualizadas com a Userp
+        </p>
+        {quantityChanges.length > 0 && (
+          <p className="mt-1 pl-6">{quantityChanges.map(c => `${c.name}: ${c.from} → ${c.to}`).join(' · ')}</p>
+        )}
       </div>
     );
   }

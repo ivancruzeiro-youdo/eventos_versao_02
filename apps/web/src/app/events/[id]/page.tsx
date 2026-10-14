@@ -348,6 +348,17 @@ export default function EventDetailPage() {
       const r = await fetch(`/api/v2/events/${eventId}/userp-status`, { credentials: 'include' });
       if (!r.ok) return;
       const data = await r.json();
+      if (data.status === 'synced') {
+        // A rota atualizou as quantidades nesta chamada (a outra, do banner, pode ter chegado
+        // depois e visto "em dia") — recarrega uma vez pra a tela refletir os números novos.
+        try {
+          const key = `userp_synced_reload_${eventId}`;
+          if (Date.now() - Number(sessionStorage.getItem(key) || 0) > 60_000) {
+            sessionStorage.setItem(key, String(Date.now()));
+            setTimeout(() => window.location.reload(), 1500);
+          }
+        } catch { /* sem sessionStorage: segue sem recarregar */ }
+      }
       const map: Record<string, { missing: boolean; unlinkedInUerp: boolean; cancelledInUerp: boolean }> = {};
       for (const h of data.contractHealth ?? []) map[h.id] = { missing: h.missing, unlinkedInUerp: h.unlinkedInUerp, cancelledInUerp: !!h.cancelledInUerp };
       setContractHealth(map);
