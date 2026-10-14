@@ -23,6 +23,27 @@ interface ChargeDraft {
   quantity: string;
 }
 
+// Resultado do envio do check-out à Userp, devolvido pelo encerramento. ok=false: a baixa não foi
+// feita (problems diz por quê); pending: a Userp demorou e o resultado final só sai no histórico.
+interface CheckoutProblem {
+  contract: string | null;
+  kind: 'no_record' | 'no_func' | 'rejected' | 'error';
+  message: string;
+  detail?: string;
+}
+interface CheckoutInfo {
+  ok: boolean | null;
+  pending?: boolean;
+  problems: CheckoutProblem[];
+}
+
+const CHECKOUT_ADVICE: Record<CheckoutProblem['kind'], string> = {
+  no_record: 'Peça à equipe da Userp para criar (ou corrigir) o registro de desocupação do contrato, ou faça a baixa do check-out direto por lá.',
+  no_func: 'Vincule o seu código de funcionário Userp em Admin → Usuários, ou faça a baixa do check-out direto na Userp.',
+  rejected: 'Faça a baixa do check-out direto na Userp e, se a mensagem acima não explicar, avise o suporte com esse detalhe.',
+  error: 'Tente novamente mais tarde ou faça a baixa do check-out direto na Userp.',
+};
+
 function fmtBrl(v: number): string {
   return v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
@@ -42,6 +63,7 @@ export default function EncerrarEventoPage() {
   const [error, setError] = useState('');
   const [npsUrl, setNpsUrl] = useState('');
   const [copied, setCopied] = useState(false);
+  const [checkoutInfo, setCheckoutInfo] = useState<CheckoutInfo | null>(null);
 
   // A&B excedente: check-ins vs. quantidade contratada
   const [abContractedQty, setAbContractedQty] = useState<number | null>(null);
@@ -165,6 +187,7 @@ export default function EncerrarEventoPage() {
           dataBase64,
         })),
       });
+      if (res.checkout && (res.checkout.ok === false || res.checkout.pending)) setCheckoutInfo(res.checkout);
       setNpsUrl(res.npsUrl);
     } catch (err: any) {
       setError(err.message || 'Erro ao encerrar evento');
@@ -182,6 +205,48 @@ export default function EncerrarEventoPage() {
   if (npsUrl) {
     return (
       <Layout>
+        {checkoutInfo && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
+            <div className="bg-card border rounded-2xl shadow-xl max-w-lg w-full max-h-[85vh] overflow-y-auto p-6">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className={checkoutInfo.pending ? 'text-amber-500 shrink-0' : 'text-red-500 shrink-0'} size={28} />
+                <div className="flex-1">
+                  <h2 className="text-lg font-bold">
+                    {checkoutInfo.pending ? 'Check-out na Userp ainda em andamento' : 'A baixa do check-out não foi feita na Userp'}
+                  </h2>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {checkoutInfo.pending
+                      ? 'O evento foi encerrado, mas a Userp demorou para responder. O resultado do check-out vai aparecer no histórico do evento — confira lá em alguns minutos.'
+                      : 'O evento foi encerrado normalmente, mas o check-out de espaço não pôde ser registrado na Userp:'}
+                  </p>
+                </div>
+              </div>
+
+              {!checkoutInfo.pending && (
+                <ul className="mt-4 space-y-3">
+                  {checkoutInfo.problems.map((p, i) => (
+                    <li key={i} className="border border-red-200 bg-red-50 dark:bg-red-950/30 dark:border-red-900 rounded-lg p-3 text-sm">
+                      <p className="font-medium text-red-900 dark:text-red-200">
+                        {p.contract ? `Contrato ${p.contract}: ` : ''}{p.message}
+                      </p>
+                      {p.detail && <p className="mt-1 text-xs text-red-800 dark:text-red-300 break-words">{p.detail}</p>}
+                      <p className="mt-2 text-xs text-foreground"><strong>O que fazer:</strong> {CHECKOUT_ADVICE[p.kind]}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <div className="mt-5 flex justify-end gap-2">
+                <Link href={`/events/${eventId}`} className="px-4 py-2 rounded-lg border text-sm hover:bg-accent">
+                  Ver histórico do evento
+                </Link>
+                <button onClick={() => setCheckoutInfo(null)} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90">
+                  Entendi
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         <div className="max-w-xl mx-auto py-12 text-center">
           <div className="bg-card border rounded-2xl p-8">
             <div className="flex justify-center mb-4">

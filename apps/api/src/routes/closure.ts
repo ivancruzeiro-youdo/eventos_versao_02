@@ -3,7 +3,9 @@ import { z } from 'zod';
 import { prisma } from '../server.js';
 import { requireAuth } from '../middleware/auth.js';
 import { randomUUID } from 'crypto';
-import { registrarCheckoutsUserp } from '../services/userp-checkin.js';
+import { registrarCheckoutsUserp, type CheckoutResult } from '../services/userp-checkin.js';
+
+const CHECKOUT_WAIT_MS = 25_000;
 import { computeClosureBilling } from '../lib/closure-billing.js';
 
 const closureSchema = z.object({
@@ -117,15 +119,27 @@ export async function closureRoutes(app: FastifyInstance) {
       data: { status: 'encerrado' as any },
     });
 
-    // Registra o check-out de espaço na Userp ao encerrar — fire-and-forget, mesmo motivo do
-    // check-in em events.ts (não travar o encerramento esperando a Userp responder).
-    registrarCheckoutsUserp(eventId, user.id).catch((err: any) =>
-      console.error(`[userp-checkin] evento ${eventId}: ${err.message}`),
-    );
+    // Registra o check-out de espaço na Userp ao encerrar. O encerramento em si NUNCA depende
+    // disso (o evento já está encerrado acima) — mas esperamos o resultado por até 25s pra o
+    // operador ver na hora, num aviso, quando a baixa não pôde ser feita e por quê. Se a Userp
+    // demorar mais que isso, a resposta sai como "pendente" e o resultado final fica registrado
+    // no histórico do evento (a chamada continua em segundo plano).
+    const checkoutPromise: Promise<CheckoutResult> = registrarCheckoutsUserp(eventId, user.id).catch((err: any) => {
+      console.error(`[userp-checkin] evento ${eventId}: ${err.message}`);
+      return {
+        ok: false, registered: 0,
+        problems: [{ contract: null, kind: 'error' as const, message: 'Erro inesperado ao registrar o check-out na Userp.', detail: err.message }],
+      };
+    });
+    const checkoutOutcome = await Promise.race([
+      checkoutPromise,
+      new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), CHECKOUT_WAIT_MS)),
+    ]);
+    const checkout = checkoutOutcome === 'timeout' ? { ok: null, pending: true, registered: 0, problems: [] } : checkoutOutcome;
 
     const npsUrl = `${process.env.WEB_URL || 'https://eventos.youdobrasil.com.br'}/nps/org/${npsToken}`;
 
-    return reply.status(201).send({ success: true, closure, npsUrl });
+    return reply.status(201).send({ success: true, closure, npsUrl, checkout });
   });
 
   // GET /events/:id/closure — get closure details
