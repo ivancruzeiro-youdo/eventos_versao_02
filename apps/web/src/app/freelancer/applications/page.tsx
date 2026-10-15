@@ -78,6 +78,35 @@ function brl(v: number): string {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
+// Ordem da lista: o que ainda vai acontecer primeiro, do mais próximo ao mais distante (pelo
+// horário da vaga, senão pela data do evento); depois o que já passou, do mais recente ao mais
+// antigo; evento cancelado por último. Sem data, vai pro fim do próprio grupo.
+function compareApplications(a: Application, b: Application): number {
+  const now = Date.now();
+  const start = (x: Application) => {
+    const d = x.slot?.startAt ?? x.event.startAt;
+    return d ? new Date(d).getTime() : null;
+  };
+  const end = (x: Application) => {
+    const d = x.slot?.endAt ?? x.slot?.startAt ?? x.event.startAt;
+    return d ? new Date(d).getTime() : null;
+  };
+  const group = (x: Application) => {
+    if (x.event.status === 'cancelled') return 2;
+    const e = end(x);
+    return e !== null && e < now ? 1 : 0;
+  };
+  const ga = group(a);
+  const gb = group(b);
+  if (ga !== gb) return ga - gb;
+  const sa = start(a);
+  const sb = start(b);
+  if (sa === null && sb === null) return 0;
+  if (sa === null) return 1;
+  if (sb === null) return -1;
+  return ga === 1 ? sb - sa : sa - sb;
+}
+
 function fmtSlotRange(slot?: Slot | null): string | null {
   if (!slot?.startAt && !slot?.endAt) return null;
   const fmt = (dt: string | null) =>
@@ -293,7 +322,7 @@ export default function FreelancerApplicationsPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                {[...applications].sort((a, b) => Number(a.event.status === 'cancelled') - Number(b.event.status === 'cancelled')).map((app) => {
+                {[...applications].sort(compareApplications).map((app) => {
                   const range = fmtSlotRange(app.slot);
                   const value = appValue(app);
                   const isCancelledEvent = app.event.status === 'cancelled';
