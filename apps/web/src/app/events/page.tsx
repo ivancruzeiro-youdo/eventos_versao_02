@@ -75,8 +75,6 @@ export default function EventsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('calendar');
-  // Dia com mais eventos do que cabem na célula do calendário — abre a lista completa dele.
-  const [openDay, setOpenDay] = useState<Date | null>(null);
   const [readinessAlerts, setReadinessAlerts] = useState<ReadinessAlertEvent[]>([]);
 
   // Sync modal
@@ -569,7 +567,7 @@ export default function EventsPage() {
                     {day.getDate()}
                   </div>
                   <div className="space-y-1">
-                    {dayEvents.slice(0, 3).map((event) => (
+                    {dayEvents.map((event) => (
                       <Link
                         key={event.id}
                         href={`/events/${event.id}`}
@@ -579,15 +577,6 @@ export default function EventsPage() {
                         {event.name}
                       </Link>
                     ))}
-                    {dayEvents.length > 3 && (
-                      <button
-                        type="button"
-                        onClick={() => setOpenDay(day)}
-                        className="w-full text-xs font-medium text-primary hover:underline text-center py-0.5"
-                      >
-                        +{dayEvents.length - 3} mais
-                      </button>
-                    )}
                   </div>
                 </div>
               );
@@ -595,46 +584,6 @@ export default function EventsPage() {
           </div>
         </div>
       )}
-      {/* Todos os eventos de um dia do calendário */}
-      {openDay && (
-        <div
-          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-          onClick={() => setOpenDay(null)}
-        >
-          <div
-            className="bg-background rounded-xl shadow-2xl w-full max-w-md max-h-[80vh] overflow-y-auto"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between px-5 py-3 border-b sticky top-0 bg-background">
-              <h2 className="text-base font-semibold capitalize">
-                {openDay.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}
-                <span className="ml-2 text-xs font-normal text-muted-foreground normal-case">
-                  {getEventsForDay(openDay).length} eventos
-                </span>
-              </h2>
-              <button onClick={() => setOpenDay(null)} className="p-1.5 rounded hover:bg-muted" aria-label="Fechar">
-                <X size={18} />
-              </button>
-            </div>
-            <div className="p-4 space-y-2">
-              {getEventsForDay(openDay).map(event => (
-                <Link
-                  key={event.id}
-                  href={`/events/${event.id}`}
-                  className={`block text-sm p-2 rounded ${getStatusColor(getEventDisplayStatus(event))}`}
-                  style={venueBorderStyle(event.venues.map(v => v.venue.color).filter((c): c is string => !!c))}
-                >
-                  <span className="font-medium">{event.name}</span>
-                  {event.venues.length > 0 && (
-                    <span className="block text-xs opacity-80">{event.venues.map(v => v.venue.name).join(' · ')}</span>
-                  )}
-                </Link>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Sync Modal */}
       {syncOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-start justify-center p-4 overflow-y-auto">
