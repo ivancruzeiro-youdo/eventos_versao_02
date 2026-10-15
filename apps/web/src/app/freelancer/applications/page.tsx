@@ -193,7 +193,9 @@ export default function FreelancerApplicationsPage() {
     }
   }
 
-  const active = applications.filter(a => a.status !== 'rejected');
+  // Evento cancelado não conta como vaga ativa nem como ganho a receber.
+  const live = applications.filter(a => a.event.status !== 'cancelled');
+  const active = live.filter(a => a.status !== 'rejected');
   // Estimated financials: "recebido" = events already finished; "a receber" = upcoming/ongoing.
   const received = active
     .filter(a => a.event.status === 'encerrado')
@@ -203,10 +205,10 @@ export default function FreelancerApplicationsPage() {
     .reduce((sum, a) => sum + appValue(a), 0);
 
   const stats = {
-    total: applications.length,
-    pending: applications.filter(a => a.status === 'pending').length,
-    approved: applications.filter(a => a.status === 'approved').length,
-    rejected: applications.filter(a => a.status === 'rejected').length,
+    total: live.length,
+    pending: live.filter(a => a.status === 'pending').length,
+    approved: live.filter(a => a.status === 'approved').length,
+    rejected: live.filter(a => a.status === 'rejected').length,
   };
 
   return (
@@ -291,27 +293,39 @@ export default function FreelancerApplicationsPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                {applications.map((app) => {
+                {[...applications].sort((a, b) => Number(a.event.status === 'cancelled') - Number(b.event.status === 'cancelled')).map((app) => {
                   const range = fmtSlotRange(app.slot);
                   const value = appValue(app);
-                  const canCancel = app.status !== 'rejected' && app.event.status !== 'encerrado';
+                  const isCancelledEvent = app.event.status === 'cancelled';
+                  const canCancel = app.status !== 'rejected' && app.event.status !== 'encerrado' && !isCancelledEvent;
                   const briefing = app.briefing;
                   const hasBriefing = briefing && (briefing.notes || briefing.files.length > 0 || briefing.checklists.length > 0);
                   const isBriefingOpen = briefingExpanded.has(app.id);
                   return (
                     <div
                       key={app.id}
-                      className="flex flex-col border rounded-lg overflow-hidden"
+                      className={`flex flex-col border rounded-lg overflow-hidden ${isCancelledEvent ? 'opacity-70 border-red-200' : ''}`}
                     >
                       <div className="flex flex-col md:flex-row md:items-center justify-between p-4 gap-4">
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-2">
                             <h3 className="font-semibold text-card-foreground">{app.event.name}</h3>
-                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(app.status)}`}>
-                              {app.status === 'pending' ? 'Pendente' : app.status === 'approved' ? 'Aprovado' : 'Rejeitado'}
-                            </span>
+                            {isCancelledEvent ? (
+                              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
+                                Evento cancelado
+                              </span>
+                            ) : (
+                              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(app.status)}`}>
+                                {app.status === 'pending' ? 'Pendente' : app.status === 'approved' ? 'Aprovado' : 'Rejeitado'}
+                              </span>
+                            )}
                             <NpsBadge nps={app.event.npsOrganizador} eventStatus={app.event.status || ''} />
                           </div>
+                          {isCancelledEvent && (
+                            <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2 mb-2">
+                              Este evento foi cancelado. Você <strong>não precisa comparecer</strong> e não haverá pagamento por ele.
+                            </p>
+                          )}
                           <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
                             <span className="flex items-center gap-1">
                               <User className="size-4" />

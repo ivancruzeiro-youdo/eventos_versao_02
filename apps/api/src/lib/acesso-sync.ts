@@ -47,6 +47,7 @@ export async function computeFreelancerAccessMap(
   for (const app of approvedApps) {
     const event = eventById.get(app.eventId);
     if (!event) continue;
+    if ((event as any).status === 'cancelled') continue; // evento cancelado não dá acesso — cai no próximo sync
     const slot = (event as any).services.find((s: any) => s.service.name === app.role);
     if (!slot || !slot.startAt || !slot.endAt || !slot.service.acessoMappings.length) continue;
     if (slot.endAt < now) continue; // compromisso já encerrado

@@ -589,8 +589,15 @@ export async function freelancerRoutes(app: FastifyInstance) {
       return reply.status(403).send({ error: 'Freelancer access only' });
     }
 
+    // Evento cancelado continua na lista (o freelancer precisa ver que acabou, em vez de achar que
+    // ainda vai trabalhar), mas some depois de 7 dias da data pra não virar entulho.
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const applications = await prisma.freelancerApplication.findMany({
-      where: { freelancerId: user.id, status: { not: 'cancelled' } },
+      where: {
+        freelancerId: user.id,
+        status: { not: 'cancelled' },
+        NOT: { event: { status: 'cancelled', startAt: { lt: sevenDaysAgo } } },
+      },
       include: {
         event: {
           select: {
