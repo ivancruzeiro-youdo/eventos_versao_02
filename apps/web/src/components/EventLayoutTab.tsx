@@ -884,8 +884,10 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
 
           {combos.length > 0 && (
             <>
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide pt-1 border-t">Combos</p>
-              <div className="space-y-1.5 pr-1">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide pt-1 border-t flex-shrink-0">Combos</p>
+              {/* Rolagem própria: sem limite de altura, os combos além do que cabe na coluna ficavam
+                  cortados (só a lista de Elementos rolava). */}
+              <div className="space-y-1.5 pr-1 max-h-56 overflow-y-auto flex-shrink-0">
                 {combos.map(combo => {
                   const coreCfg = configByType[combo.core.elementType];
                   const satCfg = configByType[combo.satellite.elementType];
