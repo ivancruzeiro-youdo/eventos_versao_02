@@ -26,12 +26,21 @@ const MIN_REST_MS = 10 * 60 * 60 * 1000;
  *  usado tanto na auto-candidatura quanto na aprovação manual pelo staff, pra fechar a mesma
  *  brecha nos dois lugares (mesmo padrão do fix de maxSlots acima). `excludeApplicationId`
  *  evita a própria candidatura sendo (re)aprovada contar contra si mesma. */
+// Mensagem de conflito de descanso: horário SEMPRE em São Paulo (o servidor roda em UTC — a mensagem
+// antiga mostrava 3h a mais) e com o nome do evento, pra o freelancer saber de qual turno se trata.
+function describeRestConflict(c: { role: string; startAt: Date; endAt: Date; eventName: string }): string {
+  const f = (d: Date) => d.toLocaleString('pt-BR', {
+    timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+  return `"${c.role}" no evento "${c.eventName}" (${f(c.startAt)} às ${f(c.endAt)})`;
+}
+
 async function findRestConflict(
   freelancerId: string,
   candidateStart: Date,
   candidateEnd: Date,
   excludeApplicationId?: string,
-): Promise<{ role: string; startAt: Date } | null> {
+): Promise<{ role: string; startAt: Date; endAt: Date; eventName: string } | null> {
   const activeApps = await prisma.freelancerApplication.findMany({
     where: {
       freelancerId,
@@ -52,12 +61,12 @@ async function findRestConflict(
       startAt: { lt: new Date(candidateEnd.getTime() + MIN_REST_MS) },
       endAt: { gt: new Date(candidateStart.getTime() - MIN_REST_MS) },
     },
-    include: { service: true },
+    include: { service: true, event: { select: { name: true } } },
   });
 
   const appSet = new Set(activeApps.map(a => `${a.eventId}::${a.role}`));
   const conflict = candidateSlots.find(s => s.startAt && s.endAt && appSet.has(`${s.eventId}::${s.service.name}`));
-  return conflict ? { role: conflict.service.name, startAt: conflict.startAt! } : null;
+  return conflict ? { role: conflict.service.name, startAt: conflict.startAt!, endAt: conflict.endAt!, eventName: (conflict as any).event.name } : null;
 }
 
 /** Intervalo mínimo em NÚMERO DE EVENTOS (não tempo corrido) entre dois eventos onde o mesmo
@@ -528,11 +537,8 @@ export async function freelancerRoutes(app: FastifyInstance) {
     if (slot.startAt && slot.endAt) {
       const conflict = await findRestConflict(user.id, slot.startAt, slot.endAt);
       if (conflict) {
-        const time = conflict.startAt.toLocaleString('pt-BR', {
-          day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
-        });
         return reply.status(400).send({
-          error: `Conflito de horário: você já tem "${conflict.role}" agendado às ${time} — precisa de pelo menos 10h de descanso entre um turno e outro.`,
+          error: `Conflito de horário: você já tem ${describeRestConflict(conflict)}. Esse turno sobrepõe esta vaga ou deixa menos de 10h de descanso entre um e outro.`,
         });
       }
     }
@@ -540,7 +546,7 @@ export async function freelancerRoutes(app: FastifyInstance) {
     // Intervalo mínimo em número de eventos (config por serviço), independente de horário.
     const intervalConflict = await findEventIntervalConflict(user.id, slot.serviceId, slot.service.name, slot.eventId);
     if (intervalConflict) {
-      const date = intervalConflict.conflictEventStartAt.toLocaleDateString('pt-BR');
+      const date = intervalConflict.conflictEventStartAt.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
       return reply.status(400).send({
         error: `"${slot.service.name}" exige pelo menos ${intervalConflict.minInterval} evento(s) de intervalo — você já tem esse serviço em "${intervalConflict.conflictEventName}" (${date}), só ${intervalConflict.gap} evento(s) de distância.`,
       });
@@ -938,11 +944,8 @@ export async function freelancerRoutes(app: FastifyInstance) {
       if (slot?.startAt && slot?.endAt) {
         const conflict = await findRestConflict(application.freelancerId, slot.startAt, slot.endAt, application.id);
         if (conflict) {
-          const time = conflict.startAt.toLocaleString('pt-BR', {
-            day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
-          });
           return reply.status(409).send({
-            error: `Conflito de horário: este freelancer já tem "${conflict.role}" agendado às ${time} — precisa de pelo menos 10h de descanso entre um turno e outro.`,
+            error: `Conflito de horário: este freelancer já tem ${describeRestConflict(conflict)}. Esse turno sobrepõe esta vaga ou deixa menos de 10h de descanso entre um e outro.`,
           });
         }
       }
@@ -951,7 +954,7 @@ export async function freelancerRoutes(app: FastifyInstance) {
       if (slot) {
         const intervalConflict = await findEventIntervalConflict(application.freelancerId, slot.serviceId, application.role, application.eventId, application.id);
         if (intervalConflict) {
-          const date = intervalConflict.conflictEventStartAt.toLocaleDateString('pt-BR');
+          const date = intervalConflict.conflictEventStartAt.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
           return reply.status(409).send({
             error: `"${application.role}" exige pelo menos ${intervalConflict.minInterval} evento(s) de intervalo — este freelancer já tem esse serviço em "${intervalConflict.conflictEventName}" (${date}), só ${intervalConflict.gap} evento(s) de distância.`,
           });
