@@ -20,6 +20,7 @@ import EventTeamTab from '@/components/EventTeamTab';
 import EventProfessionalsTab from '@/components/EventProfessionalsTab';
 import EventSpotifyPlaylist from '@/components/EventSpotifyPlaylist';
 import UserpStatusBanner from '@/components/UserpStatusBanner';
+import CheckinLimitAlert from '@/components/CheckinLimitAlert';
 import { eventsApi, guestsApi, degustacoesApi } from '@/lib/api';
 import { formatDateTime, getStatusColor, getStatusLabel, getEventDisplayStatus, formatPhone, formatCpf } from '@/lib/utils';
 import {
@@ -1450,6 +1451,8 @@ export default function EventDetailPage() {
       </div>
 
       {/* Contract removal proposals */}
+      <CheckinLimitAlert eventId={event.id} active={event.status !== 'encerrado' && event.status !== 'cancelled'} />
+
       {slotOverflows.length > 0 && (
         <div className="mb-4 space-y-2">
           {slotOverflows.map(o => {

@@ -214,6 +214,8 @@ model Event {
   npsOrganizador  EventNPSOrganizador?
   clientApprovals ClientApproval[]
   ruleAcceptance  VenueRuleAcceptance?
+  checkinLimit    EventCheckinLimit?
+  checkinReleases EventCheckinRelease[]
   itemRemovalSnapshots EventItemRemovalSnapshot[]
   contractArchives     EventContractArchive[]
 
@@ -326,6 +328,33 @@ model VenueRule {
   venue Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
 
   @@index([venueId])
+}
+
+// Limite de check-in por A&B contratado: ao atingir a quantidade contratada (maior item de A&B por
+// "Pessoa") o check-in entra nos 10% adicionais e os gestores são avisados; ao esgotar os 10% o
+// check-in trava até um gestor liberar mais pessoas (EventCheckinRelease), e assim por diante.
+model EventCheckinLimit {
+  id            String    @id @default(uuid())
+  eventId       String    @unique
+  warningSentAt DateTime? // aviso (WhatsApp + comentário) ao atingir o contratado — só uma vez
+  blockedAt     DateTime? // primeira vez que o check-in foi barrado
+  createdAt     DateTime  @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+}
+
+model EventCheckinRelease {
+  id             String   @id @default(uuid())
+  eventId        String
+  extraGuests    Int
+  reason         String
+  releasedById   String?
+  releasedByName String
+  createdAt      DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
 }
 
 // Aceite final (todo-ou-nada) do cliente ao conjunto de regras do(s) espaço(s) do evento —

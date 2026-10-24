@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../server.js';
 import { requireAuth } from '../middleware/auth.js';
 import { GuestStatus } from '@youdo/db';
+import { getCheckinLimitStatus, notifyContractedReached } from '../lib/checkin-limit.js';
 
 const createGuestSchema = z.object({
   name: z.string().min(1),
@@ -32,6 +33,67 @@ async function checkEventAccess(user: any, eventId: string): Promise<boolean> {
   if (user.role === 'admin' || user.employerId === undefined) return true;
   const event = await prisma.event.findUnique({ where: { id: eventId }, select: { employerId: true } });
   return !!event && event.employerId === user.employerId;
+}
+
+// Check-in com limite de A&B (lib/checkin-limit.ts): dentro da transação, com trava por evento, pra dois
+// check-ins simultâneos no limite não passarem dos dois. Barra com 409 (CHECKIN_LIMIT_REACHED) quando
+// o limite (contratado + 10% + liberações) já foi atingido; ao atingir o contratado, dispara o aviso.
+type CheckinOutcome =
+  | { ok: true; guest: any }
+  | { ok: false; status: number; body: any };
+
+async function checkInGuestWithLimit(guestId: string, user: any): Promise<CheckinOutcome> {
+  const pre = await prisma.guest.findUnique({ where: { id: guestId } });
+  if (!pre) return { ok: false, status: 404, body: { error: 'Guest not found' } };
+  if (!(await checkEventAccess(user, pre.eventId))) return { ok: false, status: 403, body: { error: 'Access denied' } };
+
+  const result = await prisma.$transaction(async (tx: any) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${pre.eventId}))`;
+    const guest = await tx.guest.findUnique({ where: { id: guestId } });
+    if (!guest) return { kind: 'not_found' as const };
+    if (guest.status !== 'confirmed' && guest.status !== 'pending') return { kind: 'bad_status' as const, status: guest.status };
+
+    const limit = await getCheckinLimitStatus(tx, guest.eventId);
+    if (limit.enabled && limit.checkedIn >= (limit.limit as number)) {
+      await tx.eventCheckinLimit.upsert({ where: { eventId: guest.eventId }, create: { eventId: guest.eventId, blockedAt: new Date() }, update: {} });
+      await tx.eventCheckinLimit.updateMany({ where: { eventId: guest.eventId, blockedAt: null }, data: { blockedAt: new Date() } });
+      return { kind: 'blocked' as const, limit };
+    }
+
+    const updated = await tx.guest.update({
+      where: { id: guestId },
+      data: {
+        status: 'checked_in',
+        checkedInAt: new Date(),
+        // checkedInByUserId has a real FK to User — user.id is only a User.id for
+        // admin/operator/event_owner sessions. Freelancer-derived sessions (receptionist,
+        // checkin_staff) have no employerId and their id is actually a Freelancer.id, which
+        // would violate the FK (P2003) and 500 on every single check-in from that flow.
+        checkedInByUserId: user.employerId !== undefined ? user.id : null,
+      },
+    });
+    return { kind: 'ok' as const, guest: updated, limit };
+  }, { timeout: 15000 });
+
+  if (result.kind === 'not_found') return { ok: false, status: 404, body: { error: 'Guest not found' } };
+  if (result.kind === 'bad_status') return { ok: false, status: 400, body: { error: 'Guest cannot be checked in', status: result.status } };
+  if (result.kind === 'blocked') {
+    return {
+      ok: false, status: 409,
+      body: {
+        error: `Check-in bloqueado: limite de ${result.limit.limit} pessoas atingido (${result.limit.contracted} contratadas de A&B + 10% + liberações). Aguarde a liberação do gestor do evento.`,
+        code: 'CHECKIN_LIMIT_REACHED',
+        limit: result.limit,
+      },
+    };
+  }
+
+  // Atingiu (ou passou) o contratado com este check-in: avisa os gestores, uma vez só, sem travar a resposta.
+  const limit = result.limit;
+  if (limit.enabled && limit.checkedIn + 1 >= (limit.contracted as number)) {
+    void notifyContractedReached(prisma, result.guest.eventId, { ...limit, checkedIn: limit.checkedIn + 1 });
+  }
+  return { ok: true, guest: result.guest };
 }
 
 export async function guestRoutes(app: FastifyInstance) {
@@ -198,38 +260,9 @@ export async function guestRoutes(app: FastifyInstance) {
   // Check-in guest
   app.post('/guests/:id/checkin', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const user = (request as any).user;
-
-    const guest = await prisma.guest.findUnique({
-      where: { id },
-    });
-
-    if (!guest) {
-      return reply.status(404).send({ error: 'Guest not found' });
-    }
-    if (!(await checkEventAccess(user, guest.eventId))) return reply.status(403).send({ error: 'Access denied' });
-
-    if (guest.status !== 'confirmed' && guest.status !== 'pending') {
-      return reply.status(400).send({
-        error: 'Guest cannot be checked in',
-        status: guest.status,
-      });
-    }
-
-    const updated = await prisma.guest.update({
-      where: { id },
-      data: {
-        status: 'checked_in',
-        checkedInAt: new Date(),
-        // checkedInByUserId has a real FK to User — user.id is only a User.id for
-        // admin/operator/event_owner sessions. Freelancer-derived sessions (receptionist,
-        // checkin_staff) have no employerId and their id is actually a Freelancer.id, which
-        // would violate the FK (P2003) and 500 on every single check-in from that flow.
-        checkedInByUserId: user.employerId !== undefined ? user.id : null,
-      },
-    });
-
-    return { success: true, guest: updated };
+    const outcome = await checkInGuestWithLimit(id, (request as any).user);
+    if (!outcome.ok) return reply.status(outcome.status).send(outcome.body);
+    return { success: true, guest: outcome.guest };
   });
 
   // Check-out guest (saída) — usado na tela de recepção. Não muda `status` (o convidado
@@ -267,35 +300,52 @@ export async function guestRoutes(app: FastifyInstance) {
   // Check-in guest (event-scoped path for frontend)
   app.post('/events/:id/guests/:guestId/checkin', { preHandler: requireAuth }, async (request, reply) => {
     const { guestId } = request.params as { id: string; guestId: string };
+    const outcome = await checkInGuestWithLimit(guestId, (request as any).user);
+    if (!outcome.ok) return reply.status(outcome.status).send(outcome.body);
+    return { success: true, guest: outcome.guest };
+  });
+
+  // Estado do limite de check-in por A&B (recepção e tela do evento fazem polling nisto).
+  app.get('/events/:id/checkin-limit', { preHandler: requireAuth }, async (request, reply) => {
+    const { id: eventId } = request.params as { id: string };
     const user = (request as any).user;
+    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
+    const [limit, releases] = await Promise.all([
+      getCheckinLimitStatus(prisma, eventId),
+      (prisma as any).eventCheckinRelease.findMany({ where: { eventId }, orderBy: { createdAt: 'desc' }, select: { id: true, extraGuests: true, reason: true, releasedByName: true, createdAt: true } }),
+    ]);
+    return { success: true, limit, releases };
+  });
 
-    const guest = await prisma.guest.findUnique({
-      where: { id: guestId },
+  // Liberar mais pessoas além do limite — só gestão (admin/event_owner/operator): a recepcionista e o
+  // check-in staff não podem se auto-liberar. Motivo obrigatório; fica no histórico e na linha do tempo.
+  app.post('/events/:id/checkin-limit/release', { preHandler: requireAuth }, async (request, reply) => {
+    const { id: eventId } = request.params as { id: string };
+    const user = (request as any).user;
+    if (!['admin', 'event_owner', 'operator'].includes(user.role)) {
+      return reply.status(403).send({ error: 'Só a gestão do evento pode liberar mais check-ins.' });
+    }
+    if (!(await checkEventAccess(user, eventId))) return reply.status(403).send({ error: 'Access denied' });
+    const { extraGuests, reason } = z.object({
+      extraGuests: z.number().int().min(1).max(500),
+      reason: z.string().trim().min(5, 'Explique o motivo da liberação (mín. 5 caracteres).'),
+    }).parse(request.body);
+
+    const current = await getCheckinLimitStatus(prisma, eventId);
+    if (!current.enabled) return reply.status(409).send({ error: 'Este evento não tem limite de check-in por A&B.' });
+    if (current.level === 'ok') return reply.status(409).send({ error: 'O A&B contratado ainda não foi atingido — não há o que liberar.' });
+
+    await (prisma as any).eventCheckinRelease.create({
+      data: { eventId, extraGuests, reason, releasedById: user.id ?? null, releasedByName: user.name || user.email || 'Gestão' },
     });
-
-    if (!guest) {
-      return reply.status(404).send({ error: 'Guest not found' });
-    }
-    if (!(await checkEventAccess(user, guest.eventId))) return reply.status(403).send({ error: 'Access denied' });
-
-    if (guest.status !== 'confirmed' && guest.status !== 'pending') {
-      return reply.status(400).send({
-        error: 'Guest cannot be checked in',
-        status: guest.status,
-      });
-    }
-
-    const updated = await prisma.guest.update({
-      where: { id: guestId },
+    const after = await getCheckinLimitStatus(prisma, eventId);
+    await (prisma as any).eventComment.create({
       data: {
-        status: 'checked_in',
-        checkedInAt: new Date(),
-        // See the other /guests/:id/checkin handler above for why this is guarded.
-        checkedInByUserId: user.employerId !== undefined ? user.id : null,
+        eventId, userId: user.id ?? null, isSystem: true,
+        content: `Check-in liberado: +${extraGuests} pessoa(s) acima do limite de A&B (limite ${current.limit} → ${after.limit}; contratado ${current.contracted}) por ${user.name || user.email}. Motivo: ${reason}`,
       },
     });
-
-    return { success: true, guest: updated };
+    return { success: true, limit: after };
   });
 
   // PUBLIC: RSVP page - validate token

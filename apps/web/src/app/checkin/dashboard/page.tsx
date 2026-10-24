@@ -768,6 +768,29 @@ export default function ReceptionistDashboard() {
   const [guestQuery, setGuestQuery] = useState('');
   const [checkinLoadingId, setCheckinLoadingId] = useState<string | null>(null);
   const [checkoutLoadingId, setCheckoutLoadingId] = useState<string | null>(null);
+
+  // Limite de check-in por A&B contratado (+10%): o servidor é quem barra; aqui a tela só avisa e desliga o botão.
+  type CheckinLimit = {
+    enabled: boolean; contracted: number | null; tolerance: number; baseLimit: number | null; released: number;
+    limit: number | null; checkedIn: number; level: 'ok' | 'warning' | 'blocked'; remaining: number | null;
+  };
+  const [limitStatus, setLimitStatus] = useState<CheckinLimit | null>(null);
+  const limitBlocked = limitStatus?.enabled && limitStatus.level === 'blocked';
+
+  async function loadLimit(eventId: string) {
+    try {
+      const res = await fetch(`/api/v2/events/${eventId}/checkin-limit`, { credentials: 'include' });
+      if (res.ok) setLimitStatus((await res.json()).limit ?? null);
+    } catch { /* silent */ }
+  }
+
+  useEffect(() => {
+    if (!selectedEvent) { setLimitStatus(null); return; }
+    const id = selectedEvent.id;
+    loadLimit(id);
+    const t = setInterval(() => loadLimit(id), 10000);
+    return () => clearInterval(t);
+  }, [selectedEvent?.id]);
   const [error, setError] = useState('');
   const [tab, setTab] = useState<'guests' | 'vehicles' | 'gifts' | 'professionals'>('guests');
 
@@ -909,6 +932,7 @@ export default function ReceptionistDashboard() {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
+        if (data.code === 'CHECKIN_LIMIT_REACHED') setLimitStatus(data.limit ?? null);
         // Guard against raw internal error class names (e.g. "PrismaClientKnownRequestError")
         // ever leaking through as user-facing text, even if the backend's own message changes.
         const msg = data.error;
@@ -918,6 +942,7 @@ export default function ReceptionistDashboard() {
       const data = await res.json();
       setGuests(prev => prev.map(g => g.id === guestId ? data.guest : g));
       setEvents(prev => prev.map(ev => ev.id === selectedEvent?.id ? { ...ev, checkedInCount: ev.checkedInCount + 1 } : ev));
+      if (selectedEvent) loadLimit(selectedEvent.id);
     } catch {
       setError('Erro ao fazer check-in');
     } finally {
@@ -1107,6 +1132,26 @@ export default function ReceptionistDashboard() {
                 </div>
               </div>
 
+              {limitStatus?.enabled && limitStatus.level === 'blocked' && (
+                <div className="mb-4 rounded-lg border border-red-300 bg-red-50 px-3 py-3 text-sm text-red-800">
+                  <p className="font-semibold">Check-in bloqueado — limite de {limitStatus.limit} pessoas atingido</p>
+                  <p className="text-xs mt-1">
+                    {limitStatus.contracted} de A&amp;B contratado + {limitStatus.tolerance} adicionais (10%)
+                    {limitStatus.released > 0 ? ` + ${limitStatus.released} liberadas` : ''}. Peça ao gestor do evento para liberar mais
+                    pessoas na tela do evento — assim que liberar, o check-in volta sozinho.
+                  </p>
+                </div>
+              )}
+              {limitStatus?.enabled && limitStatus.level === 'warning' && (
+                <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+                  <p className="font-semibold">A&amp;B contratado atingido ({limitStatus.contracted} pessoas)</p>
+                  <p className="text-xs mt-1">
+                    Os check-ins agora usam os 10% adicionais: {limitStatus.remaining === 1 ? 'falta 1 check-in' : `faltam ${limitStatus.remaining} check-ins`} para
+                    o bloqueio (limite {limitStatus.limit}). Os gestores já foram avisados.
+                  </p>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-3 mb-4">
                 <div className="bg-green-50 rounded-lg px-3 py-2.5 text-center">
                   <p className="text-xl font-bold text-green-700">{checkedInCount}</p>
@@ -1220,7 +1265,8 @@ export default function ReceptionistDashboard() {
                         {g.status !== 'checked_in' ? (
                           <button
                             onClick={() => handleCheckin(g.id)}
-                            disabled={checkinLoadingId === g.id}
+                            disabled={checkinLoadingId === g.id || !!limitBlocked}
+                            title={limitBlocked ? 'Limite de check-in atingido — aguardando liberação do gestor' : undefined}
                             className="px-3 py-2 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 transition disabled:opacity-50 shrink-0"
                           >
                             {checkinLoadingId === g.id ? '...' : 'Check-in'}
