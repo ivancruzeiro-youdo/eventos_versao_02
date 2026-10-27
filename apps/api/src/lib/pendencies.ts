@@ -1,6 +1,6 @@
 // Pendências de planejamento de um evento — mesmos critérios do GET /events/:id/tab-badges
-// (abas A&B, Infra, Entretenimento, Mão de obra, Equipe, Plano), menos "atividades abertas", que
-// já têm alerta próprio (workers/activity-alerts). Recebe o cliente do banco por parâmetro pra
+// (abas A&B, Infra, Entretenimento, Mão de obra, Equipe, Plano, Atividades) — as mesmas pendências
+// que aparecem como aviso na tela do evento. Recebe o cliente do banco por parâmetro pra
 // poder ser testado em transação sem subir o servidor.
 //
 // Além disso calcula o que falta o CLIENTE confirmar na aba Plano do portal (mesma conta do
@@ -13,7 +13,7 @@ export interface EventPendencies {
 const hasAnswer = (a: any) => a != null && a.answer != null && a.answer !== '' && !(Array.isArray(a.answer) && a.answer.length === 0);
 
 export async function getEventPendencies(db: any, eventId: string): Promise<EventPendencies> {
-  const [abItems, infraItems, entItems, staffSlots, teamCount, planItems, venues, venueAnswers, approvals] = await Promise.all([
+  const [abItems, infraItems, entItems, staffSlots, teamCount, planItems, venues, venueAnswers, approvals, openActivities] = await Promise.all([
     db.eventItem.findMany({ where: { eventId, category: 'ab' }, select: { choices: { where: { chosen: { isEmpty: false } }, select: { id: true } }, answers: { select: { id: true } } } }),
     db.eventItem.findMany({ where: { eventId, category: 'infra' }, select: { choices: { where: { chosen: { isEmpty: false } }, select: { id: true } } } }),
     db.eventItem.findMany({ where: { eventId, category: 'entretenimento' }, select: { choices: { where: { chosen: { isEmpty: false } }, select: { id: true } }, answers: { select: { id: true } } } }),
@@ -23,6 +23,7 @@ export async function getEventPendencies(db: any, eventId: string): Promise<Even
     db.eventVenue.findMany({ where: { eventId }, select: { venueId: true, venue: { select: { questions: { select: { id: true, required: true } } } } } }),
     db.eventVenueAnswer.findMany({ where: { eventId }, select: { questionId: true, answer: true } }),
     db.clientApproval.findMany({ where: { eventId }, select: { itemId: true } }),
+    db.eventActivity.count({ where: { eventId, status: 'open' } }),
   ]);
 
   const items: string[] = [];
@@ -35,6 +36,7 @@ export async function getEventPendencies(db: any, eventId: string): Promise<Even
   if (nEnt) items.push(`Entretenimento (${nEnt} ${nEnt > 1 ? 'itens sem configuração' : 'item sem configuração'})`);
   if (missingStaff) items.push(`Mão de obra (${missingStaff} ${missingStaff > 1 ? 'vagas abertas' : 'vaga aberta'})`);
   if (teamCount === 0) items.push('Equipe do evento vazia');
+  if (openActivities > 0) items.push(`Atividades (${openActivities} ${openActivities > 1 ? 'abertas' : 'aberta'})`);
 
   // Plano: respostas internas faltando (critério do badge) e confirmação do cliente
   const approved = new Set((approvals as any[]).map((a) => a.itemId));

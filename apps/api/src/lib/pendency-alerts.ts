@@ -13,7 +13,7 @@ const ROLE_NAME = 'assessoria de producao';
 const BASE_URL = 'https://eventos.youdobrasil.com.br';
 // Só eventos que acontecem nos próximos N dias entram no alerta — evento a meses de distância
 // sempre tem "pendência" (equipe vazia, plano por responder) e viraria ruído duas vezes por dia.
-const HORIZON_DAYS = Number(process.env.PENDENCY_ALERTS_HORIZON_DAYS) || 30;
+const HORIZON_DAYS = Number(process.env.PENDENCY_ALERTS_HORIZON_DAYS) || 5;
 const MAX_DETAIL = 900; // limite do valor do template do WhatsApp (1024) com folga
 // Usuários internos cadastrados nos contratos (ex.: "YouDO Live & Work") não são o cliente.
 const isInternalContact = (u: { nome?: string | null; email?: string | null }) =>
