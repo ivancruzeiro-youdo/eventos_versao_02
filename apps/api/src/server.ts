@@ -239,6 +239,9 @@ const start = async () => {
 
     const { startScheduleAlarms } = await import('./workers/schedule-alarms.js');
     startScheduleAlarms((msg) => app.log.info(msg));
+
+    const { startPendencyAlerts } = await import('./workers/pendency-alerts.js');
+    startPendencyAlerts((msg) => app.log.info(msg));
   } catch (err) {
     app.log.error(err);
     process.exit(1);
