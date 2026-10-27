@@ -616,11 +616,16 @@ export default function VenueDetailPage() {
     if (!newR.trim()) return;
     setSavingR(true);
     try {
-      await fetch(`/api/v2/venues/${venueId}/rules`, {
+      const res = await fetch(`/api/v2/venues/${venueId}/rules`, {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: newR }),
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Não foi possível criar a regra.');
+        return;
+      }
       setNewR('');
       setAddingR(false);
       await loadVenue();
@@ -628,18 +633,28 @@ export default function VenueDetailPage() {
   }
 
   async function updateRule(ruleId: string) {
-    await fetch(`/api/v2/venues/${venueId}/rules/${ruleId}`, {
+    const res = await fetch(`/api/v2/venues/${venueId}/rules/${ruleId}`, {
       method: 'PATCH', credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: editR }),
     });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(err.error || 'Não foi possível salvar a regra.');
+      return;
+    }
     setEditingRId(null);
     await loadVenue();
   }
 
   async function deleteRule(ruleId: string) {
     if (!confirm('Excluir esta regra?')) return;
-    await fetch(`/api/v2/venues/${venueId}/rules/${ruleId}`, { method: 'DELETE', credentials: 'include' });
+    const res = await fetch(`/api/v2/venues/${venueId}/rules/${ruleId}`, { method: 'DELETE', credentials: 'include' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(err.error || 'Não foi possível excluir a regra.');
+      return;
+    }
     await loadVenue();
   }
 

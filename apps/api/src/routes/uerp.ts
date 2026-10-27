@@ -649,6 +649,63 @@ export async function uerpRoutes(app: FastifyInstance) {
     return { success: true };
   });
 
+  // ─── Venue Rules (regras do espaço que o cliente aceita no portal) ───────
+  // Ficam AQUI (prefixo /api/v2) e não em events.ts (prefixo /api/v2/events): a tela chama
+  // /api/v2/venues/:id/rules — nas rotas antigas em events.ts dava 404 e, como a tela não conferia a
+  // resposta, apagar/editar/criar parecia funcionar e não fazia nada.
+  async function loadManageableVenue(request: any, reply: any, venueId: string) {
+    const user = (request as any).user;
+    const venue = await prisma.venue.findUnique({ where: { id: venueId }, select: { id: true, employerId: true } });
+    if (!venue) { reply.status(404).send({ error: 'Espaço não encontrado' }); return null; }
+    if (user.role !== 'admin' && venue.employerId !== user.employerId) { reply.status(403).send({ error: 'Forbidden' }); return null; }
+    return venue;
+  }
+
+  // GET /venues/:id/rules
+  app.get('/venues/:id/rules', { preHandler: requireAuth }, async (request, reply) => {
+    const { id: venueId } = request.params as { id: string };
+    if (!(await loadManageableVenue(request, reply, venueId))) return;
+    const rules = await (prisma as any).venueRule.findMany({ where: { venueId }, orderBy: { order: 'asc' } });
+    return { success: true, rules };
+  });
+
+  // POST /venues/:id/rules
+  app.post('/venues/:id/rules', { preHandler: requireAuth }, async (request, reply) => {
+    const { id: venueId } = request.params as { id: string };
+    if (!(await loadManageableVenue(request, reply, venueId))) return;
+    const body = request.body as { text?: string; order?: number };
+    if (!body?.text?.trim()) return reply.status(400).send({ error: 'Informe o texto da regra.' });
+    const count = await (prisma as any).venueRule.count({ where: { venueId } });
+    const rule = await (prisma as any).venueRule.create({
+      data: { venueId, text: body.text.trim(), order: body.order ?? count },
+    });
+    return reply.status(201).send({ success: true, rule });
+  });
+
+  // PATCH /venues/:id/rules/:ruleId
+  app.patch('/venues/:id/rules/:ruleId', { preHandler: requireAuth }, async (request, reply) => {
+    const { id: venueId, ruleId } = request.params as { id: string; ruleId: string };
+    if (!(await loadManageableVenue(request, reply, venueId))) return;
+    const body = request.body as { text?: string; order?: number };
+    if (body?.text !== undefined && !body.text.trim()) return reply.status(400).send({ error: 'O texto da regra não pode ficar vazio.' });
+    const result = await (prisma as any).venueRule.updateMany({
+      where: { id: ruleId, venueId },
+      data: { ...(body.text !== undefined && { text: body.text.trim() }), ...(body.order !== undefined && { order: body.order }) },
+    });
+    if (result.count === 0) return reply.status(404).send({ error: 'Regra não encontrada neste espaço.' });
+    const rule = await (prisma as any).venueRule.findUnique({ where: { id: ruleId } });
+    return { success: true, rule };
+  });
+
+  // DELETE /venues/:id/rules/:ruleId
+  app.delete('/venues/:id/rules/:ruleId', { preHandler: requireAuth }, async (request, reply) => {
+    const { id: venueId, ruleId } = request.params as { id: string; ruleId: string };
+    if (!(await loadManageableVenue(request, reply, venueId))) return;
+    const result = await (prisma as any).venueRule.deleteMany({ where: { id: ruleId, venueId } });
+    if (result.count === 0) return reply.status(404).send({ error: 'Regra não encontrada neste espaço.' });
+    return { success: true };
+  });
+
   // ─── Venue Activity Templates (atividades obrigatórias pré-evento) ───────
   // Replicadas como EventActivity de verdade quando um evento novo é vinculado a este
   // espaço — ver apps/api/src/lib/venue-activity-templates.ts.
