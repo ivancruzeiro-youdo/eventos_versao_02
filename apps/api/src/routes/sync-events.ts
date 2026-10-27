@@ -1000,10 +1000,16 @@ export async function syncEventsRoutes(app: FastifyInstance) {
         // buildItemsSnapshot; se o resultado não sobrou nada pra servir, o item some da lista
         // (não fica um "Finger Food 01: 0 Pessoa" parado no A&B), com o motivo em comentário.
         if (item.category === 'ab' && item.qty <= 0) {
-          if (existing) {
-            await (prisma as any).kitchenEventMenu.updateMany({ where: { eventItemId: existing.id }, data: { eventItemId: null } });
-            await (prisma as any).eventItem.delete({ where: { id: existing.id } });
-            syncRemovedZeroedItems.push({ name: item.name, oldQty: existing.quantity });
+          // Remove TODAS as linhas do mesmo produto/ocorrência: se houver duplicata (ex.: item
+          // importado duas vezes em syncs antigos), apagar só a primeira deixava a outra no A&B
+          // com a quantidade antiga mesmo com o comentário dizendo que o item foi removido.
+          const toRemove = await (prisma as any).eventItem.findMany({
+            where: { eventId, productId: item.productId, occurrenceIndex: occIdx },
+          });
+          for (const row of toRemove) {
+            await (prisma as any).kitchenEventMenu.updateMany({ where: { eventItemId: row.id }, data: { eventItemId: null } });
+            await (prisma as any).eventItem.delete({ where: { id: row.id } });
+            syncRemovedZeroedItems.push({ name: item.name, oldQty: row.quantity });
           }
           // Se não existia ainda, nunca chega a ser criado — nada a remover, só não entra na lista.
           continue;
