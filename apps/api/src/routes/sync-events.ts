@@ -1,3 +1,4 @@
+import { ensureKitchenStaff } from '../lib/kitchen-staff.js';
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../server.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -1096,6 +1097,13 @@ export async function syncEventsRoutes(app: FastifyInstance) {
             }
           }
         }
+      }
+
+      // Louça (equipe de cozinha): vaga automática pela faixa de A&B do dia. Nunca derruba o sync.
+      try {
+        await ensureKitchenStaff(prisma, eventId);
+      } catch (err: any) {
+        console.error(`[sync-events] falha ao criar vagas de Louça (evento ${eventId}):`, err.message);
       }
 
       // Datas remarcadas no UERP: avisa em vez de sobrescrever. O evento pode ter horários

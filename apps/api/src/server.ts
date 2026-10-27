@@ -242,6 +242,9 @@ const start = async () => {
 
     const { startPendencyAlerts } = await import('./workers/pendency-alerts.js');
     startPendencyAlerts((msg) => app.log.info(msg));
+
+    const { startKitchenWeeklyActivity } = await import('./workers/kitchen-weekly-activity.js');
+    startKitchenWeeklyActivity((msg) => app.log.info(msg));
   } catch (err) {
     app.log.error(err);
     process.exit(1);
