@@ -1769,12 +1769,29 @@ function LayoutTab({ token, jwt }: { token: string; jwt: string }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [zoom,       setZoom]       = useState(1);
 
+  // Salvamento: o rascunho fica no navegador até ir pro servidor, então guardamos o último JSON
+  // salvo pra saber se há alteração pendente (autosave, aviso ao sair e envio ao fechar a aba).
+  const [savedJson, setSavedJson] = useState('');
+  const savedJsonRef = useRef('');
+  const draftRef     = useRef<LayoutElement[]>([]);
+  const editingRef   = useRef<string | null>(null);
+  const savingRef    = useRef(false);
+  draftRef.current   = draftElements;
+  editingRef.current = editingId;
+  function markSaved(json: string) { savedJsonRef.current = json; setSavedJson(json); }
+
   const apiClient = useCallback(async (path: string, opts: RequestInit = {}) => {
     const res = await fetch(`/api/v2/client/${token}${path}`, {
       ...opts,
       headers: { ...(opts.headers || {}), 'x-client-auth': jwt },
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      let msg = '';
+      try { msg = (await res.json())?.error ?? ''; } catch { /* corpo não-JSON */ }
+      const err: any = new Error(msg || `HTTP ${res.status}`);
+      err.status = res.status;
+      throw err;
+    }
     return res.json();
   }, [token, jwt]);
 
@@ -1838,6 +1855,7 @@ function LayoutTab({ token, jwt }: { token: string; jwt: string }) {
       top: `${el.y * 100}%`,
       transform: `translate(-50%, -50%) rotate(${el.rotation}deg)`,
       pointerEvents: interactive ? 'auto' : 'none',
+      touchAction: interactive ? 'none' : undefined,
       cursor: interactive ? (draggingId === el.id ? 'grabbing' : 'grab') : 'default',
       zIndex: interactive && selectedId === el.id ? 20 : 10,
     };
@@ -1863,6 +1881,7 @@ function LayoutTab({ token, jwt }: { token: string; jwt: string }) {
       setActiveId(l.id);
       setEditingId(l.id);
       setDraftElements(fromElements);
+      markSaved(JSON.stringify(fromElements));
       setSelectedId(null);
       setShowNewPicker(false);
     } catch {
@@ -1876,31 +1895,61 @@ function LayoutTab({ token, jwt }: { token: string; jwt: string }) {
     if (!active || !active.createdByClient) return;
     setEditingId(active.id);
     setDraftElements(active.elements ?? []);
+    markSaved(JSON.stringify(active.elements ?? []));
     setSelectedId(null);
+  }
+
+  function saveErrorText(e: any): string {
+    if (e?.status === 401 || e?.status === 403) return 'Sessão expirada — recarregue a página e entre de novo. Suas alterações continuam na tela, mas ainda NÃO foram salvas.';
+    if (e?.status === 404) return 'Este layout não existe mais. Suas alterações NÃO foram salvas.';
+    if (e?.status) return `Não foi possível salvar (${e.message}). Vamos tentar de novo.`;
+    return 'Sem conexão — não foi possível salvar. Vamos tentar de novo em instantes.';
+  }
+
+  // Envia o rascunho ao servidor. `auto` = disparado pelo autosave (sem apagar mensagem de erro
+  // anterior até conseguir). Retorna true se o servidor já tem a versão atual.
+  async function saveDraft(auto = false): Promise<boolean> {
+    const id = editingRef.current;
+    if (!id) return true;
+    const snapshot = draftRef.current;
+    const json = JSON.stringify(snapshot);
+    if (json === savedJsonRef.current) return true;
+    if (savingRef.current) return false;
+    savingRef.current = true;
+    setSaving(true);
+    if (!auto) setSaveMsg(null);
+    try {
+      await apiClient(`/layouts/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ elements: snapshot }),
+      });
+      setAllLayouts(prev => prev.map(l => l.id === id ? { ...l, elements: snapshot } : l));
+      markSaved(json);
+      setSaveMsg({ ok: true, text: auto ? 'Salvo automaticamente' : 'Salvo!' });
+      setTimeout(() => setSaveMsg(m => (m?.ok ? null : m)), 3000);
+      return true;
+    } catch (e: any) {
+      setSaveMsg({ ok: false, text: saveErrorText(e) });
+      return false;
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  }
+
+  // Sai da edição/troca de layout ou espaço sem perder alterações: salva antes; se não der,
+  // pergunta antes de descartar.
+  async function leaveEdit(next: () => void) {
+    if (editingRef.current && JSON.stringify(draftRef.current) !== savedJsonRef.current) {
+      const ok = await saveDraft(true);
+      if (!ok && !confirm('Não foi possível salvar as alterações deste layout. Sair mesmo assim e perdê-las?')) return;
+    }
+    next();
   }
 
   function cancelEdit() {
-    setEditingId(null);
-    setSelectedId(null);
-  }
-
-  async function saveDraft() {
-    if (!editingId) return;
-    setSaving(true); setSaveMsg(null);
-    try {
-      await apiClient(`/layouts/${editingId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ elements: draftElements }),
-      });
-      setAllLayouts(prev => prev.map(l => l.id === editingId ? { ...l, elements: draftElements } : l));
-      setSaveMsg({ ok: true, text: 'Salvo!' });
-    } catch {
-      setSaveMsg({ ok: false, text: 'Erro ao salvar.' });
-    } finally {
-      setSaving(false);
-      setTimeout(() => setSaveMsg(null), 3000);
-    }
+    leaveEdit(() => { setEditingId(null); setSelectedId(null); });
   }
 
   async function deleteOwnLayout(id: string) {
@@ -1929,6 +1978,10 @@ function LayoutTab({ token, jwt }: { token: string; jwt: string }) {
     const rect = canvasRef.current.getBoundingClientRect();
     const x = (e.clientX - rect.left) / rect.width;
     const y = (e.clientY - rect.top) / rect.height;
+    addElementAt(type, x, y);
+  }
+
+  function addElementAt(type: string, x: number, y: number) {
     const count = draftElements.filter(el => el.type === type).length;
     const max = maxCounts[type];
     if (max !== undefined && count >= max) return;
@@ -1936,7 +1989,14 @@ function LayoutTab({ token, jwt }: { token: string; jwt: string }) {
     setSelectedId(null);
   }
 
-  function handleElementMouseDown(e: React.MouseEvent, id: string) {
+  // Toque/clique na paleta: o arrastar do navegador não existe no celular, então o elemento
+  // entra no centro do espaço (levemente deslocado pra não empilhar) e é movido com o dedo.
+  function addFromPalette(type: string) {
+    const n = draftElements.length % 6;
+    addElementAt(type, 0.5 + (n - 2.5) * 0.04, 0.5 + (n - 2.5) * 0.04);
+  }
+
+  function handleElementMouseDown(e: React.PointerEvent, id: string) {
     if (!isEditing || !canvasRef.current) return;
     e.stopPropagation();
     setSelectedId(id);
@@ -1973,10 +2033,54 @@ function LayoutTab({ token, jwt }: { token: string; jwt: string }) {
       setDraggingId(null);
       setOverTrash(false);
     };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
   }, [draggingId, dragOffset, selectedId]);
+
+  const dirty = isEditing && JSON.stringify(draftElements) !== savedJson;
+
+  // Autosave: 1,5s depois da última alteração (e sem arrastar); se falhou, tenta de novo em 5s.
+  useEffect(() => {
+    if (!dirty || draggingId) return;
+    const t = setTimeout(() => { saveDraft(true); }, saveMsg && !saveMsg.ok ? 5000 : 1500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dirty, draftElements, draggingId, saveMsg]);
+
+  // Fechar/recarregar a página ou trocar de aba do portal (desmonta o componente) não pode
+  // perder o rascunho: avisa ao fechar e envia o que falta com keepalive.
+  useEffect(() => {
+    const flush = () => {
+      const id = editingRef.current;
+      if (!id) return;
+      const json = JSON.stringify(draftRef.current);
+      if (json === savedJsonRef.current) return;
+      savedJsonRef.current = json;
+      try {
+        fetch(`/api/v2/client/${token}/layouts/${id}`, {
+          method: 'PUT', keepalive: true,
+          headers: { 'Content-Type': 'application/json', 'x-client-auth': jwt },
+          body: JSON.stringify({ elements: draftRef.current }),
+        }).catch(() => {});
+      } catch { /* melhor esforço */ }
+    };
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (editingRef.current && JSON.stringify(draftRef.current) !== savedJsonRef.current) { e.preventDefault(); e.returnValue = ''; }
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    window.addEventListener('pagehide', flush);
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      window.removeEventListener('pagehide', flush);
+      flush();
+    };
+  }, [token, jwt]);
 
   function rotateSelected() {
     if (!selectedId) return;
@@ -2007,7 +2111,7 @@ function LayoutTab({ token, jwt }: { token: string; jwt: string }) {
       {venues.map(v => (
         <button
           key={v.venueId}
-          onClick={() => setActiveVenueId(v.venueId)}
+          onClick={() => leaveEdit(() => setActiveVenueId(v.venueId))}
           className={`px-3 py-1.5 rounded-lg text-sm border transition ${
             v.venueId === activeVenueId
               ? 'bg-primary text-primary-foreground border-primary'
@@ -2094,7 +2198,7 @@ function LayoutTab({ token, jwt }: { token: string; jwt: string }) {
           {layouts.map(l => (
             <button
               key={l.id}
-              onClick={() => { setActiveId(l.id); setEditingId(null); }}
+              onClick={() => leaveEdit(() => { setActiveId(l.id); setEditingId(null); })}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border transition ${
                 l.id === activeId
                   ? 'bg-primary text-primary-foreground border-primary'
@@ -2125,7 +2229,7 @@ function LayoutTab({ token, jwt }: { token: string; jwt: string }) {
             isEditing ? (
               <>
                 <button
-                  onClick={saveDraft}
+                  onClick={() => saveDraft(false)}
                   disabled={saving}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-medium hover:bg-primary/90 transition disabled:opacity-50"
                 >
@@ -2135,6 +2239,7 @@ function LayoutTab({ token, jwt }: { token: string; jwt: string }) {
                   Fechar edição
                 </button>
                 {saveMsg && <span className={`text-xs ${saveMsg.ok ? 'text-green-600' : 'text-destructive'}`}>{saveMsg.text}</span>}
+                {!saveMsg && dirty && <span className="text-xs text-muted-foreground">Alterações não salvas…</span>}
               </>
             ) : (
               <>
@@ -2199,6 +2304,7 @@ function LayoutTab({ token, jwt }: { token: string; jwt: string }) {
                     key={cfg.type}
                     draggable={!blocked}
                     onDragStart={e => handleSidebarDragStart(e, cfg.type)}
+                    onClick={() => { if (!blocked) addFromPalette(cfg.type); }}
                     className={`flex items-center gap-2 p-1.5 border rounded-lg bg-card select-none transition flex-shrink-0 min-w-[9rem] md:min-w-0 ${
                       blocked ? 'opacity-40 cursor-not-allowed' : 'cursor-grab hover:bg-muted/50 active:cursor-grabbing'
                     }`}
@@ -2284,7 +2390,7 @@ function LayoutTab({ token, jwt }: { token: string; jwt: string }) {
                 <div
                   key={el.id}
                   style={elementStyle(el, isEditing)}
-                  onMouseDown={e => handleElementMouseDown(e, el.id)}
+                  onPointerDown={e => handleElementMouseDown(e, el.id)}
                   onClick={e => isEditing && e.stopPropagation()}
                   className={isEditing && selectedId === el.id ? 'ring-2 ring-primary ring-offset-1 rounded' : ''}
                 >
