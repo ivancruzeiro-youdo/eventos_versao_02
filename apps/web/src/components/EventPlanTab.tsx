@@ -1,9 +1,10 @@
 'use client';
 
+import AlignmentMeeting from '@/components/AlignmentMeeting';
 import React, { useState, useEffect } from 'react';
 import {
   ChevronDown, ChevronRight, CheckCircle, AlertCircle,
-  Plus, Trash2, MapPin, Package, History, X, Check
+  Plus, Trash2, MapPin, Package, History, X, Check, Users
 } from 'lucide-react';
 import { formatDateTime } from '@/lib/utils';
 import AbServiceTimeFields from './AbServiceTimeFields';
@@ -171,6 +172,7 @@ export default function EventPlanTab({ eventId }: Props) {
   const [items, setItems] = useState<EventItem[]>([]);
   const [eventVenues, setEventVenues] = useState<EventVenue[]>([]);
   const [venueAnswers, setVenueAnswers] = useState<VenueAnswer[]>([]);
+  const [meetingOpen, setMeetingOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   // add venue question form state: venueId -> { text, type, required }
   const [addingQ, setAddingQ] = useState<Record<string, { text: string; type: string; required: boolean } | null>>({});
@@ -255,11 +257,17 @@ export default function EventPlanTab({ eventId }: Props) {
 
   return (
     <div className="space-y-4">
+      {meetingOpen && <AlignmentMeeting eventId={eventId} onClose={() => { setMeetingOpen(false); load(true); }} />}
       {/* Progress header */}
       <div className="bg-card border rounded-xl p-4">
         <div className="flex items-center justify-between mb-2">
           <span className="font-semibold text-sm">Progresso do Plano</span>
-          <span className="text-sm text-muted-foreground">{answeredQ}/{totalQ} respondidas</span>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-muted-foreground">{answeredQ}/{totalQ} respondidas</span>
+            <button onClick={() => setMeetingOpen(true)} className="text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition flex items-center gap-1.5">
+              <Users size={13} /> Reunião de alinhamento
+            </button>
+          </div>
         </div>
         <div className="w-full bg-muted rounded-full h-2">
           <div className="bg-primary h-2 rounded-full transition-all" style={{ width: `${pct}%` }} />

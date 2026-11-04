@@ -215,6 +215,7 @@ model Event {
   clientApprovals ClientApproval[]
   ruleAcceptance  VenueRuleAcceptance?
   checkinLimit    EventCheckinLimit?
+  alignmentMeetings EventAlignmentMeeting[]
   checkinReleases EventCheckinRelease[]
   itemRemovalSnapshots EventItemRemovalSnapshot[]
   contractArchives     EventContractArchive[]
@@ -357,6 +358,26 @@ model VenueRuleLink {
 
   @@unique([venueId, ruleId])
   @@index([ruleId])
+}
+
+// Reunião de alinhamento do plano do evento: percorre as perguntas do plano na ordem do roteiro
+// (espaços → A&B → infra → entretenimento → outros) e grava as respostas no próprio plano.
+// Os participantes viram "pessoas do evento" (EventMember); aqui fica o registro da reunião.
+model EventAlignmentMeeting {
+  id              String    @id @default(uuid())
+  eventId         String
+  status          String    @default("in_progress") // in_progress | finished
+  startedAt       DateTime  @default(now())
+  endedAt         DateTime?
+  startedById     String?
+  startedByName   String?
+  participants    Json      // [{ personId, name, role }]
+  currentStep     Int       @default(0)
+  summary         Json?     // preenchido ao finalizar: respondidas, pendentes, obrigatórias pendentes
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId, status])
 }
 
 // Limite de check-in por A&B contratado: ao atingir a quantidade contratada (maior item de A&B por
