@@ -1,3 +1,4 @@
+import { findOrCreateQuestion, linkQuestion } from '../lib/venue-questions.js';
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../server.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -377,7 +378,7 @@ export async function uerpRoutes(app: FastifyInstance) {
       where: { id },
       include: {
         _count: { select: { events: true } },
-        questions: { orderBy: { order: 'asc' } },
+        questionLinks: { orderBy: { order: 'asc' }, include: { question: true } },
         ruleLinks: { orderBy: { order: 'asc' }, include: { rule: { select: { id: true, text: true } } } },
         events: {
           take: 5,
@@ -604,48 +605,85 @@ export async function uerpRoutes(app: FastifyInstance) {
     return reply.send({ success: true, created, updated });
   });
 
-  // ─── Venue Questions (perguntas padrão do local) ──────────────────────────
+  // ─── Perguntas padrão (biblioteca central + vínculo por espaço) ───────────
 
-  // GET /venues/:id/questions
+  const QUESTION_TYPES = ['text', 'textarea', 'number', 'select', 'multiselect'];
+
+  // GET /questions — biblioteca, com os espaços vinculados
+  app.get('/questions', { preHandler: requireAuth }, async () => {
+    const questions = await (prisma as any).venueQuestion.findMany({
+      orderBy: { createdAt: 'asc' },
+      include: { venueLinks: { select: { venue: { select: { id: true, name: true } } } } },
+    });
+    return { success: true, questions: questions.map((q: any) => ({ ...q, venueLinks: undefined, venues: q.venueLinks.map((l: any) => l.venue) })) };
+  });
+
+  // POST /questions — cria na biblioteca (pergunta idêntica existente é reaproveitada)
+  app.post('/questions', { preHandler: requireAuth }, async (request, reply) => {
+    const body = request.body as { text?: string; type?: string; required?: boolean; options?: any };
+    if (!body?.text?.trim()) return reply.status(400).send({ error: 'Informe o texto da pergunta.' });
+    if (!body.type || !QUESTION_TYPES.includes(body.type)) return reply.status(400).send({ error: 'Tipo de pergunta inválido.' });
+    const { question, created } = await findOrCreateQuestion(prisma, { text: body.text, type: body.type, required: body.required, options: body.options });
+    return reply.status(created ? 201 : 200).send({ success: true, question, existing: !created });
+  });
+
+  // PATCH /questions/:id — edita a pergunta (vale para todos os espaços vinculados; respostas ficam)
+  app.patch('/questions/:id', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { text?: string; type?: string; required?: boolean; options?: any };
+    if (body.text !== undefined && !body.text.trim()) return reply.status(400).send({ error: 'O texto da pergunta não pode ficar vazio.' });
+    if (body.type !== undefined && !QUESTION_TYPES.includes(body.type)) return reply.status(400).send({ error: 'Tipo de pergunta inválido.' });
+    const data: any = {};
+    for (const k of ['text', 'type', 'required', 'options'] as const) if (body[k] !== undefined) data[k] = k === 'text' ? body.text!.trim() : body[k];
+    const result = await (prisma as any).venueQuestion.updateMany({ where: { id }, data });
+    if (result.count === 0) return reply.status(404).send({ error: 'Pergunta não encontrada.' });
+    return { success: true };
+  });
+
+  // DELETE /questions/:id — só permitido sem respostas em nenhum evento (nunca perde resposta);
+  // com respostas, desvincule dos espaços em vez de excluir.
+  app.delete('/questions/:id', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const answers = await (prisma as any).eventVenueAnswer.count({ where: { questionId: id } });
+    if (answers > 0) {
+      return reply.status(409).send({ error: `Esta pergunta já tem ${answers} resposta(s) em eventos e não pode ser excluída — desvincule-a dos espaços para parar de usá-la.` });
+    }
+    const result = await (prisma as any).venueQuestion.deleteMany({ where: { id } });
+    if (result.count === 0) return reply.status(404).send({ error: 'Pergunta não encontrada.' });
+    return { success: true };
+  });
+
+  // GET /venues/:id/questions — perguntas vinculadas ao espaço
   app.get('/venues/:id/questions', { preHandler: requireAuth }, async (request) => {
     const { id: venueId } = request.params as { id: string };
-    const questions = await (prisma as any).venueQuestion.findMany({
-      where: { venueId },
-      orderBy: { order: 'asc' },
-    });
-    return { success: true, questions };
+    const links = await (prisma as any).venueQuestionLink.findMany({ where: { venueId }, orderBy: { order: 'asc' }, include: { question: true } });
+    return { success: true, questions: links.map((l: any) => ({ ...l.question, order: l.order })) };
   });
 
-  // POST /venues/:id/questions
-  app.post('/venues/:id/questions', { preHandler: requireAuth }, async (request) => {
+  // POST /venues/:id/questions — vincula uma pergunta da biblioteca ({ questionId }) ou cria+vincula
+  // ({ text, type, ... }; pergunta idêntica existente é reaproveitada em vez de duplicada)
+  app.post('/venues/:id/questions', { preHandler: requireAuth }, async (request, reply) => {
     const { id: venueId } = request.params as { id: string };
-    const body = request.body as { text: string; type: string; required?: boolean; options?: any };
-    const count = await (prisma as any).venueQuestion.count({ where: { venueId } });
-    const q = await (prisma as any).venueQuestion.create({
-      data: {
-        venueId,
-        text: body.text,
-        type: body.type,
-        required: body.required ?? false,
-        options: body.options ?? null,
-        order: count,
-      },
-    });
-    return { success: true, question: q };
+    const body = request.body as { questionId?: string; text?: string; type?: string; required?: boolean; options?: any };
+    let questionId = body?.questionId;
+    let question: any;
+    if (questionId) {
+      question = await (prisma as any).venueQuestion.findUnique({ where: { id: questionId } });
+      if (!question) return reply.status(404).send({ error: 'Pergunta não encontrada na biblioteca.' });
+    } else {
+      if (!body?.text?.trim()) return reply.status(400).send({ error: 'Informe a pergunta a vincular ou o texto da nova pergunta.' });
+      if (!body.type || !QUESTION_TYPES.includes(body.type)) return reply.status(400).send({ error: 'Tipo de pergunta inválido.' });
+      question = (await findOrCreateQuestion(prisma, { text: body.text, type: body.type, required: body.required, options: body.options })).question;
+    }
+    const linked = await linkQuestion(prisma, venueId, question.id);
+    return reply.status(linked ? 201 : 200).send({ success: true, question, alreadyLinked: !linked });
   });
 
-  // PATCH /venues/:id/questions/:qId
-  app.patch('/venues/:id/questions/:qId', { preHandler: requireAuth }, async (request) => {
-    const { qId } = request.params as { id: string; qId: string };
-    const body = request.body as { text?: string; type?: string; required?: boolean; options?: any; order?: number };
-    const q = await (prisma as any).venueQuestion.update({ where: { id: qId }, data: body });
-    return { success: true, question: q };
-  });
-
-  // DELETE /venues/:id/questions/:qId
-  app.delete('/venues/:id/questions/:qId', { preHandler: requireAuth }, async (request) => {
-    const { qId } = request.params as { id: string; qId: string };
-    await (prisma as any).venueQuestion.delete({ where: { id: qId } });
+  // DELETE /venues/:id/questions/:qId — só desvincula (a pergunta e as respostas dos eventos ficam)
+  app.delete('/venues/:id/questions/:qId', { preHandler: requireAuth }, async (request, reply) => {
+    const { id: venueId, qId } = request.params as { id: string; qId: string };
+    const result = await (prisma as any).venueQuestionLink.deleteMany({ where: { venueId, questionId: qId } });
+    if (result.count === 0) return reply.status(404).send({ error: 'Pergunta não vinculada a este espaço.' });
     return { success: true };
   });
 

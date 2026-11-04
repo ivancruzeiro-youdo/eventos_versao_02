@@ -214,7 +214,7 @@ export default function EventPlanTab({ eventId }: Props) {
   async function addVenueQuestion(venueId: string) {
     const form = addingQ[venueId];
     if (!form || !form.text.trim()) return;
-    await fetch(`/api/v2/events/venues/${venueId}/questions`, {
+    await fetch(`/api/v2/venues/${venueId}/questions`, {
       method: 'POST', credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: form.text, type: form.type, required: form.required }),
@@ -224,7 +224,7 @@ export default function EventPlanTab({ eventId }: Props) {
   }
 
   async function deleteVenueQuestion(venueId: string, qId: string) {
-    await fetch(`/api/v2/events/venues/${venueId}/questions/${qId}`, { method: 'DELETE', credentials: 'include' });
+    await fetch(`/api/v2/venues/${venueId}/questions/${qId}`, { method: 'DELETE', credentials: 'include' });
     await load(true);
   }
 

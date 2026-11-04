@@ -723,7 +723,7 @@ function GuestsTab({ token, jwt }: { token: string; jwt: string }) {
 
   const load = useCallback(async (q = '') => {
     setLoading(true);
-    const params = new URLSearchParams({ limit: '100' });
+    const params = new URLSearchParams({ limit: '1000' });
     if (q) params.set('search', q);
     const res = await fetch(`/api/v2/client/${token}/guests?${params}`, { headers: { 'x-client-auth': jwt } });
     const data = await res.json();
@@ -820,15 +820,17 @@ function GuestsTab({ token, jwt }: { token: string; jwt: string }) {
 
   const confirmed = guests.filter(g => g.status === 'confirmed' || g.status === 'checked_in').length;
   const pending = guests.filter(g => g.status === 'pending').length;
+  const arrived = guests.filter(g => g.status === 'checked_in').length;
 
   return (
     <div className="space-y-4">
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
           { label: 'Total', value: total, color: 'bg-gray-100 text-gray-800' },
           { label: 'Confirmados', value: confirmed, color: 'bg-green-100 text-green-800' },
           { label: 'Pendentes', value: pending, color: 'bg-yellow-100 text-yellow-800' },
+          { label: 'Já acessaram', value: arrived, color: 'bg-blue-100 text-blue-800' },
         ].map(s => (
           <div key={s.label} className={`${s.color} rounded-xl p-3 text-center`}>
             <p className="text-2xl font-bold">{s.value}</p>
@@ -955,6 +957,9 @@ function GuestsTab({ token, jwt }: { token: string; jwt: string }) {
                 {(g.email || g.phone) && (
                   <p className="text-xs text-gray-400 truncate">{[g.email, g.phone].filter(Boolean).join(' · ')}</p>
                 )}
+                {g.status === 'checked_in' && (
+                  <p className="text-xs text-blue-600">Acessou{g.checkedInAt ? ` em ${formatDate(g.checkedInAt)}` : ''}</p>
+                )}
               </div>
               <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColor(g.status)}`}>
                 {statusLabel(g.status)}
@@ -1077,90 +1082,6 @@ function FornecedoresTab({ token, jwt }: { token: string; jwt: string }) {
               </span>
             </div>
           ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Check-in report tab (guests + fornecedores) ───────────────────────────────
-
-function CheckinReportTab({ token, jwt }: { token: string; jwt: string }) {
-  const [guests, setGuests] = useState<Guest[]>([]);
-  const [professionals, setProfessionals] = useState<Professional[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    Promise.all([
-      fetch(`/api/v2/client/${token}/guests?limit=1000`, { headers: { 'x-client-auth': jwt } }).then(r => r.json()),
-      fetch(`/api/v2/client/${token}/professionals`, { headers: { 'x-client-auth': jwt } }).then(r => r.json()),
-    ]).then(([gRes, pRes]) => {
-      setGuests(gRes.guests || []);
-      setProfessionals(pRes.professionals || []);
-    }).finally(() => setLoading(false));
-  }, [token, jwt]);
-
-  if (loading) return <div className="py-8 text-center text-gray-400">Carregando relatório...</div>;
-
-  const checkedInGuests = guests.filter(g => g.status === 'checked_in');
-  const checkedInPros = professionals.filter(p => !!p.checkedInAt);
-
-  if (checkedInGuests.length === 0 && checkedInPros.length === 0) {
-    return (
-      <div className="py-12 text-center">
-        <CheckCircle size={40} className="mx-auto text-gray-300 mb-3" />
-        <p className="text-gray-500">Nenhum check-in registrado ainda.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-blue-100 text-blue-800 rounded-xl p-3 text-center">
-          <p className="text-2xl font-bold">{checkedInGuests.length}</p>
-          <p className="text-xs mt-0.5">Convidados com check-in</p>
-        </div>
-        <div className="bg-purple-100 text-purple-800 rounded-xl p-3 text-center">
-          <p className="text-2xl font-bold">{checkedInPros.length}</p>
-          <p className="text-xs mt-0.5">Fornecedores com check-in</p>
-        </div>
-      </div>
-
-      {checkedInGuests.length > 0 && (
-        <div>
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Convidados</p>
-          <div className="space-y-2">
-            {checkedInGuests.map(g => (
-              <div key={g.id} className="bg-white border rounded-xl px-4 py-3 flex items-center gap-3">
-                <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center shrink-0">
-                  <User size={14} className="text-gray-400" />
-                </div>
-                <p className="flex-1 min-w-0 font-medium text-sm text-gray-900 truncate">{g.name}</p>
-                {g.checkedInAt && <p className="text-xs text-gray-400">{formatDate(g.checkedInAt)}</p>}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {checkedInPros.length > 0 && (
-        <div>
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Fornecedores</p>
-          <div className="space-y-2">
-            {checkedInPros.map(p => (
-              <div key={p.id} className="bg-white border rounded-xl px-4 py-3 flex items-center gap-3">
-                <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center shrink-0">
-                  <User size={14} className="text-gray-400" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-sm text-gray-900 truncate">{p.person.name}</p>
-                  <p className="text-xs text-gray-400 truncate">{p.role}</p>
-                </div>
-                {p.checkedInAt && <p className="text-xs text-gray-400">{formatDate(p.checkedInAt)}</p>}
-              </div>
-            ))}
-          </div>
         </div>
       )}
     </div>
@@ -1297,7 +1218,7 @@ function PlanTab({ token, jwt, approvals, onToggle, locked }: {
       {venues.map((v: any, idx: number) => {
         const qs: any[] = v.venue?.questions || [];
         if (qs.length === 0) return null;
-        const confirmedCount = qs.filter((q: any) => approvals.has(`venue_q:${v.venueId}_${q.id}`)).length;
+        const confirmedCount = qs.filter((q: any) => approvals.has(`venue_q:${q.id}`)).length;
         const answeredCount = qs.filter((q: any) => !!data.venueAnswers?.find((a: any) => a.questionId === q.id)?.answer).length;
         return (
           <div key={idx} className="bg-white border rounded-xl overflow-hidden">
@@ -1315,7 +1236,7 @@ function PlanTab({ token, jwt, approvals, onToggle, locked }: {
                     key={qi}
                     q={q}
                     ans={ans}
-                    approvalKey={`venue_q:${v.venueId}_${q.id}`}
+                    approvalKey={`venue_q:${q.id}`}
                     approvals={approvals}
                     onToggle={onToggle}
                     locked={locked}
@@ -1656,7 +1577,7 @@ function StatusBanner({ token, jwt, approvals }: { token: string; jwt: string; a
   (planData.venues || []).forEach((v: any) => {
     (v.venue?.questions || []).forEach((q: any) => {
       const ans = planData.venueAnswers?.find((a: any) => a.questionId === q.id);
-      allQs.push({ key: `venue_q:${v.venueId}_${q.id}`, answered: !!ans?.answer, required: !!q.required });
+      allQs.push({ key: `venue_q:${q.id}`, answered: !!ans?.answer, required: !!q.required });
     });
   });
 
@@ -2606,7 +2527,6 @@ const TABS = [
   { id: 'degustacoes', label: 'Degustações', icon: Wine },
   { id: 'guests', label: 'Convidados', icon: Users },
   { id: 'fornecedores', label: 'Fornecedores', icon: User },
-  { id: 'checkin', label: 'Check-in', icon: CheckCircle },
   { id: 'files', label: 'Arquivos', icon: FileText },
   { id: 'layout', label: 'Layout', icon: LayoutGrid },
   { id: 'media', label: 'Mídia', icon: MonitorPlay },
@@ -2729,7 +2649,6 @@ export default function ClientPortalPage() {
         {activeTab === 'files' && <FilesTab token={token} jwt={jwt} />}
         {activeTab === 'guests' && <GuestsTab token={token} jwt={jwt} />}
         {activeTab === 'fornecedores' && <FornecedoresTab token={token} jwt={jwt} />}
-        {activeTab === 'checkin' && <CheckinReportTab token={token} jwt={jwt} />}
         {activeTab === 'ab' && <FoodTab token={token} jwt={jwt} approvals={approvals} onToggle={toggleApproval} locked={locked} category="ab" />}
         {activeTab === 'entretenimento' && <FoodTab token={token} jwt={jwt} approvals={approvals} onToggle={toggleApproval} locked={locked} category="entretenimento" />}
         {activeTab === 'degustacoes' && <DegustacoesTab token={token} jwt={jwt} />}

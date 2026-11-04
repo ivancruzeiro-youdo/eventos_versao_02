@@ -1,3 +1,4 @@
+import { eventVenuesWithQuestions } from '../lib/venue-questions.js';
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../server.js';
 import { createDownloadPresignedUrl, createUploadPresignedUrl, deleteS3Object, sanitizeFilenameForKey } from '../lib/s3.js';
@@ -316,11 +317,6 @@ export async function clientRoutes(app: FastifyInstance) {
           },
           orderBy: { createdAt: 'asc' },
         },
-        venues: {
-          include: {
-            venue: { include: { questions: { orderBy: { order: 'asc' } } } },
-          },
-        },
         venueAnswers: true,
       },
     });
@@ -328,6 +324,8 @@ export async function clientRoutes(app: FastifyInstance) {
     if (!event) return reply.status(404).send({ error: 'Evento não encontrado' });
     const eventWithWindows = {
       ...event,
+      // pergunta compartilhada por 2+ espaços do evento aparece (e é respondida) uma vez só
+      venues: await eventVenuesWithQuestions(prisma, session.eventId),
       items: event.items.map((item: any) => ({ ...item, windows: mergeServiceWindows(item) })),
     };
     return { success: true, event: eventWithWindows };

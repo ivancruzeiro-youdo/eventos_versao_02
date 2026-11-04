@@ -1,3 +1,4 @@
+import { eventVenuesWithQuestions } from '../lib/venue-questions.js';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../server.js';
@@ -103,19 +104,18 @@ export async function eventRoutes(app: FastifyInstance) {
         where: { id: ev.id },
         select: {
           items: { select: { id: true, product: { select: { questions: { select: { id: true, required: true } } } }, answers: { select: { questionId: true, answer: true } } } },
-          venues: { select: { venueId: true, venue: { select: { questions: { select: { id: true, required: true } } } } } },
           venueAnswers: { select: { questionId: true, answer: true } },
         },
       });
 
       let unanswered = 0;
       const approvalChecks: { itemType: string; itemId: string }[] = [];
-      for (const v of eventPlan?.venues ?? []) {
+      for (const v of await eventVenuesWithQuestions(prisma, ev.id)) {
         for (const q of v.venue?.questions ?? []) {
           const ans = eventPlan!.venueAnswers.find((a: any) => a.questionId === q.id);
           const answered = ans?.answer !== null && ans?.answer !== undefined && ans?.answer !== '';
           if (!answered && q.required) unanswered++;
-          if (answered) approvalChecks.push({ itemType: 'venue_q', itemId: `${v.venueId}_${q.id}` });
+          if (answered) approvalChecks.push({ itemType: 'venue_q', itemId: q.id });
         }
       }
       for (const item of eventPlan?.items ?? []) {
@@ -551,14 +551,7 @@ export async function eventRoutes(app: FastifyInstance) {
     });
 
     // Load venue questions + existing venue answers
-    const eventVenues = await (prisma as any).eventVenue.findMany({
-      where: { eventId },
-      include: {
-        venue: {
-          include: { questions: { orderBy: { order: 'asc' } } },
-        },
-      },
-    });
+    const eventVenues = await eventVenuesWithQuestions(prisma, eventId);
     const venueAnswers = await (prisma as any).eventVenueAnswer.findMany({
       where: { eventId },
       include: {
@@ -586,42 +579,6 @@ export async function eventRoutes(app: FastifyInstance) {
       const created = await (prisma as any).eventVenueAnswer.create({ data: { eventId, questionId, answer, updatedById: user?.id ?? null } });
       await (prisma as any).eventVenueAnswerHistory.create({ data: { answerId: created.id, before: null, after: answer, userId: user?.id ?? null } });
     }
-    return { success: true };
-  });
-
-  // GET /venues/:venueId/questions
-  app.get('/venues/:venueId/questions', { preHandler: requireAuth }, async (request) => {
-    const { venueId } = request.params as { venueId: string };
-    const questions = await (prisma as any).venueQuestion.findMany({
-      where: { venueId },
-      orderBy: { order: 'asc' },
-    });
-    return { success: true, questions };
-  });
-
-  // POST /venues/:venueId/questions
-  app.post('/venues/:venueId/questions', { preHandler: requireAuth }, async (request) => {
-    const { venueId } = request.params as { venueId: string };
-    const body = request.body as { text: string; type: string; required?: boolean; options?: any; order?: number };
-    const count = await (prisma as any).venueQuestion.count({ where: { venueId } });
-    const q = await (prisma as any).venueQuestion.create({
-      data: { venueId, text: body.text, type: body.type, required: body.required ?? false, options: body.options ?? null, order: body.order ?? count },
-    });
-    return { success: true, question: q };
-  });
-
-  // PATCH /venues/:venueId/questions/:qId
-  app.patch('/venues/:venueId/questions/:qId', { preHandler: requireAuth }, async (request) => {
-    const { qId } = request.params as { venueId: string; qId: string };
-    const body = request.body as { text?: string; type?: string; required?: boolean; options?: any; order?: number };
-    const q = await (prisma as any).venueQuestion.update({ where: { id: qId }, data: body });
-    return { success: true, question: q };
-  });
-
-  // DELETE /venues/:venueId/questions/:qId
-  app.delete('/venues/:venueId/questions/:qId', { preHandler: requireAuth }, async (request) => {
-    const { qId } = request.params as { venueId: string; qId: string };
-    await (prisma as any).venueQuestion.delete({ where: { id: qId } });
     return { success: true };
   });
 
@@ -709,11 +666,8 @@ export async function eventRoutes(app: FastifyInstance) {
           answers: { select: { questionId: true, answer: true } },
         },
       }),
-      // Plan: venue questions
-      (prisma as any).eventVenue.findMany({
-        where: { eventId },
-        select: { venue: { select: { questions: { select: { id: true } } } } },
-      }),
+      // Plan: venue questions (cada pergunta compartilhada por 2+ espaços conta uma vez)
+      eventVenuesWithQuestions(prisma, eventId),
       // Plan: venue answers
       (prisma as any).eventVenueAnswer.findMany({
         where: { eventId },

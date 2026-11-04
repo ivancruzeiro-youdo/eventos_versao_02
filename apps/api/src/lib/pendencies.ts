@@ -5,6 +5,8 @@
 //
 // Além disso calcula o que falta o CLIENTE confirmar na aba Plano do portal (mesma conta do
 // StatusBanner do portal): pergunta obrigatória sem resposta + resposta ainda não confirmada.
+import { eventVenuesWithQuestions } from './venue-questions.js';
+
 export interface EventPendencies {
   items: string[];            // rótulos legíveis, ex.: "A&B (3 itens sem escolha)"
   planUnconfirmed: number;    // perguntas do plano que o cliente ainda não confirmou
@@ -20,7 +22,7 @@ export async function getEventPendencies(db: any, eventId: string): Promise<Even
     db.eventStaffSlot.findMany({ where: { eventItem: { eventId } }, select: { quantity: true, filledCount: true } }),
     db.eventMember.count({ where: { eventId } }),
     db.eventItem.findMany({ where: { eventId }, select: { id: true, product: { select: { questions: { select: { id: true, required: true } } } }, answers: { select: { questionId: true, answer: true } } } }),
-    db.eventVenue.findMany({ where: { eventId }, select: { venueId: true, venue: { select: { questions: { select: { id: true, required: true } } } } } }),
+    eventVenuesWithQuestions(db, eventId),
     db.eventVenueAnswer.findMany({ where: { eventId }, select: { questionId: true, answer: true } }),
     db.clientApproval.findMany({ where: { eventId }, select: { itemId: true } }),
     db.eventActivity.count({ where: { eventId, status: 'open' } }),
@@ -54,7 +56,7 @@ export async function getEventPendencies(db: any, eventId: string): Promise<Even
       totalQ++;
       const answered = hasAnswer((venueAnswers as any[]).find((a) => a.questionId === q.id));
       if (answered) answeredQ++;
-      if ((answered || q.required) && !approved.has(`venue_q:${ev.venueId}_${q.id}`)) planUnconfirmed++;
+      if ((answered || q.required) && !approved.has(`venue_q:${q.id}`)) planUnconfirmed++;
     }
   }
   if (totalQ > 0 && answeredQ < totalQ) items.push(`Plano (${totalQ - answeredQ} ${totalQ - answeredQ > 1 ? 'perguntas sem resposta' : 'pergunta sem resposta'})`);

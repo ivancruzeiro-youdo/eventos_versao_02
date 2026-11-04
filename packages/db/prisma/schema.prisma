@@ -312,6 +312,7 @@ model Venue {
   activityTemplates VenueActivityTemplate[]
   rules            VenueRule[]
   ruleLinks        VenueRuleLink[]
+  questionLinks    VenueQuestionLink[]
 
   @@index([employerId])
 }
@@ -538,7 +539,9 @@ model VenueLayoutTemplate {
 
 model VenueQuestion {
   id        String       @id @default(uuid())
-  venueId   String
+  // Espaço de ORIGEM (onde a pergunta foi criada) — só histórico. Quem diz a que espaços a pergunta
+  // se aplica é VenueQuestionLink; apagar um espaço não apaga a pergunta nem as respostas.
+  venueId   String?
   text      String
   type      QuestionType
   required  Boolean      @default(false)
@@ -547,10 +550,28 @@ model VenueQuestion {
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
-  venue   Venue                @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  venue   Venue?               @relation(fields: [venueId], references: [id], onDelete: SetNull)
   answers EventVenueAnswer[]
+  venueLinks VenueQuestionLink[]
 
   @@index([venueId])
+}
+
+// Perguntas padrão centralizadas: a pergunta existe UMA vez (biblioteca) e os espaços só se vinculam.
+// Num evento com 2+ espaços que têm a mesma pergunta ela aparece e é respondida uma única vez
+// (EventVenueAnswer continua por evento + pergunta).
+model VenueQuestionLink {
+  id         String   @id @default(uuid())
+  venueId    String
+  questionId String
+  order      Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  venue    Venue         @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  question VenueQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([venueId, questionId])
+  @@index([questionId])
 }
 
 model EventVenueAnswer {

@@ -166,6 +166,8 @@ export default function VenueDetailPage() {
   const [savingR, setSavingR] = useState(false);
   const [editingRId, setEditingRId] = useState<string | null>(null);
   const [editR, setEditR] = useState('');
+  const [questionLibrary, setQuestionLibrary] = useState<{ id: string; text: string; type: string; required: boolean; venues: { id: string; name: string }[] }[]>([]);
+  const [linkQuestionId, setLinkQuestionId] = useState('');
   const [ruleLibrary, setRuleLibrary] = useState<{ id: string; text: string; venues: { id: string; name: string }[] }[]>([]);
   const [linkRuleId, setLinkRuleId] = useState('');
 
@@ -251,7 +253,7 @@ export default function VenueDetailPage() {
   async function loadVenue() {
     try {
       setLoading(true);
-      const [venueRes, planRes, configRes, tplRes, atRes, usersRes, rulesRes] = await Promise.allSettled([
+      const [venueRes, planRes, configRes, tplRes, atRes, usersRes, rulesRes, questionsRes] = await Promise.allSettled([
         venuesApiExtended.get(venueId),
         fetch(`${API_URL}/api/v2/venues/${venueId}/floorplan-url`, { credentials: 'include' }).then(r => r.json()),
         fetch(`${API_URL}/api/v2/admin/layout-config`, { credentials: 'include' }).then(r => r.json()),
@@ -259,15 +261,18 @@ export default function VenueDetailPage() {
         fetch(`${API_URL}/api/v2/venues/${venueId}/activity-templates`, { credentials: 'include' }).then(r => r.json()),
         fetch(`${API_URL}/api/v2/admin/users?limit=500`, { credentials: 'include' }).then(r => r.json()),
         fetch(`${API_URL}/api/v2/rules`, { credentials: 'include' }).then(r => r.json()),
+        fetch(`${API_URL}/api/v2/questions`, { credentials: 'include' }).then(r => r.json()),
       ]);
       if (venueRes.status === 'fulfilled') {
         const v = venueRes.value.venue;
         // Regras vinculadas ao espaço (biblioteca central): a API devolve os vínculos
+        v.questions = (v.questionLinks ?? []).map((l: any) => ({ ...l.question, order: l.order }));
         v.rules = (v.ruleLinks ?? []).map((l: any) => ({ id: l.rule.id, text: l.rule.text, order: l.order }));
         setVenue(v);
         setLayoutStock(v.layoutStock ?? {});
         setGoogleReviewUrlDraft(v.googleReviewUrl ?? '');
       }
+      if (questionsRes.status === 'fulfilled') setQuestionLibrary(questionsRes.value.questions ?? []);
       if (rulesRes.status === 'fulfilled') setRuleLibrary(rulesRes.value.rules ?? []);
       if (planRes.status === 'fulfilled') setFloorPlanUrl(planRes.value.url ?? null);
       if (configRes.status === 'fulfilled') {
@@ -596,7 +601,9 @@ export default function VenueDetailPage() {
   }
 
   async function updateQuestion(qId: string) {
-    await fetch(`/api/v2/venues/${venueId}/questions/${qId}`, {
+    const others = (questionLibrary.find(q => q.id === qId)?.venues ?? []).filter(v => v.id !== venueId);
+    if (others.length > 0 && !confirm(`Esta pergunta também está vinculada a: ${others.map(v => v.name).join(', ')}. A alteração vale para todos esses espaços (as respostas já dadas nos eventos continuam). Continuar?`)) return;
+    const res = await fetch(`/api/v2/questions/${qId}`, {
       method: 'PATCH', credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -606,13 +613,39 @@ export default function VenueDetailPage() {
         options: ['select', 'multiselect'].includes(editQ.type) ? parseOptions(editQ.options) : null,
       }),
     });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(err.error || 'Não foi possível salvar a pergunta.');
+      return;
+    }
     setEditingQId(null);
     await loadVenue();
   }
 
+  async function linkExistingQuestion() {
+    if (!linkQuestionId) return;
+    const res = await fetch(`/api/v2/venues/${venueId}/questions`, {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ questionId: linkQuestionId }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(err.error || 'Não foi possível vincular a pergunta.');
+      return;
+    }
+    setLinkQuestionId('');
+    await loadVenue();
+  }
+
   async function deleteQuestion(qId: string) {
-    if (!confirm('Excluir esta pergunta?')) return;
-    await fetch(`/api/v2/venues/${venueId}/questions/${qId}`, { method: 'DELETE', credentials: 'include' });
+    if (!confirm('Desvincular esta pergunta do espaço? (ela e as respostas já dadas nos eventos continuam na biblioteca)')) return;
+    const res = await fetch(`/api/v2/venues/${venueId}/questions/${qId}`, { method: 'DELETE', credentials: 'include' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(err.error || 'Não foi possível desvincular a pergunta.');
+      return;
+    }
     await loadVenue();
   }
 
@@ -951,7 +984,19 @@ export default function VenueDetailPage() {
             <div className="p-4 space-y-2">
               <p className="text-xs text-muted-foreground mb-3">
                 Estas perguntas serão carregadas automaticamente no <strong>Plano do Evento</strong> sempre que este local for usado.
+                Elas vêm da biblioteca (Locais → aba Perguntas): aqui você só vincula. Se dois espaços do mesmo evento tiverem a mesma pergunta, ela é respondida uma vez só.
               </p>
+              {questionLibrary.filter(q => !(venue.questions ?? []).some(x => x.id === q.id)).length > 0 && (
+                <div className="flex items-center gap-2 mb-2">
+                  <select value={linkQuestionId} onChange={e => setLinkQuestionId(e.target.value)} className="flex-1 min-w-0 text-sm px-2 py-1.5 border rounded bg-background">
+                    <option value="">Vincular pergunta existente…</option>
+                    {questionLibrary.filter(q => !(venue.questions ?? []).some(x => x.id === q.id)).map(q => (
+                      <option key={q.id} value={q.id}>{q.text.length > 90 ? q.text.slice(0, 90) + '…' : q.text}</option>
+                    ))}
+                  </select>
+                  <button onClick={linkExistingQuestion} disabled={!linkQuestionId} className="text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition disabled:opacity-50">Vincular</button>
+                </div>
+              )}
 
               {/* Question list */}
               {(venue.questions ?? []).length === 0 && !addingQ && (

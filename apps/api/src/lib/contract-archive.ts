@@ -67,7 +67,7 @@ export async function archiveContract(db: any, params: {
     });
     for (const l of links) {
       const [answers, layouts] = await Promise.all([
-        (db as any).eventVenueAnswer.count({ where: { eventId, question: { venueId: l.venueId } } }),
+        (db as any).eventVenueAnswer.count({ where: { eventId, question: { venueLinks: { some: { venueId: l.venueId } } } } }),
         (db as any).eventLayout.count({ where: { eventId, venueId: l.venueId } }),
       ]);
       if (answers === 0 && layouts === 0 && l._count.spotifyPlaylists === 0) {
