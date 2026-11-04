@@ -365,6 +365,9 @@ model VenueRuleAcceptance {
   acceptedAt DateTime @default(now())
   ip         String?
   userAgent  String?
+  // Cópia das regras (id, texto, espaço) exatamente como estavam no banco quando o cliente aceitou —
+  // prova do que foi aceito mesmo que a regra seja editada ou apagada depois. Null nos aceites antigos.
+  rules      Json?
 
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
 }

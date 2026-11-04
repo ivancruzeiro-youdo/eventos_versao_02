@@ -443,9 +443,20 @@ export async function clientRoutes(app: FastifyInstance) {
       ?? null;
     const userAgent = (request.headers['user-agent'] as string) ?? null;
 
+    // Registra as regras como estão no banco NO MOMENTO do aceite (só aqui, depois que o cliente
+    // confirmou) — o wizard apenas apresenta; nada é gravado enquanto ele lê.
+    const eventVenues = await prisma.eventVenue.findMany({
+      where: { eventId: session.eventId },
+      include: { venue: { select: { id: true, name: true, rules: { orderBy: { order: 'asc' } } } } },
+      orderBy: { id: 'asc' },
+    });
+    const rules = eventVenues.flatMap(ev => ev.venue.rules.map(r => ({
+      id: r.id, text: r.text, order: r.order, venueId: ev.venue.id, venueName: ev.venue.name,
+    })));
+
     await (prisma as any).venueRuleAcceptance.upsert({
       where: { eventId: session.eventId },
-      create: { eventId: session.eventId, ip, userAgent },
+      create: { eventId: session.eventId, ip, userAgent, rules },
       update: {},
     });
 

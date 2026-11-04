@@ -1,0 +1,1 @@
+ALTER TABLE "VenueRuleAcceptance" ADD COLUMN IF NOT EXISTS "rules" JSONB;

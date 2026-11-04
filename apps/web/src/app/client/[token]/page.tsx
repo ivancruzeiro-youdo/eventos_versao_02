@@ -2450,6 +2450,7 @@ function RulesWizard({ token, jwt, onAccepted }: { token: string; jwt: string; o
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [finalChecked, setFinalChecked] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`/api/v2/client/${token}/rules`, { headers: { 'x-client-auth': jwt } })
@@ -2476,27 +2477,24 @@ function RulesWizard({ token, jwt, onAccepted }: { token: string; jwt: string; o
   const currentRule = !isSummary ? rules[step] : null;
   const progress = ((step + 1) / (rules.length + 1)) * 100;
 
+  // Marcar a regra só libera o "Próxima" — nada é gravado até a confirmação final.
   function toggleCurrent() {
     if (!currentRule) return;
-    const nowChecked = !checked[currentRule.id];
-    setChecked(prev => ({ ...prev, [currentRule.id]: nowChecked }));
-    if (nowChecked) {
-      fetch(`/api/v2/client/${token}/approvals`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-client-auth': jwt },
-        body: JSON.stringify({ itemType: 'venue_rule', itemId: currentRule.id }),
-      }).catch(() => {});
-    }
+    setChecked(prev => ({ ...prev, [currentRule.id]: !prev[currentRule.id] }));
   }
 
   async function confirmAll() {
     setSubmitting(true);
+    setError(null);
     try {
       const res = await fetch(`/api/v2/client/${token}/rules/accept`, {
         method: 'POST',
         headers: { 'x-client-auth': jwt },
       });
       if (res.ok) onAccepted();
+      else setError(res.status === 401 ? 'Sessão expirada — recarregue a página e entre de novo.' : 'Não foi possível registrar o aceite. Tente novamente.');
+    } catch {
+      setError('Sem conexão. Verifique a internet e tente novamente.');
     } finally {
       setSubmitting(false);
     }
@@ -2589,6 +2587,7 @@ function RulesWizard({ token, jwt, onAccepted }: { token: string; jwt: string; o
                   {submitting ? 'Confirmando...' : 'Confirmar e acessar'}
                 </button>
               </div>
+              {error && <p className="text-xs text-red-600">{error}</p>}
             </div>
           )}
         </div>
