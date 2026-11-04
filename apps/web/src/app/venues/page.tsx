@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Layout from '@/components/Layout';
+import RulesLibrary from '@/components/RulesLibrary';
 import { venuesApi } from '@/lib/api';
 import { MapPin, Plus, Download, RefreshCw, X, Search } from 'lucide-react';
 
@@ -32,6 +33,7 @@ interface PreviewVenue {
 
 export default function VenuesPage() {
   const router = useRouter();
+  const [tab, setTab] = useState<'locais' | 'regras'>('locais');
   const [venues, setVenues] = useState<Venue[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -253,7 +255,16 @@ export default function VenuesPage() {
         </div>
       </div>
 
-      {/* Venues List */}
+      <div className="flex gap-1 border-b mb-6">
+        {([['locais', 'Locais'], ['regras', 'Regras']] as const).map(([id, label]) => (
+          <button key={id} onClick={() => setTab(id)}
+            className={`px-4 py-2 text-sm font-medium -mb-px border-b-2 transition ${tab === id ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'regras' ? <RulesLibrary /> : (
       <div className="bg-card rounded-lg border shadow-sm">
         <div className="p-6">
           {loading ? (
@@ -320,6 +331,7 @@ export default function VenuesPage() {
           )}
         </div>
       </div>
+      )}
     </Layout>
   );
 }

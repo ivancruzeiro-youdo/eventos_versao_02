@@ -311,6 +311,7 @@ model Venue {
   spotifyConnection VenueSpotifyConnection?
   activityTemplates VenueActivityTemplate[]
   rules            VenueRule[]
+  ruleLinks        VenueRuleLink[]
 
   @@index([employerId])
 }
@@ -328,6 +329,33 @@ model VenueRule {
   venue Venue @relation(fields: [venueId], references: [id], onDelete: Cascade)
 
   @@index([venueId])
+}
+
+// Biblioteca central de regras: cada regra é cadastrada UMA vez (aba "Regras" em Locais) e os espaços
+// só se vinculam a ela (VenueRuleLink). Num evento com 2+ espaços que compartilham a mesma regra, o
+// cliente vê e aceita a regra uma única vez. A tabela antiga VenueRule (texto por espaço) ficou
+// só como histórico da migração e não é mais lida.
+model SpaceRule {
+  id        String   @id @default(uuid())
+  text      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  venues VenueRuleLink[]
+}
+
+model VenueRuleLink {
+  id        String   @id @default(uuid())
+  venueId   String
+  ruleId    String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  venue Venue     @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  rule  SpaceRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@unique([venueId, ruleId])
+  @@index([ruleId])
 }
 
 // Limite de check-in por A&B contratado: ao atingir a quantidade contratada (maior item de A&B por

@@ -378,7 +378,7 @@ export async function uerpRoutes(app: FastifyInstance) {
       include: {
         _count: { select: { events: true } },
         questions: { orderBy: { order: 'asc' } },
-        rules: { orderBy: { order: 'asc' } },
+        ruleLinks: { orderBy: { order: 'asc' }, include: { rule: { select: { id: true, text: true } } } },
         events: {
           take: 5,
           orderBy: { event: { startAt: 'desc' } },
@@ -661,48 +661,88 @@ export async function uerpRoutes(app: FastifyInstance) {
     return venue;
   }
 
-  // GET /venues/:id/rules
-  app.get('/venues/:id/rules', { preHandler: requireAuth }, async (request, reply) => {
-    const { id: venueId } = request.params as { id: string };
-    if (!(await loadManageableVenue(request, reply, venueId))) return;
-    const rules = await (prisma as any).venueRule.findMany({ where: { venueId }, orderBy: { order: 'asc' } });
-    return { success: true, rules };
+  const normRule = (t: string) => t.trim().replace(/\s+/g, ' ').toLowerCase();
+
+  // Biblioteca central: cada regra existe uma vez; os espaços só se vinculam a ela.
+  // GET /rules — todas as regras, com os espaços vinculados
+  app.get('/rules', { preHandler: requireAuth }, async () => {
+    const rules = await (prisma as any).spaceRule.findMany({
+      orderBy: { createdAt: 'asc' },
+      include: { venues: { select: { venue: { select: { id: true, name: true } } } } },
+    });
+    return {
+      success: true,
+      rules: rules.map((r: any) => ({ id: r.id, text: r.text, venues: r.venues.map((l: any) => l.venue) })),
+    };
   });
 
-  // POST /venues/:id/rules
-  app.post('/venues/:id/rules', { preHandler: requireAuth }, async (request, reply) => {
-    const { id: venueId } = request.params as { id: string };
-    if (!(await loadManageableVenue(request, reply, venueId))) return;
-    const body = request.body as { text?: string; order?: number };
+  // POST /rules — cria na biblioteca (texto igual a uma regra existente devolve a existente)
+  app.post('/rules', { preHandler: requireAuth }, async (request, reply) => {
+    const body = request.body as { text?: string };
     if (!body?.text?.trim()) return reply.status(400).send({ error: 'Informe o texto da regra.' });
-    const count = await (prisma as any).venueRule.count({ where: { venueId } });
-    const rule = await (prisma as any).venueRule.create({
-      data: { venueId, text: body.text.trim(), order: body.order ?? count },
-    });
+    const all = await (prisma as any).spaceRule.findMany({ select: { id: true, text: true } });
+    const dup = all.find((r: any) => normRule(r.text) === normRule(body.text!));
+    if (dup) return reply.status(200).send({ success: true, rule: dup, existing: true });
+    const rule = await (prisma as any).spaceRule.create({ data: { text: body.text.trim() } });
     return reply.status(201).send({ success: true, rule });
   });
 
-  // PATCH /venues/:id/rules/:ruleId
-  app.patch('/venues/:id/rules/:ruleId', { preHandler: requireAuth }, async (request, reply) => {
-    const { id: venueId, ruleId } = request.params as { id: string; ruleId: string };
-    if (!(await loadManageableVenue(request, reply, venueId))) return;
-    const body = request.body as { text?: string; order?: number };
-    if (body?.text !== undefined && !body.text.trim()) return reply.status(400).send({ error: 'O texto da regra não pode ficar vazio.' });
-    const result = await (prisma as any).venueRule.updateMany({
-      where: { id: ruleId, venueId },
-      data: { ...(body.text !== undefined && { text: body.text.trim() }), ...(body.order !== undefined && { order: body.order }) },
-    });
-    if (result.count === 0) return reply.status(404).send({ error: 'Regra não encontrada neste espaço.' });
-    const rule = await (prisma as any).venueRule.findUnique({ where: { id: ruleId } });
-    return { success: true, rule };
+  // PATCH /rules/:id — edita o texto (vale para todos os espaços vinculados)
+  app.patch('/rules/:id', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { text?: string };
+    if (!body?.text?.trim()) return reply.status(400).send({ error: 'O texto da regra não pode ficar vazio.' });
+    const result = await (prisma as any).spaceRule.updateMany({ where: { id }, data: { text: body.text.trim() } });
+    if (result.count === 0) return reply.status(404).send({ error: 'Regra não encontrada.' });
+    return { success: true };
   });
 
-  // DELETE /venues/:id/rules/:ruleId
+  // DELETE /rules/:id — remove da biblioteca e de todos os espaços vinculados
+  app.delete('/rules/:id', { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const result = await (prisma as any).spaceRule.deleteMany({ where: { id } });
+    if (result.count === 0) return reply.status(404).send({ error: 'Regra não encontrada.' });
+    return { success: true };
+  });
+
+  // GET /venues/:id/rules — regras vinculadas ao espaço
+  app.get('/venues/:id/rules', { preHandler: requireAuth }, async (request, reply) => {
+    const { id: venueId } = request.params as { id: string };
+    if (!(await loadManageableVenue(request, reply, venueId))) return;
+    const links = await (prisma as any).venueRuleLink.findMany({
+      where: { venueId }, orderBy: { order: 'asc' }, include: { rule: { select: { id: true, text: true } } },
+    });
+    return { success: true, rules: links.map((l: any) => ({ id: l.rule.id, text: l.rule.text, order: l.order })) };
+  });
+
+  // POST /venues/:id/rules — vincula uma regra da biblioteca ({ ruleId }) ou cria+vincula ({ text });
+  // texto igual a uma regra existente reaproveita a existente em vez de duplicar.
+  app.post('/venues/:id/rules', { preHandler: requireAuth }, async (request, reply) => {
+    const { id: venueId } = request.params as { id: string };
+    if (!(await loadManageableVenue(request, reply, venueId))) return;
+    const body = request.body as { ruleId?: string; text?: string };
+    let ruleId = body?.ruleId;
+    if (!ruleId) {
+      if (!body?.text?.trim()) return reply.status(400).send({ error: 'Informe a regra a vincular ou o texto da nova regra.' });
+      const all = await (prisma as any).spaceRule.findMany({ select: { id: true, text: true } });
+      ruleId = all.find((r: any) => normRule(r.text) === normRule(body.text!))?.id
+        ?? (await (prisma as any).spaceRule.create({ data: { text: body.text.trim() } })).id;
+    } else if (!(await (prisma as any).spaceRule.findUnique({ where: { id: ruleId }, select: { id: true } }))) {
+      return reply.status(404).send({ error: 'Regra não encontrada na biblioteca.' });
+    }
+    const exists = await (prisma as any).venueRuleLink.findUnique({ where: { venueId_ruleId: { venueId, ruleId } } });
+    if (exists) return reply.status(200).send({ success: true, alreadyLinked: true });
+    const count = await (prisma as any).venueRuleLink.count({ where: { venueId } });
+    await (prisma as any).venueRuleLink.create({ data: { venueId, ruleId, order: count } });
+    return reply.status(201).send({ success: true });
+  });
+
+  // DELETE /venues/:id/rules/:ruleId — só desvincula (a regra continua na biblioteca)
   app.delete('/venues/:id/rules/:ruleId', { preHandler: requireAuth }, async (request, reply) => {
     const { id: venueId, ruleId } = request.params as { id: string; ruleId: string };
     if (!(await loadManageableVenue(request, reply, venueId))) return;
-    const result = await (prisma as any).venueRule.deleteMany({ where: { id: ruleId, venueId } });
-    if (result.count === 0) return reply.status(404).send({ error: 'Regra não encontrada neste espaço.' });
+    const result = await (prisma as any).venueRuleLink.deleteMany({ where: { venueId, ruleId } });
+    if (result.count === 0) return reply.status(404).send({ error: 'Regra não vinculada a este espaço.' });
     return { success: true };
   });
 

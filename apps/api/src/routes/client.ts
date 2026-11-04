@@ -29,6 +29,26 @@ async function getClientSession(app: FastifyInstance, request: any, reply: any) 
   }
 }
 
+
+// Regras do evento: junta as regras vinculadas a todos os espaços e mostra cada uma UMA vez
+// (a mesma regra vinculada a 2 lounges aparece com os dois nomes), na ordem do 1º espaço que a tem.
+async function loadEventRules(eventId: string) {
+  const eventVenues = await prisma.eventVenue.findMany({
+    where: { eventId },
+    include: { venue: { select: { id: true, name: true, ruleLinks: { orderBy: { order: 'asc' }, include: { rule: { select: { id: true, text: true } } } } } as any } },
+    orderBy: { id: 'asc' },
+  });
+  const byRule = new Map<string, { id: string; text: string; venues: { id: string; name: string }[] }>();
+  for (const ev of eventVenues as any[]) {
+    for (const l of ev.venue.ruleLinks) {
+      const cur: { id: string; text: string; venues: { id: string; name: string }[] } = byRule.get(l.rule.id) ?? { id: l.rule.id, text: l.rule.text, venues: [] };
+      if (!cur.venues.some(v => v.id === ev.venue.id)) cur.venues.push({ id: ev.venue.id, name: ev.venue.name });
+      byRule.set(l.rule.id, cur);
+    }
+  }
+  return [...byRule.values()];
+}
+
 export async function clientRoutes(app: FastifyInstance) {
   // Auth: verify reservation number and return session JWT
   // Tighter limit than the global default — the reservation number is a guessable
@@ -410,19 +430,11 @@ export async function clientRoutes(app: FastifyInstance) {
     const session = await getClientSession(app, request, reply);
     if (!session) return;
 
-    const event = await prisma.event.findUnique({
-      where: { id: session.eventId },
-      select: {
-        venues: { include: { venue: { select: { id: true, name: true, rules: { orderBy: { order: 'asc' } } } } } },
-      },
-    });
-    if (!event) return reply.status(404).send({ error: 'Evento não encontrado' });
-
-    const rules = event.venues.flatMap(ev => ev.venue.rules.map(r => ({
+    const rules = (await loadEventRules(session.eventId)).map(r => ({
       id: r.id,
       text: r.text,
-      venueName: ev.venue.name,
-    })));
+      venueName: r.venues.map(v => v.name).join(' · '),
+    }));
 
     const acceptance = await (prisma as any).venueRuleAcceptance.findUnique({
       where: { eventId: session.eventId },
@@ -445,14 +457,7 @@ export async function clientRoutes(app: FastifyInstance) {
 
     // Registra as regras como estão no banco NO MOMENTO do aceite (só aqui, depois que o cliente
     // confirmou) — o wizard apenas apresenta; nada é gravado enquanto ele lê.
-    const eventVenues = await prisma.eventVenue.findMany({
-      where: { eventId: session.eventId },
-      include: { venue: { select: { id: true, name: true, rules: { orderBy: { order: 'asc' } } } } },
-      orderBy: { id: 'asc' },
-    });
-    const rules = eventVenues.flatMap(ev => ev.venue.rules.map(r => ({
-      id: r.id, text: r.text, order: r.order, venueId: ev.venue.id, venueName: ev.venue.name,
-    })));
+    const rules = await loadEventRules(session.eventId);
 
     await (prisma as any).venueRuleAcceptance.upsert({
       where: { eventId: session.eventId },

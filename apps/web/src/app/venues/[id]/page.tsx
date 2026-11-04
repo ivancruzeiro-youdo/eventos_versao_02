@@ -166,6 +166,8 @@ export default function VenueDetailPage() {
   const [savingR, setSavingR] = useState(false);
   const [editingRId, setEditingRId] = useState<string | null>(null);
   const [editR, setEditR] = useState('');
+  const [ruleLibrary, setRuleLibrary] = useState<{ id: string; text: string; venues: { id: string; name: string }[] }[]>([]);
+  const [linkRuleId, setLinkRuleId] = useState('');
 
   // Activity template form state
   const [activityTemplates, setActivityTemplates] = useState<VenueActivityTemplate[]>([]);
@@ -249,20 +251,24 @@ export default function VenueDetailPage() {
   async function loadVenue() {
     try {
       setLoading(true);
-      const [venueRes, planRes, configRes, tplRes, atRes, usersRes] = await Promise.allSettled([
+      const [venueRes, planRes, configRes, tplRes, atRes, usersRes, rulesRes] = await Promise.allSettled([
         venuesApiExtended.get(venueId),
         fetch(`${API_URL}/api/v2/venues/${venueId}/floorplan-url`, { credentials: 'include' }).then(r => r.json()),
         fetch(`${API_URL}/api/v2/admin/layout-config`, { credentials: 'include' }).then(r => r.json()),
         fetch(`${API_URL}/api/v2/venues/${venueId}/layout-templates`, { credentials: 'include' }).then(r => r.json()),
         fetch(`${API_URL}/api/v2/venues/${venueId}/activity-templates`, { credentials: 'include' }).then(r => r.json()),
         fetch(`${API_URL}/api/v2/admin/users?limit=500`, { credentials: 'include' }).then(r => r.json()),
+        fetch(`${API_URL}/api/v2/rules`, { credentials: 'include' }).then(r => r.json()),
       ]);
       if (venueRes.status === 'fulfilled') {
         const v = venueRes.value.venue;
+        // Regras vinculadas ao espaço (biblioteca central): a API devolve os vínculos
+        v.rules = (v.ruleLinks ?? []).map((l: any) => ({ id: l.rule.id, text: l.rule.text, order: l.order }));
         setVenue(v);
         setLayoutStock(v.layoutStock ?? {});
         setGoogleReviewUrlDraft(v.googleReviewUrl ?? '');
       }
+      if (rulesRes.status === 'fulfilled') setRuleLibrary(rulesRes.value.rules ?? []);
       if (planRes.status === 'fulfilled') setFloorPlanUrl(planRes.value.url ?? null);
       if (configRes.status === 'fulfilled') {
         setStockElements((configRes.value.elements ?? []).filter((e: LayoutElementConfig) => e.active));
@@ -633,7 +639,9 @@ export default function VenueDetailPage() {
   }
 
   async function updateRule(ruleId: string) {
-    const res = await fetch(`/api/v2/venues/${venueId}/rules/${ruleId}`, {
+    const others = (ruleLibrary.find(r => r.id === ruleId)?.venues ?? []).filter(v => v.id !== venueId);
+    if (others.length > 0 && !confirm(`Esta regra também está vinculada a: ${others.map(v => v.name).join(', ')}. A alteração vale para todos esses espaços. Continuar?`)) return;
+    const res = await fetch(`/api/v2/rules/${ruleId}`, {
       method: 'PATCH', credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: editR }),
@@ -647,8 +655,24 @@ export default function VenueDetailPage() {
     await loadVenue();
   }
 
+  async function linkExistingRule() {
+    if (!linkRuleId) return;
+    const res = await fetch(`/api/v2/venues/${venueId}/rules`, {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ruleId: linkRuleId }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(err.error || 'Não foi possível vincular a regra.');
+      return;
+    }
+    setLinkRuleId('');
+    await loadVenue();
+  }
+
   async function deleteRule(ruleId: string) {
-    if (!confirm('Excluir esta regra?')) return;
+    if (!confirm('Desvincular esta regra do espaço? (ela continua na biblioteca de regras)')) return;
     const res = await fetch(`/api/v2/venues/${venueId}/rules/${ruleId}`, { method: 'DELETE', credentials: 'include' });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -1062,7 +1086,19 @@ export default function VenueDetailPage() {
             <div className="p-4 space-y-2">
               <p className="text-xs text-muted-foreground mb-3">
                 O cliente precisa aceitar cada uma destas regras num wizard antes de acessar o plano do evento no portal do cliente.
+                As regras vêm da biblioteca (Locais → aba Regras): aqui você só vincula. Se duas áreas do mesmo evento tiverem a mesma regra, o cliente a vê uma vez.
               </p>
+              {ruleLibrary.filter(r => !(venue.rules ?? []).some(x => x.id === r.id)).length > 0 && (
+                <div className="flex items-center gap-2 mb-2">
+                  <select value={linkRuleId} onChange={e => setLinkRuleId(e.target.value)} className="flex-1 min-w-0 text-sm px-2 py-1.5 border rounded bg-background">
+                    <option value="">Vincular regra existente…</option>
+                    {ruleLibrary.filter(r => !(venue.rules ?? []).some(x => x.id === r.id)).map(r => (
+                      <option key={r.id} value={r.id}>{r.text.length > 90 ? r.text.slice(0, 90) + '…' : r.text}</option>
+                    ))}
+                  </select>
+                  <button onClick={linkExistingRule} disabled={!linkRuleId} className="text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition disabled:opacity-50">Vincular</button>
+                </div>
+              )}
 
               {(venue.rules ?? []).length === 0 && !addingR && (
                 <p className="text-sm text-muted-foreground text-center py-4 italic">
