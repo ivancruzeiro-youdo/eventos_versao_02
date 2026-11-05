@@ -22,6 +22,12 @@ interface ComboCore {
   elementType: string;
   qty: number;
   arrangement: 'single' | 'row';
+  /** Operador escolhe a quantidade de peças ao soltar o combo (ex.: fileira de N cadeiras). */
+  variable?: boolean;
+  /** Direção da fileira (padrão: horizontal). */
+  orientation?: 'horizontal' | 'vertical';
+  /** Espaço entre as peças da fileira, em metros (padrão: 0 = coladas). */
+  gapMeters?: number;
 }
 
 interface ComboSatellite {
@@ -35,7 +41,8 @@ interface ComboConfig {
   type: string;
   label: string;
   core: ComboCore;
-  satellite: ComboSatellite;
+  /** null = combo só com o núcleo (fileira/grupo, sem itens ao redor). */
+  satellite: ComboSatellite | null;
   iconUrl?: string;
   active: boolean;
 }
@@ -99,11 +106,14 @@ function metersToFractionY(meters: number, floorPlanH: number | null): number {
   return floorPlanH ? meters / floorPlanH : meters * COMBO_FALLBACK_METERS_TO_FRACTION;
 }
 
-// Expands a combo (core table(s) + satellite chairs) into real, independent PlacedElements
-// centered on the drop point (xFrac, yFrac). Core copies (when arrangement === 'row') are
-// placed edge-to-edge along the widest axis, forming one combined bounding box; chairs are
-// then distributed around that combined box's outline — never around each core piece on its
-// own, which would put chairs in the seam between two joined tables.
+// Expands a combo (core piece(s) + OPTIONAL satellite pieces) into real, independent
+// PlacedElements centered on the drop point (xFrac, yFrac). Core copies (when arrangement ===
+// 'row') are placed edge-to-edge along the chosen axis (horizontal by default, vertical on
+// request), with an optional gap between pieces, forming one combined bounding box; satellites
+// (chairs), when the combo has them, are then distributed around that combined box's outline —
+// never around each core piece on its own, which would put chairs in the seam between two
+// joined tables. A combo with no satellite is just the row/group of core pieces
+// (ex.: uma fileira de 5 cadeiras).
 function computeComboPlacement(
   combo: ComboConfig,
   configByType: Record<string, ElementConfig>,
@@ -111,64 +121,72 @@ function computeComboPlacement(
   yFrac: number,
   satelliteQty: number,
   floorPlanW: number | null,
-  floorPlanH: number | null
+  floorPlanH: number | null,
+  coreQtyOverride?: number
 ): PlacedElement[] | null {
   const coreCfg = configByType[combo.core.elementType];
-  const satCfg = configByType[combo.satellite.elementType];
-  if (!coreCfg || !satCfg) return null;
+  const satellite = combo.satellite;
+  const satCfg = satellite ? configByType[satellite.elementType] : null;
+  if (!coreCfg || (satellite && !satCfg)) return null;
 
-  const coreQty = Math.max(1, combo.core.qty || 1);
+  const coreQty = Math.max(1, coreQtyOverride ?? combo.core.qty ?? 1);
   const isRow = combo.core.arrangement === 'row' && coreQty > 1;
+  const vertical = combo.core.orientation === 'vertical';
+  const gap = Math.max(0, combo.core.gapMeters ?? 0);
 
   // Core piece centers, in meters relative to the combo's own center (0,0).
   const coreCentersM: { x: number; y: number }[] = [];
+  const pieceSize = vertical ? coreCfg.heightMeters : coreCfg.widthMeters;
+  const rowLength = coreQty * pieceSize + (coreQty - 1) * gap;
   if (isRow) {
-    const totalW = coreQty * coreCfg.widthMeters;
     for (let i = 0; i < coreQty; i++) {
-      coreCentersM.push({ x: -totalW / 2 + coreCfg.widthMeters * (i + 0.5), y: 0 });
+      const pos = -rowLength / 2 + pieceSize * (i + 0.5) + gap * i;
+      coreCentersM.push(vertical ? { x: 0, y: pos } : { x: pos, y: 0 });
     }
   } else {
     coreCentersM.push({ x: 0, y: 0 });
   }
 
-  const boxW = isRow ? coreQty * coreCfg.widthMeters : coreCfg.widthMeters;
-  const boxH = coreCfg.heightMeters;
+  const boxW = isRow && !vertical ? rowLength : coreCfg.widthMeters;
+  const boxH = isRow && vertical ? rowLength : coreCfg.heightMeters;
 
   // Satellite (chair) centers, in meters relative to the combo's own center (0,0).
   const satCentersM: { x: number; y: number; rotationDeg: number }[] = [];
-  const n = Math.max(0, satelliteQty);
+  const n = satellite && satCfg ? Math.max(0, satelliteQty) : 0;
 
-  if (combo.satellite.shape === 'round') {
-    const a = boxW / 2 + COMBO_GAP_METERS + satCfg.widthMeters / 2;
-    const b = boxH / 2 + COMBO_GAP_METERS + satCfg.heightMeters / 2;
-    for (let i = 0; i < n; i++) {
-      const theta = (2 * Math.PI * i) / n - Math.PI / 2; // start at the top, go clockwise
-      satCentersM.push({
-        x: a * Math.cos(theta),
-        y: b * Math.sin(theta),
-        rotationDeg: (theta * 180) / Math.PI + 90, // face the combo's center
-      });
-    }
-  } else {
-    // 'rect' — walk the perimeter of the expanded bounding rectangle at evenly spaced
-    // arc-length intervals, starting at the top-left corner and going clockwise.
-    const W = boxW + 2 * (COMBO_GAP_METERS + satCfg.widthMeters / 2);
-    const H = boxH + 2 * (COMBO_GAP_METERS + satCfg.heightMeters / 2);
-    const perimeter = 2 * (W + H);
-    for (let i = 0; i < n; i++) {
-      let t = (perimeter * i) / n;
-      let x: number, y: number, rotationDeg: number;
-      if (t < W) { // top edge, left → right
-        x = -W / 2 + t; y = -H / 2; rotationDeg = 180; // facing down, toward the table
-      } else if ((t -= W) < H) { // right edge, top → bottom
-        x = W / 2; y = -H / 2 + t; rotationDeg = 270; // facing left
-      } else if ((t -= H) < W) { // bottom edge, right → left
-        x = W / 2 - t; y = H / 2; rotationDeg = 0; // facing up
-      } else { // left edge, bottom → top
-        t -= W;
-        x = -W / 2; y = H / 2 - t; rotationDeg = 90; // facing right
+  if (satellite && satCfg && n > 0) {
+    if (satellite.shape === 'round') {
+      const a = boxW / 2 + COMBO_GAP_METERS + satCfg.widthMeters / 2;
+      const b = boxH / 2 + COMBO_GAP_METERS + satCfg.heightMeters / 2;
+      for (let i = 0; i < n; i++) {
+        const theta = (2 * Math.PI * i) / n - Math.PI / 2; // start at the top, go clockwise
+        satCentersM.push({
+          x: a * Math.cos(theta),
+          y: b * Math.sin(theta),
+          rotationDeg: (theta * 180) / Math.PI + 90, // face the combo's center
+        });
       }
-      satCentersM.push({ x, y, rotationDeg });
+    } else {
+      // 'rect' — walk the perimeter of the expanded bounding rectangle at evenly spaced
+      // arc-length intervals, starting at the top-left corner and going clockwise.
+      const W = boxW + 2 * (COMBO_GAP_METERS + satCfg.widthMeters / 2);
+      const H = boxH + 2 * (COMBO_GAP_METERS + satCfg.heightMeters / 2);
+      const perimeter = 2 * (W + H);
+      for (let i = 0; i < n; i++) {
+        let t = (perimeter * i) / n;
+        let x: number, y: number, rotationDeg: number;
+        if (t < W) { // top edge, left → right
+          x = -W / 2 + t; y = -H / 2; rotationDeg = 180; // facing down, toward the table
+        } else if ((t -= W) < H) { // right edge, top → bottom
+          x = W / 2; y = -H / 2 + t; rotationDeg = 270; // facing left
+        } else if ((t -= H) < W) { // bottom edge, right → left
+          x = W / 2 - t; y = H / 2; rotationDeg = 0; // facing up
+        } else { // left edge, bottom → top
+          t -= W;
+          x = -W / 2; y = H / 2 - t; rotationDeg = 90; // facing right
+        }
+        satCentersM.push({ x, y, rotationDeg });
+      }
     }
   }
 
@@ -185,13 +203,37 @@ function computeComboPlacement(
   for (const c of satCentersM) {
     placed.push({
       id: uid(),
-      type: combo.satellite.elementType,
+      type: satellite?.elementType ?? '',
       x: xFrac + metersToFractionX(c.x, floorPlanW),
       y: yFrac + metersToFractionY(c.y, floorPlanH),
       rotation: c.rotationDeg,
     });
   }
   return placed;
+}
+
+// Mantém o grupo inteiro dentro da área do espaço: se passou da borda, desloca o conjunto até
+// caber; se o grupo é maior que a própria área, centraliza e avisa (fits = false).
+function fitPlacedInside(placed: PlacedElement[]): { placed: PlacedElement[]; shifted: boolean; fits: boolean } {
+  const MARGIN = 0.01;
+  const xs = placed.map(p => p.x);
+  const ys = placed.map(p => p.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const axisShift = (min: number, max: number): { d: number; fits: boolean } => {
+    if (max - min > 1 - 2 * MARGIN) return { d: 0.5 - (min + max) / 2, fits: false };
+    if (min < MARGIN) return { d: MARGIN - min, fits: true };
+    if (max > 1 - MARGIN) return { d: 1 - MARGIN - max, fits: true };
+    return { d: 0, fits: true };
+  };
+  const sx = axisShift(minX, maxX);
+  const sy = axisShift(minY, maxY);
+  if (sx.d === 0 && sy.d === 0) return { placed, shifted: false, fits: sx.fits && sy.fits };
+  return {
+    placed: placed.map(p => ({ ...p, x: p.x + sx.d, y: p.y + sy.d })),
+    shifted: true,
+    fits: sx.fits && sy.fits,
+  };
 }
 
 async function api(url: string, opts: RequestInit = {}) {
@@ -241,7 +283,7 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
   // Combos ("kits" — a core table + surrounding chairs, expanded into real independent
   // elements on drop; see computeComboPlacement)
   const [combos,           setCombos]           = useState<ComboConfig[]>([]);
-  const [comboDropPrompt,  setComboDropPrompt]  = useState<{ combo: ComboConfig; x: number; y: number; qty: number } | null>(null);
+  const [comboDropPrompt,  setComboDropPrompt]  = useState<{ combo: ComboConfig; x: number; y: number; coreQty: number; satQty: number } | null>(null);
   const [recentlyAddedIds, setRecentlyAddedIds] = useState<Set<string>>(new Set());
 
   // UI
@@ -446,21 +488,55 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
 
   // Expands a combo into real elements and appends them — clamps the satellite (chair) count
   // to whatever stock still allows rather than blocking the whole placement.
-  function commitCombo(combo: ComboConfig, x: number, y: number, requestedQty: number) {
+  function commitCombo(combo: ComboConfig, x: number, y: number, requestedCoreQty: number, requestedSatQty: number) {
+    const coreLabel = configByType[combo.core.elementType]?.label ?? combo.core.elementType;
+    const messages: string[] = [];
+    let blockedMsg = false;
+
+    // Peças do núcleo: quantidade fixa do combo ou a escolhida ao soltar (fileira de N).
     const coreRoom = availableStock(combo.core.elementType);
-    if (coreRoom < combo.core.qty) {
-      setSaveMsg({ ok: false, text: `Sem estoque suficiente de "${configByType[combo.core.elementType]?.label ?? combo.core.elementType}" neste evento.` });
+    let coreQty = combo.core.variable ? Math.max(1, requestedCoreQty) : combo.core.qty;
+    if (coreRoom < (combo.core.variable ? 1 : coreQty)) {
+      setSaveMsg({ ok: false, text: `Sem estoque suficiente de "${coreLabel}" neste evento.` });
       setTimeout(() => setSaveMsg(null), 3000);
       return;
     }
-    const satRoom = availableStock(combo.satellite.elementType);
-    const qty = Math.max(0, Math.min(requestedQty, satRoom));
-    if (qty < requestedQty) {
-      setSaveMsg({ ok: false, text: `Só cabem mais ${qty} de "${configByType[combo.satellite.elementType]?.label ?? combo.satellite.elementType}" neste evento — adicionadas ${qty} de ${requestedQty} solicitadas.` });
-      setTimeout(() => setSaveMsg(null), 4000);
+    if (combo.core.variable && coreQty > coreRoom) {
+      messages.push(`Só cabem mais ${coreRoom} de "${coreLabel}" neste evento — adicionadas ${coreRoom} de ${coreQty} solicitadas.`);
+      coreQty = coreRoom;
+      blockedMsg = true;
     }
-    const placed = computeComboPlacement(combo, configByType, x, y, qty, floorPlanW, floorPlanH);
-    if (!placed) return;
+
+    // Itens ao redor (opcionais). Se são do mesmo tipo do núcleo (ex.: cadeira na fileira e ao
+    // redor), o estoque já consumido pelo núcleo conta.
+    let satQty = 0;
+    if (combo.satellite) {
+      const satType = combo.satellite.elementType;
+      const satLabel = configByType[satType]?.label ?? satType;
+      const satRoom = Math.max(0, availableStock(satType) - (satType === combo.core.elementType ? coreQty : 0));
+      satQty = Math.max(0, Math.min(requestedSatQty, satRoom));
+      if (satQty < requestedSatQty) {
+        messages.push(`Só cabem mais ${satQty} de "${satLabel}" neste evento — adicionadas ${satQty} de ${requestedSatQty} solicitadas.`);
+        blockedMsg = true;
+      }
+    }
+
+    const raw = computeComboPlacement(combo, configByType, x, y, satQty, floorPlanW, floorPlanH, coreQty);
+    if (!raw) return;
+
+    // Fileira longa pode passar da área do espaço: encaixa o grupo dentro dela, ou avisa se não cabe.
+    const { placed, shifted, fits } = fitPlacedInside(raw);
+    if (!fits) {
+      messages.push('O grupo é maior que a área do espaço — confira o posicionamento.');
+      blockedMsg = true;
+    } else if (shifted) {
+      messages.push('Ajustei a posição para o grupo caber dentro da área do espaço.');
+    }
+
+    if (messages.length > 0) {
+      setSaveMsg({ ok: !blockedMsg, text: messages.join(' ') });
+      setTimeout(() => setSaveMsg(null), 4500);
+    }
     setElements(prev => [...prev, ...placed]);
     flashRecentlyAdded(placed.map(p => p.id));
     setSelectedIds(new Set());
@@ -477,10 +553,12 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
     if (comboType) {
       const combo = combos.find(c => c.type === comboType);
       if (!combo) return;
-      if (combo.satellite.variable) {
-        setComboDropPrompt({ combo, x, y, qty: combo.satellite.qty });
+      const coreQty = combo.core.qty;
+      const satQty = combo.satellite?.qty ?? 0;
+      if (combo.core.variable || combo.satellite?.variable) {
+        setComboDropPrompt({ combo, x, y, coreQty, satQty });
       } else {
-        commitCombo(combo, x, y, combo.satellite.qty);
+        commitCombo(combo, x, y, coreQty, satQty);
       }
       return;
     }
@@ -890,9 +968,9 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
               <div className="space-y-1.5 pr-1 max-h-56 overflow-y-auto flex-shrink-0">
                 {combos.map(combo => {
                   const coreCfg = configByType[combo.core.elementType];
-                  const satCfg = configByType[combo.satellite.elementType];
-                  const blocked = availableStock(combo.core.elementType) < combo.core.qty
-                    || (combo.satellite.qty > 0 && availableStock(combo.satellite.elementType) <= 0);
+                  const satCfg = combo.satellite ? configByType[combo.satellite.elementType] : undefined;
+                  const blocked = availableStock(combo.core.elementType) < (combo.core.variable ? 1 : combo.core.qty)
+                    || (!!combo.satellite && combo.satellite.qty > 0 && availableStock(combo.satellite.elementType) <= 0);
                   return (
                     <div
                       key={combo.type}
@@ -908,7 +986,10 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium leading-tight truncate">{combo.label}</p>
                         <p className="text-[10px] text-muted-foreground truncate">
-                          {combo.core.qty} {coreCfg?.label ?? combo.core.elementType} + {combo.satellite.qty}{combo.satellite.variable ? '+' : ''} {satCfg?.label ?? combo.satellite.elementType}
+                          {combo.core.qty}{combo.core.variable ? '+' : ''} {coreCfg?.label ?? combo.core.elementType}
+                          {combo.satellite
+                            ? ` + ${combo.satellite.qty}${combo.satellite.variable ? '+' : ''} ${satCfg?.label ?? combo.satellite.elementType}`
+                            : combo.core.arrangement === 'row' ? (combo.core.orientation === 'vertical' ? ' em fileira vertical' : ' em fileira') : ''}
                         </p>
                       </div>
                       {blocked && <Lock className="size-3 text-muted-foreground flex-shrink-0" />}
@@ -1137,22 +1218,46 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
                       onClick={e => e.stopPropagation()}
                     >
                       <p className="font-medium mb-2 truncate">{comboDropPrompt.combo.label}</p>
-                      <label className="text-xs text-muted-foreground block mb-1">
-                        Quantas {configByType[comboDropPrompt.combo.satellite.elementType]?.label.toLowerCase() ?? 'cadeiras'}?
-                      </label>
-                      <input
-                        type="number"
-                        min={0}
-                        max={99}
-                        autoFocus
-                        value={comboDropPrompt.qty}
-                        onChange={e => setComboDropPrompt(p => p ? { ...p, qty: Math.max(0, parseInt(e.target.value) || 0) } : p)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') { commitCombo(comboDropPrompt.combo, comboDropPrompt.x, comboDropPrompt.y, comboDropPrompt.qty); setComboDropPrompt(null); }
-                          if (e.key === 'Escape') setComboDropPrompt(null);
-                        }}
-                        className="w-full text-sm border border-input rounded px-2 py-1.5 bg-background focus:ring-1 focus:ring-ring mb-2"
-                      />
+                      {comboDropPrompt.combo.core.variable && (
+                        <>
+                          <label className="text-xs text-muted-foreground block mb-1">
+                            Quantas {configByType[comboDropPrompt.combo.core.elementType]?.label.toLowerCase() ?? 'peças'}?
+                          </label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={99}
+                            autoFocus
+                            value={comboDropPrompt.coreQty}
+                            onChange={e => setComboDropPrompt(p => p ? { ...p, coreQty: Math.max(1, parseInt(e.target.value) || 1) } : p)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') { commitCombo(comboDropPrompt.combo, comboDropPrompt.x, comboDropPrompt.y, comboDropPrompt.coreQty, comboDropPrompt.satQty); setComboDropPrompt(null); }
+                              if (e.key === 'Escape') setComboDropPrompt(null);
+                            }}
+                            className="w-full text-sm border border-input rounded px-2 py-1.5 bg-background focus:ring-1 focus:ring-ring mb-2"
+                          />
+                        </>
+                      )}
+                      {comboDropPrompt.combo.satellite?.variable && (
+                        <>
+                          <label className="text-xs text-muted-foreground block mb-1">
+                            Quantas {configByType[comboDropPrompt.combo.satellite.elementType]?.label.toLowerCase() ?? 'cadeiras'}?
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={99}
+                            autoFocus={!comboDropPrompt.combo.core.variable}
+                            value={comboDropPrompt.satQty}
+                            onChange={e => setComboDropPrompt(p => p ? { ...p, satQty: Math.max(0, parseInt(e.target.value) || 0) } : p)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') { commitCombo(comboDropPrompt.combo, comboDropPrompt.x, comboDropPrompt.y, comboDropPrompt.coreQty, comboDropPrompt.satQty); setComboDropPrompt(null); }
+                              if (e.key === 'Escape') setComboDropPrompt(null);
+                            }}
+                            className="w-full text-sm border border-input rounded px-2 py-1.5 bg-background focus:ring-1 focus:ring-ring mb-2"
+                          />
+                        </>
+                      )}
                       <div className="flex gap-2 justify-end">
                         <button
                           onClick={() => setComboDropPrompt(null)}
@@ -1161,7 +1266,7 @@ export default function EventLayoutTab({ eventId }: { eventId: string }) {
                           Cancelar
                         </button>
                         <button
-                          onClick={() => { commitCombo(comboDropPrompt.combo, comboDropPrompt.x, comboDropPrompt.y, comboDropPrompt.qty); setComboDropPrompt(null); }}
+                          onClick={() => { commitCombo(comboDropPrompt.combo, comboDropPrompt.x, comboDropPrompt.y, comboDropPrompt.coreQty, comboDropPrompt.satQty); setComboDropPrompt(null); }}
                           className="px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-xs font-medium hover:bg-primary/90 transition"
                         >
                           Adicionar

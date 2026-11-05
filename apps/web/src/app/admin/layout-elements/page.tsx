@@ -26,8 +26,12 @@ interface ElementConfig {
 interface ComboConfig {
   type: string;
   label: string;
-  core: { elementType: string; qty: number; arrangement: 'single' | 'row' };
-  satellite: { elementType: string; qty: number; variable?: boolean; shape: 'round' | 'rect' };
+  core: {
+    elementType: string; qty: number; arrangement: 'single' | 'row';
+    variable?: boolean; orientation?: 'horizontal' | 'vertical'; gapMeters?: number;
+  };
+  // null = combo só com o núcleo (ex.: fileira de cadeiras, sem itens ao redor)
+  satellite: { elementType: string; qty: number; variable?: boolean; shape: 'round' | 'rect' } | null;
   iconUrl?: string;
   iconS3Key?: string;
   active: boolean;
@@ -178,7 +182,11 @@ export default function AdminLayoutElementsPage() {
   function confirmAddCombo() {
     if (!addingCombo) return;
     const slug = addingCombo.label.toLowerCase().trim().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-    if (!slug || !addingCombo.core.elementType || !addingCombo.satellite.elementType || combos.find(c => c.type === slug)) return;
+    if (!slug || !addingCombo.core.elementType || combos.find(c => c.type === slug)) return;
+    if (addingCombo.satellite && !addingCombo.satellite.elementType) return;
+    // Sem itens ao redor, o combo só faz sentido como grupo: mais de uma peça, ou quantidade
+    // escolhida ao soltar — senão seria só arrastar o próprio elemento.
+    if (!addingCombo.satellite && !(addingCombo.core.qty > 1 || addingCombo.core.variable)) return;
     setCombos(prev => [...prev, { ...addingCombo, type: `combo_${slug}` }]);
     setAddingCombo(null);
   }
@@ -445,9 +453,9 @@ export default function AdminLayoutElementsPage() {
         <div>
           <h2 className="text-xl font-semibold tracking-tight text-foreground mb-1">Combos</h2>
           <p className="text-muted-foreground text-sm">
-            "Kits" de mesa(s) + cadeiras. Ao serem arrastados no editor de layout, expandem em elementos
-            reais e independentes — o estoque de cada peça é descontado normalmente, cada uma pode ser
-            movida/removida depois.
+            "Kits" de mesa(s) + cadeiras, ou só uma fileira/grupo de peças lado a lado (ex.: 5 cadeiras).
+            Ao serem arrastados no editor de layout, expandem em elementos reais e independentes — o
+            estoque de cada peça é descontado normalmente, cada uma pode ser movida/removida depois.
           </p>
         </div>
         <button
@@ -475,7 +483,7 @@ export default function AdminLayoutElementsPage() {
 
           <div className="grid grid-cols-2 gap-6">
             <div className="space-y-2">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Núcleo (mesa)</p>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Núcleo (mesa ou peça principal)</p>
               <select
                 value={addingCombo.core.elementType}
                 onChange={e => setAddingCombo(c => c && { ...c, core: { ...c.core, elementType: e.target.value } })}
@@ -487,60 +495,111 @@ export default function AdminLayoutElementsPage() {
               <div className="flex items-center gap-2">
                 <label className="text-xs text-muted-foreground">Quantidade</label>
                 <input
-                  type="number" min={1} max={10}
+                  type="number" min={1} max={40}
                   value={addingCombo.core.qty}
                   onChange={e => setAddingCombo(c => c && { ...c, core: { ...c.core, qty: Math.max(1, parseInt(e.target.value) || 1) } })}
                   className="w-16 text-sm border border-input rounded px-2 py-1 bg-background focus:ring-1 focus:ring-ring text-right"
                 />
               </div>
-              {addingCombo.core.qty > 1 && (
+              {(addingCombo.core.qty > 1 || addingCombo.core.variable) && (
                 <select
                   value={addingCombo.core.arrangement}
                   onChange={e => setAddingCombo(c => c && { ...c, core: { ...c.core, arrangement: e.target.value as 'single' | 'row' } })}
                   className="w-full text-sm border border-input rounded px-2 py-1.5 bg-background focus:ring-1 focus:ring-ring"
                 >
-                  <option value="row">Coladas em fileira</option>
+                  <option value="row">Lado a lado, em fileira</option>
                   <option value="single">Isoladas (sobrepostas — não recomendado)</option>
                 </select>
+              )}
+              <label className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={!!addingCombo.core.variable}
+                  onChange={e => setAddingCombo(c => c && { ...c, core: { ...c.core, variable: e.target.checked, arrangement: e.target.checked ? 'row' : c.core.arrangement } })}
+                  className="size-4"
+                />
+                Operador escolhe a quantidade de peças ao arrastar
+              </label>
+              {addingCombo.core.arrangement === 'row' && (addingCombo.core.qty > 1 || addingCombo.core.variable) && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <select
+                    value={addingCombo.core.orientation ?? 'horizontal'}
+                    onChange={e => setAddingCombo(c => c && { ...c, core: { ...c.core, orientation: e.target.value as 'horizontal' | 'vertical' } })}
+                    className="text-sm border border-input rounded px-2 py-1.5 bg-background focus:ring-1 focus:ring-ring"
+                  >
+                    <option value="horizontal">Fileira horizontal</option>
+                    <option value="vertical">Fileira vertical</option>
+                  </select>
+                  <label className="text-xs text-muted-foreground">Espaço entre peças (m)</label>
+                  <input
+                    type="number" min={0} max={5} step={0.05}
+                    value={addingCombo.core.gapMeters ?? 0}
+                    onChange={e => setAddingCombo(c => c && { ...c, core: { ...c.core, gapMeters: Math.max(0, parseFloat(e.target.value) || 0) } })}
+                    className="w-16 text-sm border border-input rounded px-2 py-1 bg-background focus:ring-1 focus:ring-ring text-right"
+                  />
+                </div>
               )}
             </div>
 
             <div className="space-y-2">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Satélite (cadeiras)</p>
-              <select
-                value={addingCombo.satellite.elementType}
-                onChange={e => setAddingCombo(c => c && { ...c, satellite: { ...c.satellite, elementType: e.target.value } })}
-                className="w-full text-sm border border-input rounded px-2 py-1.5 bg-background focus:ring-1 focus:ring-ring"
-              >
-                <option value="">Selecione o tipo...</option>
-                {elements.map(el => <option key={el.type} value={el.type}>{el.label}</option>)}
-              </select>
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-muted-foreground">Qtd. default</label>
-                <input
-                  type="number" min={0} max={40}
-                  value={addingCombo.satellite.qty}
-                  onChange={e => setAddingCombo(c => c && { ...c, satellite: { ...c.satellite, qty: Math.max(0, parseInt(e.target.value) || 0) } })}
-                  className="w-16 text-sm border border-input rounded px-2 py-1 bg-background focus:ring-1 focus:ring-ring text-right"
-                />
-              </div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Satélite (cadeiras ao redor)</p>
               <label className="flex items-center gap-2 text-xs">
                 <input
                   type="checkbox"
-                  checked={!!addingCombo.satellite.variable}
-                  onChange={e => setAddingCombo(c => c && { ...c, satellite: { ...c.satellite, variable: e.target.checked } })}
+                  checked={!addingCombo.satellite}
+                  onChange={e => setAddingCombo(c => c && {
+                    ...c,
+                    satellite: e.target.checked ? null : { elementType: '', qty: 6, variable: true, shape: 'round' },
+                    // sem itens ao redor o combo é um grupo lado a lado: já deixa em fileira
+                    core: e.target.checked ? { ...c.core, arrangement: 'row', variable: true } : c.core,
+                  })}
                   className="size-4"
                 />
-                Operador escolhe a quantidade ao arrastar
+                Sem itens ao redor (só a fileira/grupo do núcleo)
               </label>
-              <select
-                value={addingCombo.satellite.shape}
-                onChange={e => setAddingCombo(c => c && { ...c, satellite: { ...c.satellite, shape: e.target.value as 'round' | 'rect' } })}
-                className="w-full text-sm border border-input rounded px-2 py-1.5 bg-background focus:ring-1 focus:ring-ring"
-              >
-                <option value="round">Círculo ao redor (mesa redonda/quadrada isolada)</option>
-                <option value="rect">Contorno retangular (mesa retangular ou fileira de mesas)</option>
-              </select>
+              {addingCombo.satellite ? (
+                <>
+                  <select
+                    value={addingCombo.satellite.elementType}
+                    onChange={e => setAddingCombo(c => c && c.satellite && { ...c, satellite: { ...c.satellite, elementType: e.target.value } })}
+                    className="w-full text-sm border border-input rounded px-2 py-1.5 bg-background focus:ring-1 focus:ring-ring"
+                  >
+                    <option value="">Selecione o tipo...</option>
+                    {elements.map(el => <option key={el.type} value={el.type}>{el.label}</option>)}
+                  </select>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-muted-foreground">Qtd. default</label>
+                    <input
+                      type="number" min={0} max={40}
+                      value={addingCombo.satellite.qty}
+                      onChange={e => setAddingCombo(c => c && c.satellite && { ...c, satellite: { ...c.satellite, qty: Math.max(0, parseInt(e.target.value) || 0) } })}
+                      className="w-16 text-sm border border-input rounded px-2 py-1 bg-background focus:ring-1 focus:ring-ring text-right"
+                    />
+                  </div>
+                  <label className="flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={!!addingCombo.satellite.variable}
+                      onChange={e => setAddingCombo(c => c && c.satellite && { ...c, satellite: { ...c.satellite, variable: e.target.checked } })}
+                      className="size-4"
+                    />
+                    Operador escolhe a quantidade ao arrastar
+                  </label>
+                  <select
+                    value={addingCombo.satellite.shape}
+                    onChange={e => setAddingCombo(c => c && c.satellite && { ...c, satellite: { ...c.satellite, shape: e.target.value as 'round' | 'rect' } })}
+                    className="w-full text-sm border border-input rounded px-2 py-1.5 bg-background focus:ring-1 focus:ring-ring"
+                  >
+                    <option value="round">Círculo ao redor (mesa redonda/quadrada isolada)</option>
+                    <option value="rect">Contorno retangular (mesa retangular ou fileira de mesas)</option>
+                  </select>
+                </>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  O combo será só as peças do núcleo lado a lado — por exemplo, uma fileira de cadeiras. Marque
+                  "Operador escolhe a quantidade" no núcleo para definir quantas ao arrastar.
+                </p>
+              )}
             </div>
           </div>
 
@@ -553,7 +612,10 @@ export default function AdminLayoutElementsPage() {
             </button>
             <button
               onClick={confirmAddCombo}
-              disabled={!addingCombo.label.trim() || !addingCombo.core.elementType || !addingCombo.satellite.elementType}
+              disabled={
+                !addingCombo.label.trim() || !addingCombo.core.elementType
+                || (addingCombo.satellite ? !addingCombo.satellite.elementType : !(addingCombo.core.qty > 1 || addingCombo.core.variable))
+              }
               className="px-4 py-1.5 bg-primary text-primary-foreground rounded-lg text-sm disabled:opacity-50 hover:bg-primary/90 transition"
             >
               Adicionar
@@ -566,7 +628,7 @@ export default function AdminLayoutElementsPage() {
         <div className="space-y-3">
           {combos.map(combo => {
             const coreCfg = elements.find(el => el.type === combo.core.elementType);
-            const satCfg = elements.find(el => el.type === combo.satellite.elementType);
+            const satCfg = combo.satellite ? elements.find(el => el.type === combo.satellite!.elementType) : undefined;
             return (
               <div key={combo.type} className={`bg-card border rounded-xl p-4 flex items-start gap-4 ${!combo.active ? 'opacity-50' : ''}`}>
                 <button
@@ -602,13 +664,19 @@ export default function AdminLayoutElementsPage() {
                     className="w-full max-w-sm text-sm font-medium border border-input rounded px-2 py-1 bg-background focus:ring-1 focus:ring-ring"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Núcleo: {combo.core.qty}× {coreCfg?.label ?? combo.core.elementType}
-                    {combo.core.qty > 1 && ` (${combo.core.arrangement === 'row' ? 'em fileira' : 'isoladas'})`}
+                    Núcleo: {combo.core.qty}{combo.core.variable ? '+' : '×'} {coreCfg?.label ?? combo.core.elementType}
+                    {(combo.core.qty > 1 || combo.core.variable) && ` (${combo.core.arrangement === 'row' ? (combo.core.orientation === 'vertical' ? 'em fileira vertical' : 'em fileira') : 'isoladas'}${combo.core.gapMeters ? `, espaço ${combo.core.gapMeters} m` : ''}${combo.core.variable ? ', quantidade variável' : ''})`}
                     {' · '}
-                    Satélite: {combo.satellite.qty} {satCfg?.label ?? combo.satellite.elementType}
-                    {combo.satellite.variable && ' (variável)'}
-                    {' · '}
-                    Formato: {combo.satellite.shape === 'round' ? 'círculo' : 'contorno retangular'}
+                    {combo.satellite ? (
+                      <>
+                        Satélite: {combo.satellite.qty} {satCfg?.label ?? combo.satellite.elementType}
+                        {combo.satellite.variable && ' (variável)'}
+                        {' · '}
+                        Formato: {combo.satellite.shape === 'round' ? 'círculo' : 'contorno retangular'}
+                      </>
+                    ) : (
+                      'Sem itens ao redor'
+                    )}
                   </p>
                 </div>
 
