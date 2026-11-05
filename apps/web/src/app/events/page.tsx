@@ -88,6 +88,8 @@ export default function EventsPage() {
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [syncSearch, setSyncSearch] = useState('');
+  // "Sem mudança" fica escondido por padrão — só aparece se o operador ligar o filtro.
+  const [showUnchanged, setShowUnchanged] = useState(false);
 
   // Filters
   const [search, setSearch] = useState('');
@@ -106,6 +108,24 @@ export default function EventsPage() {
     loadReadinessAlerts();
   }, []);
 
+  function isSyncVisible(p: SyncPreview): boolean {
+    return p.clientName.toLowerCase().includes(syncSearch.toLowerCase())
+      && (showUnchanged || p.action !== 'no_change');
+  }
+
+  function toggleShowUnchanged() {
+    const next = !showUnchanged;
+    setShowUnchanged(next);
+    // Ao esconder, tira da seleção os "sem mudança" marcados — senão iriam na importação sem aparecer na tela.
+    if (!next) {
+      setSelectedKeys(s => {
+        const n = new Set(s);
+        syncPreviews.filter(p => p.action === 'no_change').forEach(p => n.delete(p.key));
+        return n;
+      });
+    }
+  }
+
   async function openSync() {
     setSyncOpen(true);
     setSyncPreviews([]);
@@ -115,6 +135,7 @@ export default function EventsPage() {
     setSelectedKeys(new Set());
     setExpandedKey(null);
     setSyncSearch('');
+    setShowUnchanged(false);
     setSyncLoading(true);
     try {
       const res = await fetch('/api/v2/events/sync-preview', { method: 'POST', credentials: 'include' });
@@ -652,9 +673,7 @@ export default function EventsPage() {
                     </div>
                     <button
                       onClick={() => {
-                        const visible = syncPreviews.filter(p =>
-                          p.clientName.toLowerCase().includes(syncSearch.toLowerCase())
-                        );
+                        const visible = syncPreviews.filter(isSyncVisible);
                         const importable = visible.filter(p => p.canImport && p.action !== 'no_change');
                         const allSelected = importable.every(p => selectedKeys.has(p.key));
                         setSelectedKeys(s => {
@@ -667,9 +686,7 @@ export default function EventsPage() {
                       className="text-xs px-3 py-1.5 border border-input rounded-md hover:bg-muted transition shrink-0"
                     >
                       {(() => {
-                        const visible = syncPreviews.filter(p =>
-                          p.clientName.toLowerCase().includes(syncSearch.toLowerCase())
-                        );
+                        const visible = syncPreviews.filter(isSyncVisible);
                         const importable = visible.filter(p => p.canImport && p.action !== 'no_change');
                         const allSelected = importable.length > 0 && importable.every(p => selectedKeys.has(p.key));
                         return allSelected ? 'Desmarcar todos' : 'Selecionar todos';
@@ -679,19 +696,31 @@ export default function EventsPage() {
 
                   <div className="flex items-center justify-between">
                     <p className="text-sm text-muted-foreground">
-                      {syncPreviews.filter(p => p.clientName.toLowerCase().includes(syncSearch.toLowerCase())).length} de {syncPreviews.length} evento(s)
+                      {syncPreviews.filter(isSyncVisible).length} de {syncPreviews.length} evento(s)
                     </p>
                     <div className="flex gap-2 text-xs">
                       <span className="px-2 py-0.5 rounded bg-green-100 text-green-800">● Novo</span>
                       <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800">● Atualização</span>
-                      <span className="px-2 py-0.5 rounded bg-muted text-muted-foreground">● Sem mudança</span>
+                      <button
+                        type="button"
+                        onClick={toggleShowUnchanged}
+                        aria-pressed={showUnchanged}
+                        title={showUnchanged ? 'Clique para esconder os sem mudança' : 'Clique para mostrar os sem mudança'}
+                        className={`px-2 py-0.5 rounded border transition ${showUnchanged ? 'bg-muted text-foreground border-foreground/30' : 'text-muted-foreground border-dashed border-muted-foreground/40 line-through hover:no-underline hover:bg-muted'}`}
+                      >
+                        ● Sem mudança ({syncPreviews.filter(p => p.action === 'no_change').length})
+                      </button>
                     </div>
                   </div>
 
                   <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-1">
-                    {syncPreviews.filter(p =>
-                      p.clientName.toLowerCase().includes(syncSearch.toLowerCase())
-                    ).map(prev => (
+                    {syncPreviews.filter(isSyncVisible).length === 0 && (
+                      <p className="text-sm text-muted-foreground text-center py-6">
+                        {syncSearch.trim() ? 'Nenhum evento encontrado nessa busca.' : 'Nenhum evento novo ou com atualização.'}
+                        {!showUnchanged && syncPreviews.some(p => p.action === 'no_change') && ' Clique em "● Sem mudança" para ver os que não mudaram.'}
+                      </p>
+                    )}
+                    {syncPreviews.filter(isSyncVisible).map(prev => (
                       <div key={prev.key}
                         className={`border rounded-lg overflow-hidden ${
                           !prev.canImport ? 'border-destructive/40 bg-destructive/5' :
