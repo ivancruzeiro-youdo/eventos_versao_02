@@ -186,3 +186,27 @@ export function parsePlaylistId(input: string): string | null {
   if (/^[a-zA-Z0-9]{10,30}$/.test(trimmed)) return trimmed;
   return null;
 }
+
+export const DEFAULT_PLAYLIST_NAME = 'Playlist do Spotify';
+
+// Nome público da playlist pelo oEmbed do Spotify — endpoint aberto (sem token, sem OAuth), então
+// não depende da conexão do espaço nem das limitações da Web API. null = não deu (rede, playlist
+// privada ou fora do ar): quem chama usa um nome genérico, o link continua valendo do mesmo jeito.
+export async function getPlaylistPublicName(playlistId: string): Promise<string | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 6000);
+  try {
+    const target = encodeURIComponent(`https://open.spotify.com/playlist/${playlistId}`);
+    const res = await fetch(`https://open.spotify.com/oembed?url=${target}`, {
+      signal: controller.signal,
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) return null;
+    const data: any = await res.json();
+    return typeof data?.title === 'string' && data.title.trim() ? data.title.trim() : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}

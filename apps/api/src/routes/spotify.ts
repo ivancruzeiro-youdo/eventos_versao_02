@@ -8,8 +8,9 @@ import {
   refreshAccessToken,
   getProfile,
   getPlaylists,
-  getPlaylist,
   parsePlaylistId,
+  getPlaylistPublicName,
+  DEFAULT_PLAYLIST_NAME,
   getSpotifyAppCredentials,
 } from '../lib/spotify.js';
 
@@ -257,16 +258,10 @@ export async function spotifyRoutes(app: FastifyInstance) {
       const parsedId = parsePlaylistId(url);
       if (!parsedId) return reply.status(400).send({ error: 'Link de playlist inválido — cole a URL ou URI do Spotify.' });
 
-      const accessToken = await getValidAccessToken(venueId);
-      if (!accessToken) return reply.status(404).send({ error: 'Espaço não tem Spotify conectado' });
-
-      try {
-        const playlist = await getPlaylist(accessToken, parsedId);
-        playlistId = playlist.id;
-        playlistName = playlist.name;
-      } catch (err: any) {
-        return reply.status(502).send({ error: err.message || 'Falha ao buscar a playlist no Spotify' });
-      }
+      // Sem depender da conexão/Web API do Spotify (limitada): id do próprio link, nome do
+      // oEmbed público; se nem ele responder, nome genérico — o link continua valendo.
+      playlistId = parsedId;
+      playlistName = (await getPlaylistPublicName(parsedId)) || DEFAULT_PLAYLIST_NAME;
     }
 
     if (!playlistId || !playlistName) {

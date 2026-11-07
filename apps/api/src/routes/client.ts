@@ -3,8 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '../server.js';
 import { createDownloadPresignedUrl, createUploadPresignedUrl, deleteS3Object, sanitizeFilenameForKey } from '../lib/s3.js';
 import { mediaTypeFromMime, MAX_SIZE_BYTES, formatMb } from './event-media.js';
-import { getValidAccessToken } from './spotify.js';
-import { getPlaylist, parsePlaylistId } from '../lib/spotify.js';
+import { DEFAULT_PLAYLIST_NAME, getPlaylistPublicName, parsePlaylistId } from '../lib/spotify.js';
 import { getFloorPlanUrl } from './layout.js';
 import { mergeServiceWindows } from '../lib/service-windows.js';
 
@@ -658,22 +657,16 @@ export async function clientRoutes(app: FastifyInstance) {
     const parsedId = parsePlaylistId(url);
     if (!parsedId) return reply.status(400).send({ error: 'Link de playlist inválido — cole a URL ou URI do Spotify.' });
 
-    const accessToken = await getValidAccessToken(venueId);
-    if (!accessToken) return reply.status(404).send({ error: 'Este espaço ainda não conectou o Spotify' });
-
-    let playlist;
-    try {
-      playlist = await getPlaylist(accessToken, parsedId);
-    } catch (err: any) {
-      return reply.status(502).send({ error: err.message || 'Falha ao buscar a playlist no Spotify' });
-    }
+    // A integração com a Web API do Spotify não é mais usada aqui (limitação da API): o id vem do
+    // próprio link e o nome do oEmbed público; se nem ele responder, entra com nome genérico.
+    const playlistName = (await getPlaylistPublicName(parsedId)) || DEFAULT_PLAYLIST_NAME;
 
     const count = await (prisma as any).eventVenueSpotifyPlaylist.count({ where: { eventVenueId: eventVenue.id } });
     const created = await (prisma as any).eventVenueSpotifyPlaylist.create({
       data: {
         eventVenueId: eventVenue.id,
-        spotifyPlaylistId: playlist.id,
-        spotifyPlaylistName: playlist.name,
+        spotifyPlaylistId: parsedId,
+        spotifyPlaylistName: playlistName,
         comment: comment?.trim() || null,
         order: count,
       },
