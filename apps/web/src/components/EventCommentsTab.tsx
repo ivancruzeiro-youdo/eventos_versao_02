@@ -35,7 +35,9 @@ export default function EventCommentsTab({ eventId }: EventCommentsTabProps) {
       const res = await fetch(`/api/v2/events/${eventId}/comments`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
-        setComments(data.comments || []);
+        // Mais recente primeiro (a API devolve do mais antigo pro mais novo).
+        const list: Comment[] = data.comments || [];
+        setComments([...list].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
       }
     } catch {}
   };
@@ -53,7 +55,7 @@ export default function EventCommentsTab({ eventId }: EventCommentsTabProps) {
       });
       if (res.ok) {
         const data = await res.json();
-        setComments(prev => [...prev, data.comment]);
+        setComments(prev => [data.comment, ...prev]);
         setNewComment('');
       }
     } finally {
