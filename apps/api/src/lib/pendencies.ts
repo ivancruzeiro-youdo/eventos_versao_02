@@ -24,7 +24,7 @@ export async function getEventPendencies(db: any, eventId: string): Promise<Even
     db.eventItem.findMany({ where: { eventId }, select: { id: true, product: { select: { questions: { select: { id: true, required: true } } } }, answers: { select: { questionId: true, answer: true } } } }),
     eventVenuesWithQuestions(db, eventId),
     db.eventVenueAnswer.findMany({ where: { eventId }, select: { questionId: true, answer: true } }),
-    db.clientApproval.findMany({ where: { eventId }, select: { itemId: true } }),
+    db.clientApproval.findMany({ where: { eventId, itemType: { in: ['plan_q', 'venue_q'] } }, select: { itemType: true, itemId: true } }),
     db.eventActivity.count({ where: { eventId, status: 'open' } }),
   ]);
 
@@ -41,7 +41,11 @@ export async function getEventPendencies(db: any, eventId: string): Promise<Even
   if (openActivities > 0) items.push(`Atividades (${openActivities} ${openActivities > 1 ? 'abertas' : 'aberta'})`);
 
   // Plano: respostas internas faltando (critério do badge) e confirmação do cliente
-  const approved = new Set((approvals as any[]).map((a) => a.itemId));
+  // O portal grava itemType e itemId em colunas separadas (ex.: plan_q + "<item>_<pergunta>");
+  // a chave tem que juntar os dois. Antes só o itemId entrava no conjunto e a busca por
+  // "plan_q:..." nunca casava — o cliente era avisado de "plano não confirmado" mesmo com tudo
+  // confirmado (evento MONITORAR SOLUÇÕES EM ALIMENTAÇÃO: 14 de 14 confirmados, aviso dizia 14 pendentes).
+  const approved = new Set((approvals as any[]).map((a) => `${a.itemType}:${a.itemId}`));
   let totalQ = 0, answeredQ = 0, planUnconfirmed = 0;
   for (const it of planItems as any[]) {
     for (const q of it.product?.questions ?? []) {
