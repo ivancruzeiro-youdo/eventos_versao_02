@@ -78,9 +78,16 @@ function brl(v: number): string {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
+// Dia (yyyy-mm-dd) no fuso de São Paulo — "hoje" tem que ser o mesmo dia que o freelancer vê.
+function spDay(ms: number): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(ms));
+}
+
 // Ordem da lista: o que ainda vai acontecer primeiro, do mais próximo ao mais distante (pelo
 // horário da vaga, senão pela data do evento); depois o que já passou, do mais recente ao mais
 // antigo; evento cancelado por último. Sem data, vai pro fim do próprio grupo.
+// As vagas de HOJE ficam no topo mesmo que o turno já tenha terminado ou o evento esteja
+// encerrado (a vaga pode ser no dia seguinte ao evento, como uma faxina pós-evento).
 function compareApplications(a: Application, b: Application): number {
   const now = Date.now();
   const start = (x: Application) => {
@@ -93,7 +100,10 @@ function compareApplications(a: Application, b: Application): number {
   };
   const group = (x: Application) => {
     if (x.event.status === 'cancelled') return 2;
+    const today = spDay(now);
+    const st = start(x);
     const e = end(x);
+    if ((st !== null && spDay(st) === today) || (e !== null && spDay(e) === today)) return 0;
     return e !== null && e < now ? 1 : 0;
   };
   const ga = group(a);
@@ -362,7 +372,7 @@ export default function FreelancerApplicationsPage() {
                             </span>
                             <span className="flex items-center gap-1">
                               <Calendar className="size-4" />
-                              {app.event.startAt ? formatDate(app.event.startAt) : 'Data a definir'}
+                              {(app.slot?.startAt ?? app.event.startAt) ? formatDate((app.slot?.startAt ?? app.event.startAt) as string) : 'Data a definir'}
                             </span>
                             {range && (
                               <span className="flex items-center gap-1">

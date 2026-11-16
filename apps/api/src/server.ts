@@ -247,6 +247,9 @@ const start = async () => {
 
     const { startKitchenWeeklyActivity } = await import('./workers/kitchen-weekly-activity.js');
     startKitchenWeeklyActivity((msg) => app.log.info(msg));
+
+    const { startVagaReminders } = await import('./workers/vaga-reminders.js');
+    startVagaReminders((msg) => app.log.info(msg));
   } catch (err) {
     app.log.error(err);
     process.exit(1);
