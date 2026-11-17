@@ -431,6 +431,13 @@ export async function freelancerRoutes(app: FastifyInstance) {
     });
     const myServiceIds = myServices.map((s: any) => s.serviceId);
 
+    // Sem nenhum serviço vinculado (autocadastro novo, ainda sem liberação do operacional) o
+    // freelancer não vê vaga nenhuma. Antes o filtro era simplesmente omitido e ele via TODAS
+    // as vagas do sistema, inclusive de cargos que não tem (caso Gustavo Samuel, 17/11/2026).
+    if (myServiceIds.length === 0) {
+      return { success: true, jobs: [], noServices: true };
+    }
+
     // Get all active (non-cancelled) applications for this freelancer
     const myApplications = await prisma.freelancerApplication.findMany({
       where: { freelancerId: user.id, status: { not: 'cancelled' } },
@@ -441,7 +448,7 @@ export async function freelancerRoutes(app: FastifyInstance) {
     const slotFilter: any = {
       status: 'active',
       startAt: { gte: new Date() },
-      ...(myServiceIds.length > 0 ? { serviceId: { in: myServiceIds } } : {}),
+      serviceId: { in: myServiceIds },
     };
 
     const events = await prisma.event.findMany({
@@ -522,6 +529,16 @@ export async function freelancerRoutes(app: FastifyInstance) {
 
     if (!['confirmed', 'in_progress'].includes(slot.event.status)) {
       return reply.status(400).send({ error: 'Evento não está aceitando candidaturas' });
+    }
+
+    // Só pode se candidatar a cargo que tem vinculado no perfil (a listagem já filtra, mas uma
+    // tela desatualizada ou uma chamada direta à API não pode furar essa regra).
+    const hasService = await prisma.freelancerServiceLink.findUnique({
+      where: { freelancerId_serviceId: { freelancerId: user.id, serviceId: slot.serviceId } },
+      select: { id: true },
+    });
+    if (!hasService) {
+      return reply.status(403).send({ error: `Você não tem o cargo "${slot.service.name}" liberado no seu perfil. Fale com a equipe para liberar.` });
     }
 
     const existing = await prisma.freelancerApplication.findFirst({

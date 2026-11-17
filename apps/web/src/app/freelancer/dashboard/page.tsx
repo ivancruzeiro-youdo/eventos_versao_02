@@ -99,20 +99,37 @@ export default function FreelancerDashboardPage() {
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [selectedVaga, setSelectedVaga] = useState<Vaga | null>(null);
   const [loading, setLoading] = useState(true);
+  const [noServices, setNoServices] = useState(false);
 
   useEffect(() => { loadData(); }, []);
 
-  async function loadData() {
+  // A lista só era carregada uma vez: se o operacional liberasse cargos (ou mudasse vagas) depois
+  // de aberta, o freelancer continuava vendo a lista velha. Recarrega ao voltar pra aba/app e a
+  // cada 3 minutos (em segundo plano, sem piscar a tela).
+  useEffect(() => {
+    const refresh = () => { if (document.visibilityState === 'visible') loadData(true); };
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    const timer = setInterval(refresh, 3 * 60 * 1000);
+    return () => {
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
+      clearInterval(timer);
+    };
+  }, []);
+
+  async function loadData(silent = false) {
     try {
       const [userRes, jobsRes] = await Promise.all([authApi.me(), freelancerApi.jobs()]);
       setUser(userRes.user);
       setJobs(jobsRes.jobs || []);
+      setNoServices(!!jobsRes.noServices);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         router.replace('/freelancer/login');
         return;
       }
-      console.error(err);
+      if (!silent) console.error(err);
     } finally {
       setLoading(false);
     }
@@ -330,7 +347,11 @@ export default function FreelancerDashboardPage() {
 
             {filtered.length === 0 ? (
               <div className="bg-white rounded-2xl p-8 text-center shadow-sm">
-                <p className="text-gray-400 text-sm">Nenhuma vaga disponível para seu perfil.</p>
+                <p className="text-gray-400 text-sm">
+                  {noServices
+                    ? 'Seu cadastro ainda não tem cargos liberados. Aguarde a equipe liberar seus cargos — assim que isso acontecer, as vagas aparecem aqui.'
+                    : 'Nenhuma vaga disponível para seu perfil.'}
+                </p>
               </div>
             ) : (
               <div className="space-y-3">
