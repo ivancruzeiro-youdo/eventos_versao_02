@@ -4,7 +4,8 @@ import { prisma } from '../server.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import bcrypt from 'bcryptjs';
 import * as acessosClient from '../services/acessos.js';
-import { syncFreelancerAcesso } from '../lib/acesso-sync.js';
+import { syncFreelancerAcesso, revokeApplicationAcesso } from '../lib/acesso-sync.js';
+import { restoreEventVagas } from '../lib/event-vagas.js';
 
 // Shared `select` for every Freelancer row ever returned to a client — passwordHash
 // (bcrypt) must never leave the server, this is the single place that decides what's safe.
@@ -45,6 +46,9 @@ async function findRestConflict(
     where: {
       freelancerId,
       status: { in: ['pending', 'approved'] },
+      // Evento cancelado não ocupa horário de ninguém (a candidatura dele também é cancelada ao
+      // cancelar o evento; este filtro cobre a janela até a varredura e cancelamentos por SQL).
+      event: { status: { not: 'cancelled' } },
       ...(excludeApplicationId ? { id: { not: excludeApplicationId } } : {}),
     },
     select: { eventId: true, role: true },
@@ -90,7 +94,7 @@ async function findEventIntervalConflict(
   // entrar numa ordem, ficam de fora (mesmo critério de "inconclusivo, não bloqueia" já usado
   // em outros pontos deste arquivo).
   const slots = await prisma.eventService.findMany({
-    where: { serviceId, event: { startAt: { not: null } } },
+    where: { serviceId, event: { startAt: { not: null }, status: { not: 'cancelled' } } },
     select: { eventId: true },
     orderBy: { event: { startAt: 'asc' } },
     distinct: ['eventId'],
@@ -103,6 +107,7 @@ async function findEventIntervalConflict(
     where: {
       freelancerId, role: serviceName,
       status: { in: ['pending', 'approved'] },
+      event: { status: { not: 'cancelled' } },
       ...(excludeApplicationId ? { id: { not: excludeApplicationId } } : {}),
     },
     select: { eventId: true },
@@ -169,24 +174,8 @@ async function handleAcessoGrant(applicationId: string): Promise<GrantResult> {
   return syncFreelancerAcesso(application.freelancerId, applicationId);
 }
 
-async function handleAcessoRevoke(applicationId: string): Promise<void> {
-  const log = await (prisma as any).acessoLog.findFirst({
-    where: { applicationId, status: 'granted' },
-    orderBy: { createdAt: 'desc' },
-  });
-
-  if (!log?.acessoExternoId) return;
-
-  try {
-    await acessosClient.revokeAccess(log.acessoExternoId);
-    await (prisma as any).acessoLog.update({
-      where: { id: log.id },
-      data: { status: 'revoked' },
-    });
-  } catch {
-    // falha silenciosa — o acesso expira pela data_fim de qualquer forma
-  }
-}
+// A lógica mora em lib/acesso-sync.ts (também usada ao cancelar as vagas de um evento cancelado).
+const handleAcessoRevoke = revokeApplicationAcesso;
 
 const applySchema = z.object({
   role: z.string().min(1),
@@ -618,7 +607,10 @@ export async function freelancerRoutes(app: FastifyInstance) {
     const applications = await prisma.freelancerApplication.findMany({
       where: {
         freelancerId: user.id,
-        status: { not: 'cancelled' },
+        // A candidatura de evento cancelado é cancelada junto (lib/event-vagas.ts), mas segue na lista
+        // com o aviso "Evento cancelado" — por isso candidatura cancelada só some se o evento NÃO
+        // for cancelado (cancelada pelo próprio freelancer).
+        OR: [{ status: { not: 'cancelled' } }, { event: { status: 'cancelled' } }],
         NOT: { event: { status: 'cancelled', startAt: { lt: sevenDaysAgo } } },
       },
       include: {
@@ -1020,6 +1012,42 @@ export async function freelancerRoutes(app: FastifyInstance) {
   // dispara uma vez, no momento da aprovação, então isso nunca se autocorrige sozinho).
   // Ao contrário do fire-and-forget automático, aqui a resposta é aguardada de propósito —
   // é uma ação manual do operador, que precisa saber na hora se funcionou ou não.
+  // Recupera as vagas que o cancelamento do evento fechou (usa o retrato do AuditLog gravado no
+  // cancelamento). O evento precisa já ter sido reaberto. `reassign: false` só reabre as vagas pra
+  // novas candidaturas; `reassign: true` também religa as MESMAS pessoas que estavam aprovadas —
+  // pulando quem já tem conflito de horário, está suspenso ou perdeu a vaga pra outra pessoa — e
+  // avisa cada uma por WhatsApp (notify: false desliga). Devolve o que foi religado e o que ficou de fora.
+  app.post('/events/:id/vagas/restore', { preHandler: [requireAuth, requireRole(['admin', 'event_owner', 'operator'])] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = z.object({ reassign: z.boolean().default(false), notify: z.boolean().default(true) }).parse(request.body ?? {});
+    const user = (request as any).user;
+
+    const ev = await prisma.event.findUnique({ where: { id }, select: { employerId: true } });
+    if (!ev) return reply.status(404).send({ error: 'Evento não encontrado.' });
+    if (user.role !== 'admin' && ev.employerId !== user.employerId) return reply.status(403).send({ error: 'Access denied' });
+
+    const result = await restoreEventVagas(prisma, id, {
+      reassign: body.reassign, notify: body.notify, userId: user.id || null,
+      checkConflict: async (freelancerId, start, end, excludeId) => {
+        const c = await findRestConflict(freelancerId, start, end, excludeId);
+        return c ? { role: c.role, eventName: c.eventName } : null;
+      },
+    });
+    if (result.error) return reply.status(result.status ?? 400).send({ error: result.error });
+
+    // Acesso físico das pessoas religadas (fire-and-forget; só vale pra turnos nas próximas 48h)
+    for (const r of result.reassigned) {
+      syncFreelancerAcesso(r.freelancerId, null).catch(err => console.error(`[freelancers] Falha ao reenviar acesso de ${r.freelancerId}:`, err.message));
+    }
+    await (prisma as any).eventComment.create({
+      data: {
+        eventId: id, userId: user.id || null, isSystem: true,
+        content: `Vagas de freelancer recuperadas por ${user.name || user.email}: ${result.reactivatedServices} vaga(s) reaberta(s)${body.reassign ? `, ${result.reassigned.length} freelancer(s) religado(s)${result.skipped.length ? `, ${result.skipped.length} não religado(s) (${result.skipped.map(s => `${s.name} — ${s.reason}`).join('; ')})` : ''}` : ''}.`,
+      },
+    }).catch(() => undefined);
+    return { success: true, ...result };
+  });
+
   app.post('/applications/:id/resend-access', { preHandler: [requireAuth, requireRole(['admin', 'event_owner', 'operator'])] }, async (request, reply) => {
     const { id } = request.params as { id: string };
 

@@ -250,6 +250,9 @@ const start = async () => {
 
     const { startVagaReminders } = await import('./workers/vaga-reminders.js');
     startVagaReminders((msg) => app.log.info(msg));
+
+    const { startEventVagasSweep } = await import('./workers/event-vagas-sweep.js');
+    startEventVagasSweep((msg) => app.log.info(msg));
   } catch (err) {
     app.log.error(err);
     process.exit(1);

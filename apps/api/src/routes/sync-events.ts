@@ -8,6 +8,7 @@ import { mergeServiceWindows } from '../lib/service-windows.js';
 import { publishKitchenEvent } from '../lib/kitchen-events.js';
 import { collectSimulationEmails, lookupSimulations, type UserpSimulation } from '../lib/userp-simulations.js';
 import { archiveContract, restoreContractArchive, type RemovalReason } from '../lib/contract-archive.js';
+import { cancelEventVagas, restoreEventVagas } from '../lib/event-vagas.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1915,6 +1916,9 @@ export async function syncEventsRoutes(app: FastifyInstance) {
       const before = await prisma.event.findUnique({ where: { id: eventId }, select: { status: true } });
       await prisma.event.update({ where: { id: eventId }, data: { status: 'cancelled' as any } });
       await (prisma as any).eventContractArchive.update({ where: { id: archive.id }, data: { eventStatusBefore: before?.status ?? null } });
+      // Evento cancelado → vagas e candidaturas canceladas (com retrato pra recuperar) + aviso aos freelancers.
+      try { await cancelEventVagas(prisma, eventId, { notify: true, userId: user.id || null, reason: 'último contrato removido do evento' }); }
+      catch (err: any) { console.error(`[sync-events] falha ao cancelar vagas do evento ${eventId}:`, err.message); }
     }
 
     const categoryLabel: Record<string, string> = { ab: 'A&B', infra: 'Infraestrutura', staff: 'Mão de Obra', venue: 'Local' };
@@ -1976,10 +1980,19 @@ export async function syncEventsRoutes(app: FastifyInstance) {
     const result = await restoreContractArchive(prisma, archiveId, eventId, user);
     if ('error' in result) return reply.status((result as { status: number }).status).send({ error: result.error });
 
+    // Evento reaberto → as vagas que o cancelamento fechou voltam a ficar disponíveis. As mesmas
+    // pessoas NÃO são reaprovadas sozinhas (foram avisadas do cancelamento): o operador decide em
+    // POST /events/:id/vagas/restore { reassign: true }.
+    let vagasReabertas = 0;
+    if (result.reopened) {
+      try { vagasReabertas = (await restoreEventVagas(prisma, eventId, { reassign: false, userId: user.id || null })).reactivatedServices; }
+      catch (err: any) { console.error(`[sync-events] falha ao reabrir vagas do evento ${eventId}:`, err.message); }
+    }
+
     await (prisma as any).eventComment.create({
       data: {
         eventId, userId: user.id || null, isSystem: true,
-        content: `Contrato ${result.archive.contractExternalId} restaurado por ${user.name || user.email} — ${result.restoredItems} item(ns) de volta, com escolhas, respostas e comentários.${result.reopened ? ' Evento reaberto.' : ''}${result.skippedAnswers ? ` ${result.skippedAnswers} resposta(s) ignorada(s) porque a pergunta do produto não existe mais.` : ''}`,
+        content: `Contrato ${result.archive.contractExternalId} restaurado por ${user.name || user.email} — ${result.restoredItems} item(ns) de volta, com escolhas, respostas e comentários.${result.reopened ? ' Evento reaberto.' : ''}${vagasReabertas ? ` ${vagasReabertas} vaga(s) de freelancer reaberta(s) — os freelancers que estavam nelas continuam cancelados até alguém religá-los (POST /events/:id/vagas/restore).` : ''}${result.skippedAnswers ? ` ${result.skippedAnswers} resposta(s) ignorada(s) porque a pergunta do produto não existe mais.` : ''}`,
       },
     });
     return { success: true, restoredItems: result.restoredItems, reopened: result.reopened };

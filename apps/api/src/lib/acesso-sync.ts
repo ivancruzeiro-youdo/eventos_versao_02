@@ -122,3 +122,19 @@ export async function syncFreelancerAcesso(freelancerId: string, applicationId: 
     ? { attempted: true, status: 'granted' }
     : { attempted: true, status: 'error', reason: response?.error };
 }
+
+/** Revoga na Acessos o acesso liberado por uma candidatura (último envio 'granted' dela). Falha
+ *  silenciosa de propósito — o acesso expira pela data_fim de qualquer forma. */
+export async function revokeApplicationAcesso(applicationId: string): Promise<void> {
+  const log = await (prisma as any).acessoLog.findFirst({
+    where: { applicationId, status: 'granted' },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (!log?.acessoExternoId) return;
+  try {
+    await acessosClient.revokeAccess(log.acessoExternoId);
+    await (prisma as any).acessoLog.update({ where: { id: log.id }, data: { status: 'revoked' } });
+  } catch {
+    // ver comentário acima
+  }
+}

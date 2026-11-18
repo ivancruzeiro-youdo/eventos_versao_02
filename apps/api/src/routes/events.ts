@@ -6,6 +6,7 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { EventStatus } from '@youdo/db';
 import { applyVenueActivityTemplates } from '../lib/venue-activity-templates.js';
 import { registrarCheckinsUserp } from '../services/userp-checkin.js';
+import { cancelEventVagas } from '../lib/event-vagas.js';
 
 const createEventSchema = z.object({
   name: z.string().min(1),
@@ -403,6 +404,17 @@ export async function eventRoutes(app: FastifyInstance) {
     });
 
     // TODO: Log to AuditLog with reason
+
+    // Evento cancelado não pode deixar vaga ativa nem ninguém aprovado nele: cancela as vagas e as
+    // candidaturas (com retrato no AuditLog pra recuperar) e avisa os freelancers por WhatsApp. Se
+    // falhar, a varredura de 5 em 5 min (workers/event-vagas-sweep.ts) refaz — não derruba o cancelamento.
+    if (status === 'cancelled') {
+      try {
+        await cancelEventVagas(prisma, id, { notify: true, userId: user.id, reason: reason || 'evento cancelado' });
+      } catch (err: any) {
+        console.error(`[events] falha ao cancelar vagas do evento ${id}:`, err.message);
+      }
+    }
 
     return { success: true, event: updated };
   });
