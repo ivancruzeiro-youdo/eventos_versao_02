@@ -9,6 +9,7 @@ import { publishKitchenEvent } from '../lib/kitchen-events.js';
 import { collectSimulationEmails, lookupSimulations, type UserpSimulation } from '../lib/userp-simulations.js';
 import { archiveContract, restoreContractArchive, type RemovalReason } from '../lib/contract-archive.js';
 import { cancelEventVagas, restoreEventVagas } from '../lib/event-vagas.js';
+import { padraoIdsOf, findRemovableVenueLinks } from '../lib/event-venues.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -867,6 +868,17 @@ export async function syncEventsRoutes(app: FastifyInstance) {
         }
       }
 
+      // Padrões (espaços) que um contrato JÁ citava e deixou de citar nesta sincronização. Só conta
+      // quando o contrato ainda cita algum padrão (troca de espaço na Userp, ex.: Lounge 1 → Lounge 2);
+      // payload sem padrão nenhum é tratado como dado incompleto, não como "saiu do espaço".
+      const droppedPadroes = new Set<string>();
+      const trackDroppedPadroes = (oldRaw: any, newRaw: any) => {
+        const before = padraoIdsOf([oldRaw]);
+        const after = padraoIdsOf([newRaw]);
+        if (after.size === 0) return;
+        for (const p of before) if (!after.has(p)) droppedPadroes.add(p);
+      };
+
       // Upsert contracts (main + their secondaries)
       for (const rc of relatedRaw) {
         const extId = String(rc.codlocacontrato || '');
@@ -874,6 +886,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
         const exists = await (prisma as any).eventContract.findFirst({ where: { externalId: extId } });
         let contractId: string;
         if (exists) {
+          trackDroppedPadroes(exists.rawJson, rc);
           // Reescreve também clientCode/startDate: antes só o rawJson era atualizado, então
           // um evento remarcado no UERP ficava com o startDate antigo pra sempre e a chave
           // de deduplicação nunca se corrigia (gerando uma duplicata por sincronização).
@@ -901,6 +914,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
           const secExists = await (prisma as any).eventContract.findFirst({ where: { externalId: secExtId } });
           let secContractId: string;
           if (secExists) {
+            trackDroppedPadroes(secExists.rawJson, sec);
             await (prisma as any).eventContract.update({
               where: { id: secExists.id },
               data: { rawJson: sec, clientCode, startDate },
@@ -916,7 +930,7 @@ export async function syncEventsRoutes(app: FastifyInstance) {
         }
       }
 
-      // Sync venues from padroes[] (additive — never remove existing venues)
+      // Sync venues from padroes[] (additive; a retirada de espaço fica só pro bloco logo abaixo)
       {
         const allPadraoIds = collectPadraoIds(relatedRaw);
         // Só busca o setupAt do evento se algum espaço novo realmente precisar dele — a
@@ -935,6 +949,26 @@ export async function syncEventsRoutes(app: FastifyInstance) {
               await applyVenueActivityTemplates(eventId, venue.id, currentCheckInAt ?? null);
             }
           }
+        }
+      }
+
+      // Espaço que um contrato deixou de citar (padrão trocado na Userp) e que nenhum contrato do
+      // evento cita mais: sai, com as mesmas travas do arquivamento (layout, playlist, observação,
+      // resposta exclusiva). Espaço adicionado à mão pelo operador nunca entra aqui — só padrão que
+      // um contrato JÁ citou e parou de citar.
+      if (droppedPadroes.size > 0) {
+        const currentRows = await (prisma as any).eventContract.findMany({ where: { eventId }, select: { rawJson: true } });
+        const stillCited = padraoIdsOf(currentRows.map((r: any) => r.rawJson));
+        const stale = [...droppedPadroes].filter(p => !stillCited.has(p));
+        const removable = await findRemovableVenueLinks(prisma, eventId, stale);
+        if (removable.length > 0) {
+          await (prisma as any).eventVenue.deleteMany({ where: { id: { in: removable.map(r => r.id) } } });
+          await (prisma as any).eventComment.create({
+            data: {
+              eventId, userId: null, isSystem: true,
+              content: `Sincronização UERP — espaço retirado: ${removable.map(r => r.name).join(', ')}. O contrato mudou de espaço na Userp e nenhum contrato do evento cita mais esse espaço.`,
+            },
+          });
         }
       }
 

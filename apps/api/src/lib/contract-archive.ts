@@ -1,24 +1,9 @@
 import type { UserpSimulation } from './userp-simulations.js';
+import { padraoIdsOf, findRemovableVenueLinks } from './event-venues.js';
 
 // Por que um contrato do evento é proposto pra sair do sistema: simulação cancelada/anulada na
 // Userp (a causa de verdade), contrato que sumiu de lá, ou desvinculado do contrato principal.
 export type RemovalReason = 'cancelled' | 'annulled' | 'missing' | 'unlinked';
-
-// Espaços (padrões da Userp) citados por contratos — no principal ou em qualquer secundário,
-// mesma regra do sync (collectPadraoIds em sync-events.ts).
-function padraoIdsOf(raws: any[]): Set<string> {
-  const ids = new Set<string>();
-  const scan = (rc: any) => {
-    if (!rc) return;
-    if (rc.padrao_id) ids.add(String(rc.padrao_id));
-    for (const p of rc.padroes || []) if (p.padrao) ids.add(String(p.padrao));
-  };
-  for (const rc of raws) {
-    scan(rc);
-    for (const sec of rc?._secondary || []) scan(sec);
-  }
-  return ids;
-}
 
 // Retira o contrato do evento SEM apagar nada de verdade: tudo que dependia dele (itens,
 // respostas e escolhas com histórico, horários de serviço, comentários, vagas e os vínculos da
@@ -51,31 +36,17 @@ export async function archiveContract(db: any, params: {
 
   // Espaço que só este contrato justificava (nenhum contrato que sobrou no evento cita o mesmo
   // padrão) sai junto — senão o evento fica com um local de um contrato que não existe mais.
-  // Só sai se não tiver nada pendurado (respostas, layout, playlists); com dado, fica.
+  // Só sai se não tiver nada pendurado (layout, playlists, resposta exclusiva dele); com dado, fica.
+  // Pergunta compartilhada com outro espaço que continua no evento não conta (ver event-venues.ts).
   const remaining = await (db as any).eventContract.findMany({
     where: { eventId, id: { not: contract.id } },
     select: { rawJson: true },
   });
   const stillNeeded = padraoIdsOf(remaining.map((r: any) => r.rawJson));
   const orphanPadroes = [...padraoIdsOf([contract.rawJson])].filter(p => !stillNeeded.has(p));
-  const removedVenueLinkIds: string[] = [];
-  const removedVenueIds: string[] = [];
-  if (orphanPadroes.length > 0) {
-    const links = await (db as any).eventVenue.findMany({
-      where: { eventId, venue: { externalId: { in: orphanPadroes } } },
-      select: { id: true, venueId: true, _count: { select: { spotifyPlaylists: true } } },
-    });
-    for (const l of links) {
-      const [answers, layouts] = await Promise.all([
-        (db as any).eventVenueAnswer.count({ where: { eventId, question: { venueLinks: { some: { venueId: l.venueId } } } } }),
-        (db as any).eventLayout.count({ where: { eventId, venueId: l.venueId } }),
-      ]);
-      if (answers === 0 && layouts === 0 && l._count.spotifyPlaylists === 0) {
-        removedVenueLinkIds.push(l.id);
-        removedVenueIds.push(l.venueId);
-      }
-    }
-  }
+  const removable = await findRemovableVenueLinks(db, eventId, orphanPadroes);
+  const removedVenueLinkIds: string[] = removable.map(r => r.id);
+  const removedVenueIds: string[] = removable.map(r => r.venueId);
 
   const snapshotItems = items.map((it: any) => {
     const { answers, choices, serviceWindows, comments, slots, kitchenMenuLink, servicePlanEntries, prepChecks, ...scalars } = it;
