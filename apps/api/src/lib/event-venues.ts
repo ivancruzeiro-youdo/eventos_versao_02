@@ -5,12 +5,17 @@
 
 // Espaços (padrões da Userp) citados por contratos — no principal ou em qualquer secundário,
 // mesma regra do sync (collectPadraoIds em sync-events.ts).
+// `padroes` (os espaços da simulação) manda; o `padrao_id` do contrato só vale quando `padroes` vem
+// vazio. Quando o cliente troca de espaço na Userp, o padrao_id do contrato fica velho (ex.: 106 =
+// Lounge 1) e `padroes` traz o espaço atual (107 = Lounge 2) — somar os dois deixava o espaço
+// antigo no evento pra sempre (atitude marketing 25/11/2026: 2 em 233 contratos).
 export function padraoIdsOf(raws: any[]): Set<string> {
   const ids = new Set<string>();
   const scan = (rc: any) => {
     if (!rc) return;
-    if (rc.padrao_id) ids.add(String(rc.padrao_id));
-    for (const p of rc.padroes || []) if (p.padrao) ids.add(String(p.padrao));
+    const fromList = (rc.padroes || []).map((p: any) => p?.padrao).filter(Boolean).map(String);
+    if (fromList.length > 0) fromList.forEach((id: string) => ids.add(id));
+    else if (rc.padrao_id) ids.add(String(rc.padrao_id));
   };
   for (const rc of raws) {
     scan(rc);

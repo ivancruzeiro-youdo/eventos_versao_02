@@ -359,19 +359,9 @@ async function resolveStaffAllocations(
 // qualquer contrato SECUNDÁRIO dele — achado real: contrato 5490 (padrao 107 = "Lounge 2") foi
 // importado como secundário de 4954, e como só o padrao_id/padroes do contrato principal era
 // escaneado, o evento ficou só com "Lounge 1" mesmo com "Lounge 2" genuinamente contratado.
+// Mesma regra de lib/event-venues.ts (padroes manda; padrao_id só quando padroes vem vazio).
 function collectPadraoIds(relatedRaw: any[]): Set<string> {
-  const ids = new Set<string>();
-  const scan = (rc: any) => {
-    if (rc.padrao_id) ids.add(String(rc.padrao_id));
-    for (const p of rc.padroes || []) {
-      if (p.padrao) ids.add(String(p.padrao));
-    }
-  };
-  for (const rc of relatedRaw) {
-    scan(rc);
-    for (const sec of rc._secondary || []) scan(sec);
-  }
-  return ids;
+  return padraoIdsOf(relatedRaw);
 }
 
 // Group contracts by (cliente, data_checkin) — same event (one main per key already, but keep for merge)
