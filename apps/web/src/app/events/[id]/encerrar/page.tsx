@@ -23,6 +23,17 @@ interface ChargeDraft {
   quantity: string;
 }
 
+// Linha da confirmação de cobranças ao cliente; `removed` exige `reason`.
+interface ConfirmLine {
+  key: string;
+  kind: 'ab_excess' | 'item';
+  description: string;
+  unitValue: number;
+  quantity: number;
+  removed: boolean;
+  reason: string;
+}
+
 // Resultado do envio do check-out à Userp, devolvido pelo encerramento. ok=false: a baixa não foi
 // feita (problems diz por quê); pending: a Userp demorou e o resultado final só sai no histórico.
 interface CheckoutProblem {
@@ -64,6 +75,7 @@ export default function EncerrarEventoPage() {
   const [npsUrl, setNpsUrl] = useState('');
   const [copied, setCopied] = useState(false);
   const [checkoutInfo, setCheckoutInfo] = useState<CheckoutInfo | null>(null);
+  const [confirmLines, setConfirmLines] = useState<ConfirmLine[] | null>(null);
 
   // A&B excedente: check-ins vs. quantidade contratada
   const [abContractedQty, setAbContractedQty] = useState<number | null>(null);
@@ -164,22 +176,48 @@ export default function EncerrarEventoPage() {
     setAttachments((prev) => prev.filter((_, i) => i !== idx));
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  // Passo de confirmação: lista tudo que será cobrado do cliente; o operador pode retirar uma
+  // linha, mas precisa explicar o motivo (fica registrado na visão interna do evento).
+  function buildConfirmLines(): ConfirmLine[] {
+    const lines: ConfirmLine[] = [];
+    const exQty = Number(abExcessQty) || 0;
+    const exUnit = Number(abExcessUnitValue) || 0;
+    if (exQty > 0 && exUnit > 0) {
+      lines.push({ key: 'ab', kind: 'ab_excess', description: 'A&B excedente (pessoas acima do contratado)', unitValue: exUnit, quantity: exQty, removed: false, reason: '' });
+    } else if (suggestedExcess > 0) {
+      // O sistema sugeria cobrar o excedente e o operador deixou sem cobrança: pede o motivo.
+      lines.push({ key: 'ab', kind: 'ab_excess', description: 'A&B excedente (pessoas acima do contratado)', unitValue: exUnit, quantity: suggestedExcess, removed: true, reason: '' });
+    }
+    charges
+      .filter(c => c.description.trim() && Number(c.unitValue) > 0 && Number(c.quantity) > 0)
+      .forEach((c, i) => lines.push({ key: `c${i}`, kind: 'item', description: c.description.trim(), unitValue: Number(c.unitValue), quantity: Number(c.quantity), removed: false, reason: '' }));
+    return lines;
+  }
+
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setError('');
+    const lines = buildConfirmLines();
+    if (lines.length === 0) { void doSubmit([]); return; }
+    setConfirmLines(lines);
+  }
+
+  async function doSubmit(lines: ConfirmLine[]) {
     setError('');
     setSubmitting(true);
     try {
-      const excessNum = abExcessQty.trim() ? Number(abExcessQty) : undefined;
-      const excessUnitNum = abExcessUnitValue.trim() ? Number(abExcessUnitValue) : undefined;
-      const validCharges = charges
-        .filter(c => c.description.trim() && Number(c.unitValue) > 0 && Number(c.quantity) > 0)
-        .map(c => ({ description: c.description.trim(), unitValue: Number(c.unitValue), quantity: Number(c.quantity) }));
+      const keptAb = lines.find(l => l.kind === 'ab_excess' && !l.removed);
+      const keptItems = lines.filter(l => l.kind === 'item' && !l.removed);
+      const removedCharges = lines.filter(l => l.removed).map(l => ({
+        kind: l.kind, description: l.description, unitValue: l.unitValue, quantity: l.quantity, reason: l.reason.trim(),
+      }));
       const res = await closureApi.encerrar(eventId, {
         itensQuebrados: form.itensQuebrados || undefined,
         situacoesReportadas: form.situacoesReportadas || undefined,
-        abExcessQty: excessNum !== undefined && !isNaN(excessNum) ? excessNum : undefined,
-        abExcessUnitValue: excessUnitNum !== undefined && !isNaN(excessUnitNum) ? excessUnitNum : undefined,
-        charges: validCharges.length > 0 ? validCharges : undefined,
+        abExcessQty: keptAb ? keptAb.quantity : undefined,
+        abExcessUnitValue: keptAb ? keptAb.unitValue : undefined,
+        charges: keptItems.length > 0 ? keptItems.map(l => ({ description: l.description, unitValue: l.unitValue, quantity: l.quantity })) : undefined,
+        removedCharges: removedCharges.length > 0 ? removedCharges : undefined,
         attachments: attachments.map(({ filename, mimeType, sizeBytes, dataBase64 }) => ({
           filename,
           mimeType,
@@ -188,8 +226,10 @@ export default function EncerrarEventoPage() {
         })),
       });
       if (res.checkout && (res.checkout.ok === false || res.checkout.pending)) setCheckoutInfo(res.checkout);
+      setConfirmLines(null);
       setNpsUrl(res.npsUrl);
     } catch (err: any) {
+      setConfirmLines(null);
       setError(err.message || 'Erro ao encerrar evento');
     } finally {
       setSubmitting(false);
@@ -302,6 +342,74 @@ export default function EncerrarEventoPage() {
         <p className="text-muted-foreground mb-8 text-sm">
           Registre o relatório final do evento. Após o envio, será gerado um link para pesquisa de NPS.
         </p>
+
+
+        {confirmLines && (() => {
+          const keptTotal = confirmLines.filter(l => !l.removed).reduce((t, l) => t + l.quantity * l.unitValue, 0);
+          const missingReason = confirmLines.some(l => l.removed && l.reason.trim().length < 5);
+          const patch = (key: string, p: Partial<ConfirmLine>) =>
+            setConfirmLines(prev => prev && prev.map(l => (l.key === key ? { ...l, ...p } : l)));
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
+              <div className="bg-card border rounded-2xl shadow-xl max-w-xl w-full max-h-[90vh] overflow-y-auto p-6">
+                <h2 className="text-lg font-bold">Confirmar cobranças ao cliente</h2>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Ao encerrar, estas cobranças serão enviadas à Userp. Para retirar uma, informe o motivo — fica registrado na visão interna do evento.
+                </p>
+                <ul className="mt-4 space-y-3">
+                  {confirmLines.map(l => (
+                    <li key={l.key} className={`border rounded-lg p-3 text-sm ${l.removed ? 'border-amber-300 bg-amber-50 dark:bg-amber-950/30' : ''}`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className={l.removed ? 'line-through text-muted-foreground' : ''}>
+                          <p className="font-medium">{l.description}</p>
+                          <p className="text-xs text-muted-foreground">{l.quantity} × R$ {fmtBrl(l.unitValue)}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className={`font-semibold ${l.removed ? 'line-through text-muted-foreground' : ''}`}>R$ {fmtBrl(l.quantity * l.unitValue)}</p>
+                          <button
+                            type="button"
+                            onClick={() => patch(l.key, { removed: !l.removed })}
+                            className="text-xs underline text-muted-foreground hover:text-foreground mt-1"
+                          >
+                            {l.removed ? 'Cobrar mesmo assim' : 'Retirar cobrança'}
+                          </button>
+                        </div>
+                      </div>
+                      {l.removed && (
+                        <div className="mt-2">
+                          <label className="block text-xs font-medium text-amber-900 dark:text-amber-300 mb-1">
+                            Motivo de não cobrar (obrigatório)
+                          </label>
+                          <textarea
+                            rows={2}
+                            value={l.reason}
+                            onChange={(e) => patch(l.key, { reason: e.target.value })}
+                            placeholder="Ex.: cliente avisou antes; cortesia autorizada por…"
+                            className="w-full border rounded-lg px-2.5 py-1.5 text-sm bg-background resize-none"
+                          />
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-right text-sm font-semibold mt-4 pt-3 border-t">Total a cobrar: R$ {fmtBrl(keptTotal)}</p>
+                <div className="mt-5 flex justify-end gap-2">
+                  <button type="button" onClick={() => setConfirmLines(null)} disabled={submitting} className="px-4 py-2 rounded-lg border text-sm hover:bg-accent">
+                    Voltar e editar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={submitting || missingReason}
+                    onClick={() => void doSubmit(confirmLines)}
+                    className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-60"
+                  >
+                    {submitting ? 'Encerrando...' : 'Confirmar e encerrar'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* A&B excedente */}

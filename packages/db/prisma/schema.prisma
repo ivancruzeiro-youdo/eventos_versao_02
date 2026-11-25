@@ -2163,6 +2163,7 @@ model EventClosure {
   event          Event               @relation(fields: [eventId], references: [id])
   attachments    ClosureAttachment[]
   charges        EventClosureCharge[]
+  removedCharges EventClosureRemovedCharge[]
   npsOrganizador EventNPSOrganizador?
 
   @@index([eventId])
@@ -2178,6 +2179,25 @@ model EventClosureCharge {
   unitValue   Float
   quantity    Float    @default(1)
   createdAt   DateTime @default(now())
+
+  closure EventClosure @relation(fields: [closureId], references: [id], onDelete: Cascade)
+
+  @@index([closureId])
+}
+
+// Cobrança que o sistema propunha (excedente de A&B ou item avulso) e o operador RETIROU na
+// confirmação do encerramento. Só visão interna: guarda o que seria cobrado, o motivo e quem retirou.
+model EventClosureRemovedCharge {
+  id            String   @id @default(uuid())
+  closureId     String
+  kind          String   // 'ab_excess' | 'item'
+  description   String
+  unitValue     Float
+  quantity      Float
+  reason        String
+  removedById   String?
+  removedByName String?
+  createdAt     DateTime @default(now())
 
   closure EventClosure @relation(fields: [closureId], references: [id], onDelete: Cascade)
 

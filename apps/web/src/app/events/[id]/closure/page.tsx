@@ -417,6 +417,30 @@ export default function ClosurePage() {
           </div>
         )}
 
+        {/* Cobranças retiradas no encerramento — visão interna, com o motivo */}
+        {closure.removedCharges?.length > 0 && (
+          <div className="bg-card border border-amber-300 dark:border-amber-800 rounded-xl p-5">
+            <div className="flex items-center gap-2 mb-1">
+              <AlertTriangle size={16} className="text-amber-600" />
+              <h2 className="font-semibold">Cobranças retiradas (interno)</h2>
+            </div>
+            <p className="text-xs text-muted-foreground mb-3">Não foram enviadas ao cliente nem à Userp.</p>
+            <div className="divide-y">
+              {closure.removedCharges.map((c: any) => (
+                <div key={c.id} className="py-2 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span>{c.description} <span className="text-xs text-muted-foreground">({c.quantity} × R$ {fmtBrl(c.unitValue)})</span></span>
+                    <span className="font-medium shrink-0 pl-2 line-through text-muted-foreground">R$ {fmtBrl(c.quantity * c.unitValue)}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    <strong>Motivo:</strong> {c.reason} — {c.removedByName || 'usuário'}, {new Date(c.createdAt).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Total geral a cobrar (excedente A&B + itens) */}
         {billing && billing.valor > 0 && (
           <div className="bg-orange-50 dark:bg-orange-950/30 border border-orange-300 dark:border-orange-800 rounded-xl p-5 flex items-center justify-between">

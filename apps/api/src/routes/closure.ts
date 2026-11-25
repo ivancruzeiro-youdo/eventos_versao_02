@@ -24,6 +24,18 @@ const closureSchema = z.object({
       }),
     )
     .optional(),
+  // Cobranças propostas que o operador retirou na confirmação — motivo obrigatório. Só visão interna.
+  removedCharges: z
+    .array(
+      z.object({
+        kind: z.enum(['ab_excess', 'item']),
+        description: z.string().min(1),
+        unitValue: z.number().min(0),
+        quantity: z.number().min(0),
+        reason: z.string().trim().min(5, 'Informe o motivo de retirar a cobrança (mínimo 5 caracteres).'),
+      }),
+    )
+    .optional(),
   // attachments sent as array of base64 objects
   attachments: z
     .array(
@@ -100,6 +112,14 @@ export async function closureRoutes(app: FastifyInstance) {
         charges: body.charges?.length
           ? { create: body.charges.map((c) => ({ description: c.description, unitValue: c.unitValue, quantity: c.quantity })) }
           : undefined,
+        removedCharges: body.removedCharges?.length
+          ? {
+              create: body.removedCharges.map((c) => ({
+                kind: c.kind, description: c.description, unitValue: c.unitValue, quantity: c.quantity,
+                reason: c.reason.trim(), removedById: user.id ?? null, removedByName: user.name || user.email || null,
+              })),
+            }
+          : undefined,
         npsOrganizador: {
           create: {
             eventId,
@@ -118,6 +138,31 @@ export async function closureRoutes(app: FastifyInstance) {
       where: { id: eventId },
       data: { status: 'encerrado' as any },
     });
+
+    // Cobranças retiradas ficam registradas para a visão interna: trilha de auditoria + comentário
+    // de sistema no histórico do evento (quem retirou, o que era e o motivo).
+    if (body.removedCharges?.length) {
+      try {
+        const fmt = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const who = user.name || user.email || 'usuário';
+        const linhas = body.removedCharges.map((c) =>
+          `• ${c.description}: ${c.quantity} x R$ ${fmt(c.unitValue)} = R$ ${fmt(c.quantity * c.unitValue)} — motivo: ${c.reason.trim()}`);
+        await prisma.auditLog.create({
+          data: {
+            userId: user.id ?? null, action: 'closure_charges_removed', entityType: 'Event', entityId: eventId,
+            after: { removed: body.removedCharges.map((c) => ({ ...c, reason: c.reason.trim() })) } as any,
+          },
+        });
+        await prisma.eventComment.create({
+          data: {
+            eventId, userId: null, isSystem: true,
+            content: `Encerramento — ${who} retirou ${body.removedCharges.length} cobrança(s) ao cliente:\n${linhas.join('\n')}`,
+          },
+        });
+      } catch (err: any) {
+        console.error(`[closure] evento ${eventId}: falha ao registrar cobranças retiradas: ${err.message}`);
+      }
+    }
 
     // Registra o check-out de espaço na Userp ao encerrar. O encerramento em si NUNCA depende
     // disso (o evento já está encerrado acima) — mas esperamos o resultado por até 25s pra o
@@ -161,6 +206,7 @@ export async function closureRoutes(app: FastifyInstance) {
           },
         },
         charges: { orderBy: { createdAt: 'asc' } },
+        removedCharges: { orderBy: { createdAt: 'asc' } },
         npsOrganizador: {
           select: {
             id: true,

@@ -156,7 +156,6 @@ export function useServiceCommands(opts: Opts): ServiceCommands {
 
   const available = useMemo(() =>
     packages
-      .filter(p => p.kind !== 'estacao')
       .flatMap(pkg =>
         pkg.chosenItems
           .map(c => ({ ...c, pkg }))

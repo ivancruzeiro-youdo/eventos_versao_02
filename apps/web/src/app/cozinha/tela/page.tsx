@@ -287,9 +287,8 @@ function TelaCozinha() {
         for (const pkg of ev.packages) {
           if (pkg.kind === 'estacao' || pkg.chosenItems.length === 0) {
             out.push({ itemName: pkg.name, eventItemId: pkg.eventItemId });
-          } else {
-            for (const c of pkg.chosenItems) out.push({ itemName: c.itemName, eventItemId: pkg.eventItemId });
           }
+          for (const c of pkg.chosenItems) out.push({ itemName: c.itemName, eventItemId: pkg.eventItemId });
         }
       }
     }
@@ -302,7 +301,7 @@ function TelaCozinha() {
       for (const ev of day.events) {
         for (const pkg of ev.packages) {
           const isPkg = pkg.kind === 'estacao' || pkg.chosenItems.length === 0;
-          const names = isPkg ? [pkg.name] : pkg.chosenItems.map(c => c.itemName);
+          const names = [...(isPkg ? [pkg.name] : []), ...pkg.chosenItems.map(c => c.itemName)];
           if (names.some(n => n.toLowerCase() === itemName.toLowerCase())) {
             await toggleCheck(ev.id, pkg.eventItemId, itemName, true);
             return;

@@ -119,9 +119,14 @@ export default function WeekPanel({ days, onToggleCheck }: Props) {
                       <div className="space-y-1.5">
                         {ev.packages.map(pkg => {
                           // Estação não tem item pra checar individualmente — o check é do pacote.
-                          const units = pkg.kind === 'estacao' || pkg.chosenItems.length === 0
+                          // Estação sem escolhas: o check é do pacote. Estação COM escolhas (buffet com
+                          // cardápio): o pacote continua marcável e cada item escolhido também.
+                          const chosenUnits = pkg.chosenItems.map(c => ({ itemName: c.itemName, isPackage: false }));
+                          const units = pkg.chosenItems.length === 0
                             ? [{ itemName: pkg.name, isPackage: true }]
-                            : pkg.chosenItems.map(c => ({ itemName: c.itemName, isPackage: false }));
+                            : pkg.kind === 'estacao'
+                              ? [{ itemName: pkg.name, isPackage: true }, ...chosenUnits]
+                              : chosenUnits;
 
                           return (
                             <div key={pkg.eventItemId} className="text-xs">
