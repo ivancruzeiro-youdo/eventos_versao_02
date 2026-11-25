@@ -25,6 +25,9 @@ export default function EventCommentsTab({ eventId }: EventCommentsTabProps) {
   const [loading, setLoading] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
+  // Por padrão só aparecem os comentários de usuários; os do sistema (sincronizações, alertas,
+  // arquivamentos…) ficam escondidos até o usuário pedir pra ver.
+  const [showSystem, setShowSystem] = useState(false);
 
   useEffect(() => {
     fetchComments();
@@ -90,6 +93,9 @@ export default function EventCommentsTab({ eventId }: EventCommentsTabProps) {
       hour: '2-digit', minute: '2-digit',
     }).format(new Date(dateString));
 
+  const systemCount = comments.filter(c => c.isSystem).length;
+  const visibleComments = showSystem ? comments : comments.filter(c => !c.isSystem);
+
   return (
     <div className="space-y-4">
       {/* Compose */}
@@ -116,15 +122,34 @@ export default function EventCommentsTab({ eventId }: EventCommentsTabProps) {
         </form>
       </div>
 
+      {/* Filtro: comentários do sistema ficam ocultos por padrão */}
+      {systemCount > 0 && (
+        <div className="flex justify-end">
+          <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={showSystem}
+              onChange={e => setShowSystem(e.target.checked)}
+              className="rounded border-gray-300"
+            />
+            Mostrar comentários do sistema ({systemCount})
+          </label>
+        </div>
+      )}
+
       {/* Comments list */}
       <div className="space-y-3">
-        {comments.length === 0 ? (
+        {visibleComments.length === 0 ? (
           <div className="bg-card border rounded-lg p-8 text-center text-muted-foreground">
             <MessageCircle className="mx-auto h-10 w-10 mb-3 opacity-40" />
-            <p className="text-sm">Nenhum comentário ainda.</p>
+            <p className="text-sm">
+              {comments.length === 0
+                ? 'Nenhum comentário ainda.'
+                : 'Nenhum comentário de usuário ainda. Marque "Mostrar comentários do sistema" para ver o histórico automático.'}
+            </p>
           </div>
         ) : (
-          comments.map(comment => {
+          visibleComments.map(comment => {
             if (comment.isSystem) {
               return (
                 <div key={comment.id} className="bg-muted/40 border border-dashed rounded-lg px-4 py-3">
