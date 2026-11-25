@@ -183,7 +183,23 @@ async function contratoStatus(codlocacontrato: number): Promise<'found' | 'not_f
   let data: any;
   try { data = await res.json(); } catch { return 'error'; }
   if (res.ok && data?.success) return 'found';
-  if (data?.error === 'not_found' || res.status === 404) return 'not_found';
+  if (data?.error === 'not_found' || res.status === 404) {
+    // O endpoint de detalhes às vezes responde "não encontrado" para contrato que existe e está
+    // Vigente (aconteceu com o 5419 da Bianca Parizotto — o evento foi retirado por engano). Antes
+    // de afirmar que sumiu, confere na LISTAGEM de contratos; se ela falhar, é inconclusivo.
+    try {
+      const lr = await userpFetch(`/api/userp-satelite/contratos/index.php?codlocacontrato=${codlocacontrato}`, {
+        headers: { Accept: 'application/json' },
+      });
+      if (!lr.ok) return 'error';
+      const ld: any = await lr.json();
+      const item = ld?.items?.[0];
+      if (item && String(item.codlocacontrato) === String(codlocacontrato) && String(item.status ?? '') === 'Vigente') return 'found';
+      return 'not_found';
+    } catch {
+      return 'error';
+    }
+  }
   return 'error';
 }
 
